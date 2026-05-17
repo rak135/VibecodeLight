@@ -1,0 +1,19 @@
+repo:
+  name: "VibecodeLight"
+
+context:
+  include_previous_run_summary: true
+  include_terminal_excerpt_for_followups: true
+
+skills:
+  project_dir: "SKILLS"
+  project_skills_policy: "configurable"
+
+commands:
+  preferred_test: ""
+  preferred_lint: ""
+  preferred_build: ""
+
+models:
+  flash_provider: ""
+  flash_model: ""

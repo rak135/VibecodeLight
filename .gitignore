@@ -1,0 +1,13 @@
+.vibecode/
+node_modules/
+dist/
+build/
+coverage/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
