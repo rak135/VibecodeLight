@@ -1,26 +1,275 @@
-# VibecodeLight
+<a id="readme-top"></a>
 
-VibecodeLight is a local-first coding assistant workflow that builds deterministic run artifacts and a prompt package for a coding model.
+<br />
+<div align="center">
+  <h1 align="center">VibecodeLight</h1>
 
-This repository currently defines architecture and implementation contracts only.
-Application scaffolding and runtime implementation are intentionally out of scope for this baseline.
+  <p align="center">
+    A real-terminal workspace with a transparent context-pack and prompt layer for AI coding agents.
+    <br />
+    <br />
+    <strong>Status:</strong> architecture contracts aligned; implementation starts checkpoint-by-checkpoint.
+  </p>
+</div>
 
-## Document Authority
+---
 
-Implementation decision authority:
-1. `docs/ARCHITECTURE_DECISIONS.md` is the implementation contract and source of truth for concrete implementation decisions.
-2. `AGENTS.md` is the operational working guide for agents.
-3. If operational guidance and implementation detail conflict, `docs/ARCHITECTURE_DECISIONS.md` wins.
+## Table of Contents
 
-Recommended reading order:
-1. `AGENTS.md`
-2. `docs/ARCHITECTURE_DECISIONS.md`
-3. `docs/IMPLEMENTATION_MAP.md`
-4. `docs/ARCHITECTURE.md`
-5. `docs/CONTEXT.md`
-6. `docs/VISION.md`
+<details>
+  <summary>Open</summary>
+  <ol>
+    <li><a href="#about-the-project">About The Project</a></li>
+    <li><a href="#project-status">Project Status</a></li>
+    <li><a href="#what-vibecodelight-does">What VibecodeLight Does</a></li>
+    <li><a href="#core-workflow">Core Workflow</a></li>
+    <li><a href="#built-with">Built With</a></li>
+    <li><a href="#architecture-split">Architecture Split</a></li>
+    <li><a href="#generated-state">Generated State</a></li>
+    <li><a href="#skills">Skills</a></li>
+    <li><a href="#configuration">Configuration</a></li>
+    <li><a href="#planned-cli-surface">Planned CLI Surface</a></li>
+    <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#development">Development</a></li>
+    <li><a href="#desktop-app">Desktop App</a></li>
+    <li><a href="#per-run-commits">Per-Run Commits</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+  </ol>
+</details>
 
-## Canonical Project Layout
+---
+
+## About The Project
+
+VibecodeLight is being built as a practical workspace for using AI coding agents on real repositories.
+
+It does not try to replace Hermes, OpenCode, Codex, Git, test runners, or the shell. Instead, it prepares the context an agent needs before a prompt is sent into a real terminal session.
+
+The core idea:
+
+```text
+selected repository
+→ user prompt
+→ new reproducible run package
+→ deterministic repo scan
+→ flash model context compression
+→ selected skills
+→ final_prompt.md preview
+→ exact prompt sent into a real terminal
+→ post-run artifacts
+→ per-run git commit
+```
+
+Every prompt should become an inspectable artifact.
+
+Every generated context package should be reproducible.
+
+Every model prompt should be visible before it is sent.
+
+VibecodeLight exists to reduce agent confusion, hidden prompt drift, repeated repository exploration, and unreproducible implementation sessions.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Project Status
+
+VibecodeLight is in the design-to-implementation stage.
+
+The architecture contracts are aligned. Implementation is expected to begin checkpoint-by-checkpoint.
+
+Current baseline checkpoint:
+
+```text
+documentation/baseline alignment
+README.md
+AGENTS.md
+docs/*
+config.yaml
+.gitignore
+```
+
+Next code/scaffold checkpoint:
+
+```text
+repository scaffold
+workspace initialization
+run store
+CLI smoke tests
+Python scanner CLI skeleton
+```
+
+The desktop shell comes after the CLI/core path is testable and reproducible.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## What VibecodeLight Does
+
+VibecodeLight is designed to:
+
+- open and manage a real terminal session in a selected repository;
+- create a new run package for every model prompt;
+- scan the repository deterministically;
+- build a structured flash-model input from repository facts and project skills;
+- let the flash model select relevant files, cautions, commands, and skills;
+- store a structured Markdown flash output;
+- render a transparent `final_prompt.md`;
+- show the exact prompt before sending it by default;
+- send that exact prompt into the active terminal session;
+- preserve enough artifacts to debug what happened later;
+- capture the run result in a deterministic git commit.
+
+The terminal must be a real PTY terminal, not a simulated textarea.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Core Workflow
+
+```text
+User writes task
+  ↓
+VibecodeLight creates a new run
+  ↓
+TypeScript creates run layout and scanner_config.json
+  ↓
+Python scanner performs deterministic read-only repository scan
+  ↓
+TypeScript builds flash_input.md
+  ↓
+Flash model produces flash_output.md
+  ↓
+TypeScript extracts selected skills/context metadata where possible
+  ↓
+TypeScript writes context_pack.md and selected skill artifacts
+  ↓
+TypeScript renders final_prompt.md
+  ↓
+User previews final_prompt.md by default
+  ↓
+VibecodeLight sends the exact prompt into the real terminal
+  ↓
+Run artifacts preserve what happened
+  ↓
+Post-run state is captured
+  ↓
+A deterministic git commit captures the run result
+```
+
+The important contract:
+
+```text
+flash_output.md = structured Markdown output from the flash model
+context_pack.md = flash-compressed task context
+final_prompt.md = deterministic prompt sent to the terminal
+```
+
+`final_prompt.md` is the truth.
+
+What is written in `final_prompt.md` is what gets sent to the terminal.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Built With
+
+Planned core stack:
+
+- Electron
+- TypeScript
+- pnpm
+- Vitest
+- ESLint
+- Prettier
+- electron-vite
+- Python
+- uv
+- pytest
+- ruff
+- pydantic
+- typer
+
+The project is intentionally hybrid:
+
+```text
+Electron / TypeScript shell
++ TypeScript orchestration/core
++ Python deterministic scanner subprocess
++ JSON/Markdown run artifacts
++ real PTY terminal
+```
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Architecture Split
+
+VibecodeLight has a strict TypeScript/Python ownership boundary.
+
+### TypeScript owns
+
+```text
+main CLI command: vibecode
+workflow orchestration
+workspace initialization
+config.yaml
+run store
+.vibecode/ layout
+.vibecode/current
+skills catalog/copy/selection loading
+LLM provider adapters
+flash tools
+Markdown flash output parsing
+context assembly
+prompt rendering
+PTY/terminal integration
+desktop shell
+post-run artifacts
+per-run commit orchestration
+JSON schema validation boundary
+```
+
+### Python owns
+
+```text
+internal scanner CLI: vibecode-scan
+deterministic repository scanning
+repo tree generation
+file inventory
+manifest parsing
+command discovery
+docs discovery
+regex-based symbol extraction
+import extraction
+entrypoint detection
+test inventory
+keyword hits
+scan artifact generation
+```
+
+Python scanner is read-only against the target repository.
+
+Python writes only inside the scan output directory authorized by TypeScript:
+
+```text
+.vibecode/runs/<run_id>/scan/
+```
+
+All non-scan `.vibecode/` writes go through the TypeScript RunStore.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Repository Layout
+
+Expected layout:
 
 ```text
 vibecode-light/
@@ -48,21 +297,14 @@ vibecode-light/
       env/
 
   docs/
-    VISION.md
-    CONTEXT.md
-    ARCHITECTURE.md
-    IMPLEMENTATION_MAP.md
-    ARCHITECTURE_DECISIONS.md
-
   schemas/
-
   tests/
     core/
     adapters/
     integration/
 ```
 
-Canonical Python scanner layout:
+Python scanner code is expected to live under the scanning boundary:
 
 ```text
 src/core/scanning/
@@ -71,134 +313,67 @@ src/core/scanning/
   python/
     pyproject.toml
     vibecode_scanner/
-      __init__.py
       cli.py
       scan/
-        git_scan.py
-        tree_scan.py
-        inventory_scan.py
-        manifest_scan.py
-        command_scan.py
-        docs_scan.py
-        symbol_scan.py
-        import_scan.py
-        entrypoint_scan.py
-        test_scan.py
-        tooling_scan.py
-        schema_scan.py
-        keyword_scan.py
-        history_scan.py
 ```
 
-## Ownership Boundaries
+Do not introduce a competing top-level Python architecture.
 
-TypeScript owns:
-- Main CLI command `vibecode`
-- Workflow orchestration
-- Workspace initialization
-- `config.yaml`
-- Run store
-- `.vibecode/` layout and `.vibecode/current`
-- Skills catalog/copy/selection loading
-- LLM provider adapters
-- Flash tools
-- Context assembly
-- Prompt rendering
-- PTY/terminal integration
-- Desktop shell
-- JSON schema validation boundary
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-Python owns:
-- Internal scanner CLI `vibecode-scan`
-- Deterministic repository scanning
-- Repo tree generation
-- File inventory
-- Manifest parsing
-- Command discovery
-- Docs discovery
-- Regex-based symbol extraction
-- Import extraction
-- Entrypoint detection
-- Test inventory
-- Keyword hits
-- Scan artifact generation
+---
 
-Python scanner write boundary:
-- RunStore creates and authorizes the scan output directory.
-- Python may write only inside that provided scan output directory.
-- All non-scan `.vibecode` writes go through RunStore directly.
+## Generated State
 
-## Skills Policy
+`.vibecode/` is generated working state.
 
-- TypeScript owns the skills system.
-- Primary skills live in user profile.
-- Project skills snapshot lives in root `SKILLS/`.
-- `.vibecode/` never stores source skills.
-- Copying skills is explicit and snapshot-based.
-- No automatic sync.
-- No silent overwrite.
+It must be ignored by git.
 
-TypeScript writes:
-- `.vibecode/runs/<run_id>/skills/skills_catalog.json`
-- `.vibecode/runs/<run_id>/skills/selected_skills.json`
-- `.vibecode/runs/<run_id>/skills/selected_skill_contents.md`
+It contains run artifacts such as:
 
-Python scanner:
-- May see `SKILLS/` as ordinary repository files for tree/inventory/docs.
-- Must not build the canonical skills catalog.
-- Must not copy, sync, or manage skills.
+```text
+.vibecode/runs/<run_id>/
+  user_prompt.md
+  run_manifest.json
+  scanner_config.json
+  scan/
+  skills/
+  flash/
+  output/
+  terminal/
+  after/
+```
 
-## CLI Surfaces
+`.vibecode/` is not scanned as source repository content.
 
-Public/stable CLI:
-- `vibecode init`
-- `vibecode scan "task"`
-- `vibecode prompt "task"`
-- `vibecode runs list`
-- `vibecode runs show latest`
-- `vibecode skills list`
-- `vibecode skills copy <skill-id>`
+`.vibecode/current/` is only a convenience mirror/pointer.
 
-Debug/internal CLI:
-- `vibecode doctor`
-- `vibecode run create "task"`
-- `vibecode context-build "task"`
-- `vibecode flash validate <path>`
-- `vibecode flash run latest`
-- `vibecode terminal demo`
+Historical truth lives in:
 
-Internal scanner CLI:
-- `vibecode-scan --help`
-- `vibecode-scan --repo . --task "task"`
-- `python -m vibecode_scanner --repo . --task "task"`
+```text
+.vibecode/runs/<run_id>/
+```
 
-## Flash Output Strategy
+Canonical current files:
 
-Initial implementation is Markdown-first.
+```text
+.vibecode/current/
+  run_manifest.json
+  context_pack.md
+  final_prompt.md
+  selected_skills.json
+  send_metadata.json   # only after send
+```
 
-Canonical initial flash artifact:
-- `.vibecode/runs/<run_id>/flash/flash_output.md`
+Generated `.vibecode/` artifacts are not committed.
 
-Required stable sections in `flash_output.md`:
-- `# Task Summary`
-- `# Relevant Files`
-- `# Files To Read With Tools`
-- `# Relevant Tests`
-- `# Commands To Run`
-- `# Selected Skills`
-- `# Cautions`
-- `# Context Pack`
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-Optional metadata:
-- `.vibecode/runs/<run_id>/flash/flash_output_meta.json`
+---
 
-Future extension:
-- `.vibecode/runs/<run_id>/flash/flash_output.json`
-- `.vibecode/runs/<run_id>/flash/flash_validation.json`
+## Run Artifact Layout
 
-If JSON flash output is added later, it must be schema-validated before use.
-
-## Canonical Run Layout
+Canonical run layout:
 
 ```text
 .vibecode/runs/<run_id>/
@@ -258,76 +433,346 @@ If JSON flash output is added later, it must be schema-validated before use.
     checks_summary.md
 ```
 
-Notes:
-- `terminal/` stores terminal send/transcript artifacts.
-- `after/` stores post-run git/check artifacts.
-- `terminal_transcript.md` is optional/configurable.
-- `checks_summary.md` may be initially empty until captured checks are implemented.
+`terminal_transcript.md` is optional and controlled by configuration.
 
-## Current Mirror
+`after/` is for post-run git/check artifacts.
 
-`.vibecode/current/` is a convenience mirror/pointer only.
-Historical truth is always `.vibecode/runs/<run_id>/`.
+`terminal/` is for send metadata and terminal transcript/excerpt artifacts.
 
-Canonical files under `.vibecode/current/`:
-- `run_manifest.json`
-- `context_pack.md`
-- `final_prompt.md`
-- `selected_skills.json`
-- `send_metadata.json` (only after send)
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-## Preflight Naming
+---
 
-Preflight is a product-level synonym for the deterministic scan phase.
-There is no canonical `preflight.json` in the initial implementation.
-Canonical preflight outputs live under `scan/`.
+## Skills
 
-## Config Baseline
+VibecodeLight uses skills as reusable instructions for agents.
 
-- Root human-maintained project config: `config.yaml`.
-- Scanner input per run: `.vibecode/runs/<run_id>/scanner_config.json`.
-- Scanner snapshot artifact: `.vibecode/runs/<run_id>/scan/config_snapshot.json`.
+Primary skills live in the user profile.
 
-`.vibecode/config.json` is not part of this contract.
+Project snapshots live in:
 
-## Secret Handling
+```text
+SKILLS/
+```
 
-Initial VibecodeLight does not perform aggressive secret redaction or fixed filename censorship.
-It respects ignore rules.
-Users are responsible for keeping secrets out of non-ignored repository content.
-Provider secrets must live outside committed project files.
+`SKILLS/` is outside `.vibecode/`.
 
-## Commit Policy
+Skills are not auto-synced.
+
+Skills are not silently rewritten.
+
+Copying a skill is an explicit snapshot operation.
+
+TypeScript owns the canonical skills catalog.
+
+Python scanner may see `SKILLS/` as ordinary repository files for tree, inventory, and docs, but Python does not build the canonical skills catalog.
+
+The flash model receives a skills catalog and selects which skills should be included in the prompt package.
+
+Selected skill content is expanded by TypeScript and inserted into the final prompt.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Configuration
+
+The only human-maintained project config is:
+
+```text
+config.yaml
+```
+
+It lives in the repository root.
+
+TypeScript owns it.
+
+TypeScript creates, preserves, reads, validates, and resolves `config.yaml`.
+
+Python scanner does not read `config.yaml` directly.
+
+For each run, TypeScript writes:
+
+```text
+.vibecode/runs/<run_id>/scanner_config.json
+```
+
+Python scanner receives this file and writes the scan-side config snapshot to:
+
+```text
+.vibecode/runs/<run_id>/scan/config_snapshot.json
+```
+
+Do not use:
+
+```text
+.vibecode/config.json
+scan/config.json
+```
+
+Provider secrets and API keys must not be committed. They should live in user-profile configuration, local environment variables, or other local non-committed configuration.
+
+VibecodeLight is not a secret scanner. It respects ignore rules. Users are responsible for keeping secrets out of non-ignored repository content.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Flash Output
+
+Initial flash output is Markdown-first.
+
+Canonical initial artifact:
+
+```text
+.vibecode/runs/<run_id>/flash/flash_output.md
+```
+
+Expected stable sections:
+
+```markdown
+# Task Summary
+
+# Relevant Files
+
+# Files To Read With Tools
+
+# Relevant Tests
+
+# Commands To Run
+
+# Selected Skills
+
+# Cautions
+
+# Context Pack
+```
+
+Optional extracted metadata:
+
+```text
+.vibecode/runs/<run_id>/flash/flash_output_meta.json
+```
+
+Future JSON flash output is allowed later, but it is not the initial implementation contract.
+
+If JSON mode is introduced later, `flash_output.json` must be schema-validated before use.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Planned CLI Surface
+
+The CLI is a first-class debug and automation interface.
+
+### Public/stable CLI
+
+```powershell
+vibecode init
+vibecode scan "task"
+vibecode prompt "task"
+vibecode runs list
+vibecode runs show latest
+vibecode skills list
+vibecode skills copy <skill-id>
+```
+
+### Debug/internal CLI
+
+```powershell
+vibecode doctor
+vibecode run create "task"
+vibecode context-build "task"
+vibecode flash validate <path>
+vibecode flash run latest
+vibecode terminal demo
+```
+
+### Internal scanner CLI
+
+```powershell
+vibecode-scan --help
+vibecode-scan --repo . --task "task"
+python -m vibecode_scanner --repo . --task "task"
+```
+
+Agent-facing commands should support `--json` where relevant.
+
+These commands are the target command surface. Early implementation checkpoints may provide only a subset.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Getting Started
+
+This project is not fully implemented yet. The commands below describe the expected development setup once the repository scaffold exists.
+
+### Prerequisites
+
+Expected tools:
+
+- Node.js
+- pnpm
+- Python
+- uv
+- Git
+- Windows PowerShell as the primary development shell
+
+Do not assume WSL or Docker as required development dependencies.
+
+### Installation
+
+Expected TypeScript setup:
+
+```powershell
+pnpm install
+```
+
+Expected Python scanner setup:
+
+```powershell
+cd src/core/scanning/python
+uv sync
+```
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Development
+
+Expected TypeScript commands:
+
+```powershell
+pnpm test
+pnpm test:live
+pnpm lint
+pnpm typecheck
+pnpm build
+```
+
+Expected Python scanner commands:
+
+```powershell
+cd src/core/scanning/python
+uv run pytest
+uv run pytest -m live
+uv run ruff check .
+```
+
+Some commands may not exist in the earliest scaffold. When unavailable, report that clearly.
+
+### Testing policy
+
+Default tests must not call live LLM providers.
+
+Live model tests are explicit only:
+
+```powershell
+pnpm test:live
+uv run pytest -m live
+```
+
+Live tests should be token-efficient.
+
+### Development rules
+
+Keep the implementation checkpoint-driven.
+
+Use TDD.
+
+Keep TypeScript/Python ownership clean.
+
+Do not commit `.vibecode/`.
+
+Do not hide prompt text after preview.
+
+Do not put scanner logic in UI.
+
+Do not put LLM provider calls in the Python scanner.
+
+Keep README updates minimal and targeted when behavior changes. Do not rewrite the README structure just because one command or artifact changes.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Desktop App
+
+The desktop app is planned as an Electron shell around the same core pipeline used by the CLI.
+
+The desktop app should provide:
+
+- a real embedded PTY terminal;
+- a prompt composer overlay;
+- final prompt preview;
+- prompt send into the active terminal;
+- run artifact visibility.
+
+The GUI must call the same core logic as the CLI.
+
+If GUI and CLI produce different artifacts for the same task, the architecture is broken.
+
+Real desktop behavior comes after the CLI/core path is reliable.
+
+The initial implementation does not try to detect whether the terminal is shell, Hermes, OpenCode, Codex, or another interactive tool. VibecodeLight behaves like communication with a real terminal, and the user remains responsible for the active terminal state when sending a prompt.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## Per-Run Commits
 
 Each model run is expected to create a deterministic git commit that captures the run result.
-If tests fail, the run and commit must clearly mark the failed validation state.
-UI and CLI should later provide a way to revert changes from a run.
 
-Agent commit discipline:
-- Keep commits scoped.
-- Do not include unrelated changes.
-- Do not push or open PR unless explicitly asked.
-- Generated `.vibecode/` artifacts are not committed.
+If tests or validation fail, the run/commit must clearly mark the failed validation state.
 
-## Standard Test Commands
+Generated `.vibecode/` artifacts are not committed.
 
-TypeScript:
-- `pnpm test`
-- `pnpm test:live`
-- `pnpm lint`
-- `pnpm typecheck`
-- `pnpm build`
+The commit captures repository changes, not VibecodeLight runtime artifacts.
 
-Python:
-- `cd src/core/scanning/python`
-- `uv run pytest`
-- `uv run pytest -m live`
-- `uv run ruff check .`
+Later UI/CLI should provide a way to revert changes from a run.
 
-Live model tests are explicit, token-efficient, and not part of default test runs.
+This policy makes every model-driven change visible in git history.
 
-## Terminal Send Safety
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-Initial implementation does not try to detect terminal mode (shell, Hermes, OpenCode, Codex, or other interactive tools).
-VibecodeLight behaves like communication with a real terminal.
-The user remains responsible for active terminal state when sending prompts.
+---
+
+## Contributing
+
+This repository is expected to be built through small, testable checkpoints.
+
+Before contributing or running a coding agent, read:
+
+```text
+AGENTS.md
+docs/ARCHITECTURE_DECISIONS.md
+docs/IMPLEMENTATION_MAP.md
+```
+
+Core contribution expectations:
+
+- follow TDD;
+- keep changes scoped;
+- run relevant tests;
+- do not commit generated run artifacts;
+- preserve the TypeScript/Python boundary;
+- perform a minimal README update if user-facing commands, setup steps, test commands, generated artifact paths, or workflow behavior change;
+- do not rewrite the whole README when a small targeted update is enough;
+- create a scoped commit after successful implementation work;
+- do not push or open a PR unless explicitly asked.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## License
+
+Distributed under the MIT License.
+
+See `LICENSE` for more information.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>

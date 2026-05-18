@@ -1,28 +1,152 @@
-# AGENTS
+# AGENTS.md
 
-Operational guide for contributors and coding agents working in VibecodeLight.
+This file is the operational working guide for coding agents operating in this repository.
 
-## Authority and Reading Order
+It applies to Codex, OpenCode, Hermes, and any other agent or subagent working on VibecodeLight.
 
-Reading order for execution work:
-1. This file (`AGENTS.md`) for operations.
-2. `docs/ARCHITECTURE_DECISIONS.md` for implementation decisions.
-3. `docs/IMPLEMENTATION_MAP.md` for checkpoint sequence.
-4. `docs/ARCHITECTURE.md` for module boundaries.
-5. `docs/CONTEXT.md` for context architecture.
-6. `docs/VISION.md` for product direction.
+The goal is simple:
 
-Authority rule:
-- `docs/ARCHITECTURE_DECISIONS.md` is the implementation contract and source of truth for concrete implementation decisions.
-- `AGENTS.md` is the operational guide.
-- If they conflict on implementation details, `docs/ARCHITECTURE_DECISIONS.md` wins.
+```text
+Keep the repo modular.
+Keep the implementation checkpoint-driven.
+Keep runs reproducible.
+Keep prompts visible.
+Keep TypeScript and Python ownership clean.
+Do not turn VibecodeLight into a tangled agent framework.
+```
 
-## Scope of This Baseline
+---
 
-Current task baseline is documentation consistency and repository baseline.
-Do not scaffold application/runtime implementation in this phase.
+# Document Authority
 
-## Canonical Repository Structure
+Use the documents in this order:
+
+```text
+1. AGENTS.md — operational guide
+2. ARCHITECTURE_DECISIONS.md — implementation decisions, wins on conflicts
+3. IMPLEMENTATION_MAP.md — checkpoint order
+4. ARCHITECTURE.md — module boundaries
+5. CONTEXT.md — context architecture
+6. VISION.md — product direction
+```
+
+`AGENTS.md` tells agents how to work.
+
+`ARCHITECTURE_DECISIONS.md` defines what must be built.
+
+If `AGENTS.md` and `ARCHITECTURE_DECISIONS.md` conflict on concrete implementation details, `ARCHITECTURE_DECISIONS.md` wins.
+
+If the task or documents conflict, stop and report the conflict clearly instead of silently choosing one side.
+
+---
+
+# Required Project Context
+
+Before implementation work, inspect the relevant project documents.
+
+Recommended reading order:
+
+```text
+1. AGENTS.md
+2. ARCHITECTURE_DECISIONS.md
+3. IMPLEMENTATION_MAP.md
+4. ARCHITECTURE.md when module boundaries are unclear
+5. CONTEXT.md when context/scan/prompt artifacts are touched
+6. VISION.md for product-level intent
+```
+
+You do not need to reread every document in full for every tiny edit, but you must understand the relevant checkpoint, ownership boundaries, generated artifact rules, and test expectations.
+
+---
+
+# Skill Discipline
+
+Use the project skills when they are available.
+
+Required skills for normal implementation work:
+
+```text
+test-driven-development
+subagent-driven-development
+```
+
+Use this skill when debugging failures:
+
+```text
+systematic-debugging
+```
+
+Practical consequences:
+
+```text
+write tests before production code
+verify the RED failure
+implement the smallest GREEN change
+run targeted tests
+run broader relevant tests
+refactor only after green
+keep work scoped to the checkpoint
+```
+
+Do not bypass TDD just because the change looks small.
+
+For bug fixes, reproduce the bug with a failing test first.
+
+For debugging, isolate the failure, prove the cause, apply the smallest fix, and keep a regression test.
+
+---
+
+# Current Build Priority
+
+The project must start with the documentation/baseline checkpoint, then the code scaffold checkpoint.
+
+Initial priority:
+
+```text
+documentation/baseline alignment
+repository scaffold
+workspace init
+run store
+CLI smoke tests
+Python scanner CLI skeleton
+```
+
+Do not start with advanced desktop UX.
+
+Do not start with subagent orchestration.
+
+Do not start with relevance scoring.
+
+Do not start with full AST parsing.
+
+Build the reproducible CLI/core path first.
+
+---
+
+# Implementation Order
+
+Work only on the requested checkpoint and its direct acceptance tests.
+
+Follow `IMPLEMENTATION_MAP.md`.
+
+Practical order:
+
+```text
+CLI/core before real desktop behavior
+run artifacts before terminal sending
+deterministic scan before flash compression
+single-agent flow before subagent orchestration
+prompt preview before auto-send behavior
+per-run commit visibility before orchestration
+```
+
+If a requested task asks for something outside the current checkpoint, report that clearly and implement only what is required.
+
+---
+
+# Repository Structure
+
+Expected canonical structure:
 
 ```text
 vibecode-light/
@@ -64,12 +188,14 @@ vibecode-light/
     integration/
 ```
 
-Python scanner structure:
+Canonical Python scanner layout:
 
 ```text
 src/core/scanning/
+  index.ts
   scanner_subprocess.ts
   scanner_config.ts
+
   python/
     pyproject.toml
     vibecode_scanner/
@@ -92,77 +218,234 @@ src/core/scanning/
         history_scan.py
 ```
 
-## Ownership Contract
+Add new modules under the correct subsystem.
 
-TypeScript owns:
-- Public `vibecode` CLI.
-- Workflow orchestration.
-- Workspace initialization.
-- `config.yaml`.
-- RunStore and `.vibecode` layout.
-- `.vibecode/current` mirror.
-- Skills catalog/copy/selection loading.
-- LLM adapters and flash tools.
-- Context and prompt assembly.
-- PTY integration and desktop shell.
-- JSON schema validation boundary.
+Prefer small focused modules over large central files.
 
-Python owns:
-- Internal `vibecode-scan` CLI.
-- Deterministic repository scanning.
-- Tree/inventory/manifest/docs/commands extraction.
-- Symbols/imports/entrypoints/tests/tooling/schema/keyword/history extraction.
-- Scan artifact generation only.
+Do not introduce a competing top-level Python architecture.
 
-Write-boundary rule:
-- RunStore creates and authorizes the scan output directory.
-- Python may write only inside that provided scan output directory.
-- All non-scan `.vibecode` writes go through RunStore directly.
+---
 
-## Skills Contract
+# TypeScript / Python Ownership
 
-- TypeScript owns the skills system.
-- Primary skills are in user profile.
-- Project snapshot skills are in root `SKILLS/`.
-- `.vibecode/` does not store source skills.
-- Copying is explicit and snapshot-based.
-- No automatic sync and no silent overwrite.
+Keep this boundary clean.
 
-TypeScript writes:
-- `.vibecode/runs/<run_id>/skills/skills_catalog.json`
-- `.vibecode/runs/<run_id>/skills/selected_skills.json`
-- `.vibecode/runs/<run_id>/skills/selected_skill_contents.md`
+## TypeScript owns
 
-Python scanner:
-- May include `SKILLS/` in ordinary scan inventory/docs.
-- Must not own canonical skills catalog creation.
-- Must not copy/sync/manage skills.
+```text
+main CLI command: vibecode
+workflow orchestration
+workspace initialization
+config.yaml
+run store
+.vibecode/ layout
+.vibecode/current
+skills catalog/copy/selection loading
+LLM provider adapters
+flash tools
+Markdown flash output parsing
+context assembly
+prompt rendering
+PTY/terminal integration
+desktop shell
+post-run artifacts
+per-run commit orchestration
+JSON schema validation boundary
+```
 
-## CLI Surface Contract
+## Python owns
 
-Public/stable:
-- `vibecode init`
-- `vibecode scan "task"`
-- `vibecode prompt "task"`
-- `vibecode runs list`
-- `vibecode runs show latest`
-- `vibecode skills list`
-- `vibecode skills copy <skill-id>`
+```text
+internal scanner CLI: vibecode-scan
+deterministic repository scanning
+repo tree generation
+file inventory
+manifest parsing
+command discovery
+docs discovery
+regex-based symbol extraction
+import extraction
+entrypoint detection
+test inventory
+keyword hits
+scan artifact generation
+```
 
-Debug/internal:
-- `vibecode doctor`
-- `vibecode run create "task"`
-- `vibecode context-build "task"`
-- `vibecode flash validate <path>`
-- `vibecode flash run latest`
-- `vibecode terminal demo`
+Python scanner is read-only against the target repository.
 
-Internal scanner:
-- `vibecode-scan --help`
-- `vibecode-scan --repo . --task "task"`
-- `python -m vibecode_scanner --repo . --task "task"`
+RunStore creates and authorizes the scan output directory.
 
-## Run Artifact Contract
+Python may write only inside the scan output directory provided by TypeScript:
+
+```text
+.vibecode/runs/<run_id>/scan/
+```
+
+All non-scan `.vibecode/` writes go through RunStore directly.
+
+Python must not write:
+
+```text
+config.yaml
+.gitignore
+SKILLS/
+.vibecode/current/
+.vibecode/runs/<run_id>/output/
+.vibecode/runs/<run_id>/flash/
+.vibecode/runs/<run_id>/skills/
+.vibecode/runs/<run_id>/terminal/
+.vibecode/runs/<run_id>/after/
+target repo source files
+```
+
+---
+
+# CLI Contracts
+
+The main CLI is owned by TypeScript:
+
+```text
+vibecode
+```
+
+The internal scanner CLI is owned by Python:
+
+```text
+vibecode-scan
+python -m vibecode_scanner
+```
+
+## Public/stable CLI
+
+```powershell
+vibecode init
+vibecode scan "task"
+vibecode prompt "task"
+vibecode runs list
+vibecode runs show latest
+vibecode skills list
+vibecode skills copy <skill-id>
+```
+
+## Debug/internal CLI
+
+```powershell
+vibecode doctor
+vibecode run create "task"
+vibecode context-build "task"
+vibecode flash validate <path>
+vibecode flash run latest
+vibecode terminal demo
+```
+
+## Internal scanner CLI
+
+```powershell
+vibecode-scan --help
+vibecode-scan --repo . --task "task"
+python -m vibecode_scanner --repo . --task "task"
+```
+
+Agent-facing commands should support `--json` where relevant.
+
+When adding CLI behavior, keep output stable and machine-readable.
+
+Use structured diagnostics, not raw tracebacks, for expected user or validation errors.
+
+---
+
+# Config Rules
+
+`config.yaml` is the only human-maintained project config.
+
+It lives in the repository root.
+
+TypeScript owns `config.yaml`.
+
+TypeScript creates, preserves, reads, and validates `config.yaml`.
+
+Python scanner receives resolved scanner configuration through:
+
+```text
+.vibecode/runs/<run_id>/scanner_config.json
+```
+
+Python must not independently interpret `config.yaml`.
+
+The scanner writes the resolved scan-side snapshot to:
+
+```text
+.vibecode/runs/<run_id>/scan/config_snapshot.json
+```
+
+Do not introduce:
+
+```text
+.vibecode/config.json
+scan/config.json
+```
+
+---
+
+# Generated Files and Ignored Paths
+
+`.vibecode/` is generated working state.
+
+It must be ignored by git.
+
+It must not be scanned as source repository content.
+
+Do not commit:
+
+```text
+.vibecode/
+node_modules/
+dist/
+build/
+coverage/
+__pycache__/
+.venv/
+temporary logs
+generated run artifacts
+```
+
+Agents may read generated files for debugging.
+
+Agents may temporarily modify generated files only when debugging the generated-artifact pipeline, and must then either revert the change or clearly report the exact manual change needed for reproduction.
+
+Do not treat generated artifacts as canonical source.
+
+---
+
+# SKILLS Directory
+
+`SKILLS/` is a project-level skills snapshot.
+
+It is outside `.vibecode/`.
+
+Do not auto-sync skills.
+
+Do not silently rewrite skills.
+
+Only copy or modify skills when the task explicitly asks for it.
+
+Primary skills live in the user profile. `SKILLS/` contains project snapshots copied by explicit user action.
+
+Commit behavior for `SKILLS/` is controlled by project configuration and task intent.
+
+---
+
+# Artifact Rules
+
+Every prompt/run must be reproducible.
+
+A run should create artifacts under:
+
+```text
+.vibecode/runs/<run_id>/
+```
+
+Canonical run layout:
 
 ```text
 .vibecode/runs/<run_id>/
@@ -222,79 +505,393 @@ Internal scanner:
     checks_summary.md
 ```
 
-Artifact notes:
-- `flash_output.md` is canonical for initial implementation.
-- `flash_output_meta.json` is optional.
-- `flash_output.json` and `flash_validation.json` are later extension artifacts and require schema validation before use.
-- `terminal/` stores terminal send/transcript artifacts.
-- `after/` stores post-run git/check artifacts.
-- `terminal_transcript.md` is optional/configurable.
-- `checks_summary.md` may initially be empty.
+`terminal_transcript.md` is optional and controlled by configuration.
 
-## Current Mirror Contract
+`final_prompt.md` is the truth.
 
-`.vibecode/current/` is a convenience mirror and pointer, not history.
-History is always `.vibecode/runs/<run_id>/`.
+What is in `final_prompt.md` is what gets sent to the terminal.
+
+Do not add hidden prompt text after preview.
+
+---
+
+# `.vibecode/current/`
+
+`.vibecode/current/` is only a convenience mirror/pointer.
+
+Historical truth is always:
+
+```text
+.vibecode/runs/<run_id>/
+```
 
 Canonical current files:
-- `run_manifest.json`
-- `context_pack.md`
-- `final_prompt.md`
-- `selected_skills.json`
-- `send_metadata.json` (only after send)
 
-## Config Contract
+```text
+.vibecode/current/
+  run_manifest.json
+  context_pack.md
+  final_prompt.md
+  selected_skills.json
+  send_metadata.json   # only after send
+```
 
-- Human-maintained project config is root `config.yaml`.
-- Per-run scanner input: `.vibecode/runs/<run_id>/scanner_config.json`.
-- Scanner config snapshot: `.vibecode/runs/<run_id>/scan/config_snapshot.json`.
-- `.vibecode/config.json` is not part of this implementation contract.
+Do not put raw scan or flash-input truth only in `current/`.
 
-## Preflight Terminology
+Read raw material from the historical run folder.
 
-Preflight is a product-level synonym for deterministic scan.
-No canonical `preflight.json` exists in the initial implementation.
-Canonical deterministic outputs are under `scan/`.
+---
 
-## Commit and Safety Policy
+# Flash Model Rules
 
-Every model run should create a deterministic git commit that captures run result.
-If validation fails, failed validation state must be visible in run metadata and commit/report.
-UI/CLI should later provide revert by run.
+TypeScript owns LLM providers and flash model calls.
 
-Agent discipline:
-- Keep commits scoped.
-- Never include unrelated changes.
-- Never push or open PR unless explicitly asked.
-- Never commit generated `.vibecode/` artifacts.
+Python scanner must not call LLM providers.
 
-## Secrets Policy
+Default tests must not call real model providers.
+
+Live model calls are allowed only through explicit live test commands or explicit user request.
+
+Flash tools are read-only:
+
+```text
+read_file(path)
+list_dir(path)
+read_artifact(name)
+search_text(query)
+```
+
+All flash tool calls must be logged:
+
+```text
+.vibecode/runs/<run_id>/flash/tool_calls.json
+```
+
+---
+
+# Markdown-First Flash Output
+
+Initial flash output is Markdown-first.
+
+Canonical initial artifact:
+
+```text
+.vibecode/runs/<run_id>/flash/flash_output.md
+```
+
+Expected stable sections:
+
+```text
+Task Summary
+Relevant Files
+Files To Read With Tools
+Relevant Tests
+Commands To Run
+Selected Skills
+Cautions
+Context Pack
+```
+
+Optional extracted metadata:
+
+```text
+.vibecode/runs/<run_id>/flash/flash_output_meta.json
+```
+
+Future JSON flash output is allowed, but it must be schema-validated when introduced.
+
+If JSON mode is active in the future and validation fails, do not create `final_prompt.md` from invalid JSON output.
+
+Initial implementation must not require `flash_output.json`.
+
+---
+
+# Testing Rules
+
+Use TDD for implementation work.
+
+Required flow:
+
+```text
+RED: write or update tests first
+RED: run and confirm expected failure
+GREEN: implement smallest behavior that passes
+GREEN: run targeted tests
+REGRESSION: run broader relevant tests
+REFACTOR: clean only while tests remain green
+```
+
+Default tests use mocks for model providers.
+
+Live provider tests are explicit only.
+
+## TypeScript commands
+
+Expected commands:
+
+```powershell
+pnpm install
+pnpm test
+pnpm test:live
+pnpm lint
+pnpm typecheck
+pnpm build
+```
+
+Some commands may not exist in the earliest scaffold. When unavailable, report that clearly.
+
+## Python scanner commands
+
+Expected commands:
+
+```powershell
+cd src/core/scanning/python
+uv sync
+uv run pytest
+uv run pytest -m live
+uv run ruff check .
+```
+
+Some commands may not exist in the earliest scaffold. When unavailable, report that clearly.
+
+## Live tests
+
+Use live tests only when explicitly requested:
+
+```powershell
+pnpm test:live
+uv run pytest -m live
+```
+
+Live tests should be token-efficient.
+
+Provider secrets must not be committed.
+
+---
+
+# Development Environment
+
+Primary development environment is Windows PowerShell.
+
+Use cross-platform paths where possible.
+
+Do not assume WSL.
+
+Do not introduce Docker or WSL as a required development dependency unless explicitly requested.
+
+Keep the project runnable on a normal Windows development machine.
+
+---
+
+# Documentation Edits
+
+Agents may update documentation when implementation changes the documented contract.
+
+Allowed:
+
+```text
+update README when CLI commands change
+update README when setup/test commands change
+update README when generated artifact expectations change
+update ARCHITECTURE_DECISIONS.md only when an implementation decision is explicitly changed
+update IMPLEMENTATION_MAP.md only when checkpoint criteria are intentionally changed
+```
+
+Do not casually rewrite architecture documents.
+
+Do not edit these unless the task explicitly asks for architecture or documentation changes:
+
+```text
+VISION.md
+CONTEXT.md
+ARCHITECTURE.md
+IMPLEMENTATION_MAP.md
+ARCHITECTURE_DECISIONS.md
+```
+
+If a code change forces a documentation change, make the smallest required doc update and explain it in the final report.
+
+## README update rule
+
+If the implementation changes user-facing commands, setup steps, test commands, generated artifact locations, or development workflow, perform a minimal README update.
+
+Do not rewrite the whole README.
+
+Keep the existing README structure.
+
+Make the smallest targeted change that keeps README accurate.
+
+Do not add fake badges, fake links, or marketing filler.
+
+---
+
+# Modularity Rules
+
+Prefer adding small focused modules to the correct subsystem.
+
+Good:
+
+```text
+src/core/scanning/python/vibecode_scanner/scan/tree_scan.py
+src/core/runs/store.ts
+src/core/prompting/renderer.ts
+src/adapters/llm/openrouter.ts
+```
+
+Avoid dumping unrelated behavior into large central files.
+
+Keep UI thin.
+
+Keep scanner deterministic.
+
+Keep provider calls out of scanner code.
+
+Keep prompt rendering in TypeScript.
+
+Keep repo modification logic out of Python scanner.
+
+---
+
+# Temporary Debugging Changes
+
+Agents may read ignored/generated files for debugging.
+
+Agents may make temporary debugging edits only when necessary to isolate a problem.
+
+If you make such a change:
+
+```text
+1. explain why
+2. keep it local and minimal
+3. revert it before finalizing unless explicitly requested
+4. report exactly what was changed and how to reproduce the test
+```
+
+Do not commit temporary debugging changes.
+
+---
+
+# Secret Handling
 
 Initial VibecodeLight does not perform aggressive secret redaction or fixed filename censorship.
+
 It respects ignore rules.
-Users are responsible for secrets in non-ignored files.
-Provider secrets must remain outside committed project files.
 
-## Standard Test Commands
+Users are responsible for keeping secrets out of non-ignored repository content.
 
-TypeScript:
-- `pnpm test`
-- `pnpm test:live`
-- `pnpm lint`
-- `pnpm typecheck`
-- `pnpm build`
+Provider secrets must live outside committed project files.
 
-Python:
-- `cd src/core/scanning/python`
-- `uv run pytest`
-- `uv run pytest -m live`
-- `uv run ruff check .`
+Do not commit provider secrets, API keys, tokens, `.env`, or local credential files.
 
-Live tests are explicit, token-efficient, and not part of default runs.
+VibecodeLight is not a secret scanner.
 
-## Terminal Send Policy
+---
 
-Initial implementation does not require terminal-mode detection.
-No required target-kind detection gate for initial behavior.
-VibecodeLight sends as if communicating with a real terminal.
-User is responsible for active terminal context.
+# Per-Run Commit Policy
+
+Each model run is expected to create a deterministic git commit that captures the run result.
+
+If tests or validation fail, the run/commit must clearly mark the failed validation state.
+
+Generated `.vibecode/` artifacts are not committed.
+
+The commit captures repository changes, not VibecodeLight runtime artifacts.
+
+Later UI/CLI should provide a way to revert changes from a run.
+
+This policy is product-level and must not be silently weakened into “commit proposal only”.
+
+---
+
+# Agent Commit Discipline
+
+For coding-agent implementation tasks, create a scoped commit after successful implementation work unless explicitly told not to.
+
+Do not push.
+
+Do not open a PR unless explicitly asked.
+
+Before committing:
+
+```text
+git status
+run relevant tests
+ensure no unrelated files are included
+ensure generated files are not committed
+ensure .vibecode/ is ignored
+```
+
+Commit message should be concise and scoped.
+
+Prefer conventional style when reasonable:
+
+```text
+feat(cli): add workspace init command
+test(scanner): cover repo tree scan
+fix(runs): preserve current run pointer
+docs(readme): update CLI command list
+```
+
+Do not commit broken tests unless the task explicitly requires committing a failed-validation run state.
+
+Do not commit unrelated cleanup.
+
+For implementation work, if tests fail and the task is not specifically testing failed-run behavior, report the failure instead of pretending success.
+
+---
+
+# Final Report Required
+
+Every implementation task must end with a concise final report.
+
+Include:
+
+```text
+summary of what changed
+changed files
+tests run
+test results
+known limitations
+generated artifacts created, if relevant
+README update performed, if relevant
+commit hash, if committed
+anything not done
+```
+
+Do not claim success if tests were not run.
+
+If tests could not be run, say why.
+
+If live tests were not run, say that they were not requested or not available.
+
+If you found a document conflict, mention it clearly.
+
+---
+
+# Handling Ambiguity
+
+If the task is ambiguous, implement the smallest behavior that satisfies the current checkpoint and existing docs.
+
+If the task conflicts with `ARCHITECTURE_DECISIONS.md`, stop and report the conflict.
+
+If a required command or package script does not exist yet, either add it if the checkpoint requires it or report it as not yet available.
+
+Do not invent broad new architecture without explicit instruction.
+
+Do not silently reinterpret the TypeScript/Python boundary.
+
+---
+
+# Practical Build Mantra
+
+```text
+Tests before code.
+CLI before GUI.
+Artifacts before automation.
+Markdown flash output before JSON flash mode.
+Real terminal before composer send.
+Single-agent reliability before subagents.
+Visible prompt before model execution.
+Per-run commit before orchestration.
+Minimal README updates when behavior changes.
+```

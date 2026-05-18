@@ -1,3 +1,9 @@
+# VibecodeLight project configuration
+#
+# This is the only human-maintained project config.
+# TypeScript owns this file and resolves it into per-run scanner_config.json.
+# Python scanner must not read this file directly.
+
 repo:
   name: "VibecodeLight"
 

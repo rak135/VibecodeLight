@@ -1,13 +1,57 @@
+# VibecodeLight generated workspace
 .vibecode/
+
+# Dependencies
 node_modules/
+
+# Build outputs
 dist/
 build/
+out/
 coverage/
+
+# Python local environment and caches
 .venv/
+venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node / TypeScript caches
+.npm/
+.pnpm-store/
+.turbo/
+.vite/
+*.tsbuildinfo
+
+# Environment / secrets
 .env
 .env.*
 !.env.example
+
+# Logs
 *.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor
 .DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
