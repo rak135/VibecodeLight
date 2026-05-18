@@ -12,7 +12,7 @@
     "vibecode": "tsx src/app/cli/index.ts"
   },
   "bin": {
-    "vibecode": "./src/app/cli/index.ts"
+    "vibecode": "./bin/vibecode.js"
   },
   "dependencies": {
     "commander": "^12.1.0",
