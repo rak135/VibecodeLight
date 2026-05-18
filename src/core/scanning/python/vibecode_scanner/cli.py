@@ -8,6 +8,8 @@ try:
 except ModuleNotFoundError:
     typer = None
 
+from .scan.base_scan import run_base_scan, SCANNER_VERSION
+
 
 def main(
     repo: Optional[Path] = None,
@@ -17,20 +19,37 @@ def main(
     json_output: bool = False,
 ):
     """Run the VibecodeLight deterministic repository scanner."""
-    if out is not None:
-        out.mkdir(parents=True, exist_ok=True)
-        scan_manifest = {
-            "scanner_version": "0.1.0",
-            "status": "skeleton",
-            "repo": str(repo) if repo else None,
-            "task": task,
-            "scanner_config": str(scanner_config) if scanner_config else None,
-        }
-        (out / "scan_manifest.json").write_text(json.dumps(scan_manifest, indent=2))
+    repo_root = repo or Path.cwd()
+    task_str = task or ""
+    run_id: Optional[str] = None
 
-    if json_output:
-        result = {"status": "ok", "scanner_version": "0.1.0"}
-        print(json.dumps(result))
+    # Load run_id from scanner_config if provided
+    if scanner_config is not None and scanner_config.exists():
+        try:
+            config_data = json.loads(scanner_config.read_text(encoding="utf-8"))
+            run_id = config_data.get("run_id")
+            if not task_str:
+                task_str = config_data.get("task", "")
+            if repo is None:
+                repo_root = Path(config_data.get("repo_root", str(repo_root)))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if out is not None:
+        summary = run_base_scan(
+            repo_root=repo_root,
+            task=task_str,
+            out_dir=out,
+            run_id=run_id,
+            scanner_config_path=scanner_config,
+        )
+        if json_output:
+            result = {"status": "ok", "scanner_version": SCANNER_VERSION, "run_id": run_id, "artifacts": summary.get("artifacts", {})}
+            print(json.dumps(result))
+    else:
+        if json_output:
+            result = {"status": "ok", "scanner_version": SCANNER_VERSION}
+            print(json.dumps(result))
 
 
 if typer is not None:
@@ -48,7 +67,7 @@ if typer is not None:
     ):
         main(repo=repo, task=task, scanner_config=scanner_config, out=out, json_output=json_output)
 else:
-    def app() -> None:
+    def app() -> None:  # type: ignore[misc]
         parser = argparse.ArgumentParser(prog="vibecode-scanner", description="VibecodeLight deterministic repository scanner")
         parser.add_argument("--repo", type=Path, default=None, help="Repository root path")
         parser.add_argument("--task", type=str, default=None, help="Task description")

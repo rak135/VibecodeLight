@@ -23,6 +23,6 @@ describe('Python scanner', () => {
     expect(result.status).toBe(0);
     expect(fs.existsSync(path.join(outDir, 'scan_manifest.json'))).toBe(true);
     const manifest = JSON.parse(fs.readFileSync(path.join(outDir, 'scan_manifest.json'), 'utf8'));
-    expect(manifest.status).toBe('skeleton');
+    expect(manifest.ok).toBe(true);
   });
 });

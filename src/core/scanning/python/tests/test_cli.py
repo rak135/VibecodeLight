@@ -34,4 +34,4 @@ def test_writes_scan_manifest_when_out_provided(tmp_path):
     )
     assert result.returncode == 0
     manifest = json.loads((tmp_path / "scan" / "scan_manifest.json").read_text())
-    assert manifest["status"] == "skeleton"
+    assert manifest["ok"] is True
