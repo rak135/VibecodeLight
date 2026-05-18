@@ -18,7 +18,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-SCANNER_VERSION = "0.2.0"
+from .command_scan import run_command_scan
+from .environment_scan import run_environment_scan
+from .manifest_scan import run_manifest_scan
+from .tooling_scan import run_tooling_scan
+
+SCANNER_VERSION = "0.3.0"
 
 ALWAYS_EXCLUDED = [".git", ".vibecode"]
 
@@ -364,7 +369,35 @@ def run_base_scan(
         json.dumps(config_snapshot, indent=2), encoding="utf-8"
     )
 
-    # 9. scan_manifest.json (last - references all others)
+    # 9. manifests.json
+    manifest_result = run_manifest_scan(repo_root)
+    warnings.extend(manifest_result.get("warnings", []))
+    (out_dir / "manifests.json").write_text(
+        json.dumps(manifest_result, indent=2), encoding="utf-8"
+    )
+
+    # 10. commands.json
+    command_result = run_command_scan(repo_root)
+    warnings.extend(command_result.get("warnings", []))
+    (out_dir / "commands.json").write_text(
+        json.dumps(command_result, indent=2), encoding="utf-8"
+    )
+
+    # 11. tooling.json
+    tooling_result = run_tooling_scan(repo_root)
+    warnings.extend(tooling_result.get("warnings", []))
+    (out_dir / "tooling.json").write_text(
+        json.dumps(tooling_result, indent=2), encoding="utf-8"
+    )
+
+    # 12. environment.json (local runtime facts, separate from repo declarations)
+    environment_result = run_environment_scan()
+    warnings.extend(environment_result.get("warnings", []))
+    (out_dir / "environment.json").write_text(
+        json.dumps(environment_result, indent=2), encoding="utf-8"
+    )
+
+    # 13. scan_manifest.json (last - references all others)
     produced_artifacts = {
         "scan_manifest.json": str(out_dir / "scan_manifest.json"),
         "repo_tree.txt": str(out_dir / "repo_tree.txt"),
@@ -373,6 +406,10 @@ def run_base_scan(
         "git_diff_stat.txt": str(out_dir / "git_diff_stat.txt"),
         "ignore_rules.json": str(out_dir / "ignore_rules.json"),
         "config_snapshot.json": str(out_dir / "config_snapshot.json"),
+        "manifests.json": str(out_dir / "manifests.json"),
+        "commands.json": str(out_dir / "commands.json"),
+        "tooling.json": str(out_dir / "tooling.json"),
+        "environment.json": str(out_dir / "environment.json"),
     }
     scan_manifest: dict[str, Any] = {
         "ok": True,

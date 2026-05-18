@@ -58,12 +58,48 @@ describe('scan command', () => {
     expect(promptContent).toContain('my test task');
   });
 
-  test('vibecode scan "task" --json returns stable JSON envelope', () => {
+  test('vibecode scan "task" --json returns canonical envelope {ok, data, artifacts, warnings}', () => {
     const result = runCli(['scan', 'json test', '--json'], tmpRepo);
     expect(result.status).toBe(0);
     const jsonOut = JSON.parse(result.stdout.trim());
-    expect(jsonOut).toHaveProperty('status');
-    expect(jsonOut).toHaveProperty('run_id');
+    expect(jsonOut).toHaveProperty('ok', true);
+    expect(jsonOut).toHaveProperty('data');
+    expect(jsonOut).toHaveProperty('artifacts');
+    expect(jsonOut).toHaveProperty('warnings');
+    expect(jsonOut.data).toHaveProperty('run_id');
+    expect(typeof jsonOut.data.run_id).toBe('string');
+    expect(Array.isArray(jsonOut.artifacts)).toBe(true);
+    expect(Array.isArray(jsonOut.warnings)).toBe(true);
+  });
+
+  test('vibecode scan "task" --json artifacts list includes manifests/commands/tooling/environment', () => {
+    const result = runCli(['scan', 'manifest commands env test', '--json'], tmpRepo);
+    expect(result.status).toBe(0);
+    const jsonOut = JSON.parse(result.stdout.trim());
+    const artifactNames = jsonOut.artifacts.map((a: string) => a.split(/[\\/]/).pop());
+    expect(artifactNames).toContain('manifests.json');
+    expect(artifactNames).toContain('commands.json');
+    expect(artifactNames).toContain('tooling.json');
+    expect(artifactNames).toContain('environment.json');
+  });
+
+  test('vibecode scan produces new artifact files on disk', () => {
+    const result = runCli(['scan', 'artifact disk test'], tmpRepo);
+    expect(result.status).toBe(0);
+    const runsDir = path.join(tmpRepo, '.vibecode', 'runs');
+    const runs = fs.readdirSync(runsDir);
+    const scanDir = path.join(runsDir, runs[0], 'scan');
+    expect(fs.existsSync(path.join(scanDir, 'manifests.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'commands.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'tooling.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'environment.json'))).toBe(true);
+    // Existing base artifacts must still be present
+    expect(fs.existsSync(path.join(scanDir, 'repo_tree.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'file_inventory.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'git_status.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'git_diff_stat.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'ignore_rules.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'config_snapshot.json'))).toBe(true);
   });
 
   test('vibecode scan "task" updates current/run_manifest.json', () => {

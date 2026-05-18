@@ -23,6 +23,7 @@ export interface ScanResult {
   run_id: string;
   scanDir: string;
   artifacts?: Record<string, string>;
+  warnings?: string[];
   diagnostic?: string;
 }
 
@@ -87,12 +88,18 @@ export async function runScan(opts: {
     }
   }
 
-  // Read scan_manifest.json for artifact list
+  // Read scan_manifest.json for artifact list and warnings (authoritative)
+  let warnings: string[] = [];
   const scanManifestPath = path.join(scanDir, 'scan_manifest.json');
-  if (!artifacts && fs.existsSync(scanManifestPath)) {
+  if (fs.existsSync(scanManifestPath)) {
     try {
       const scanManifest = JSON.parse(fs.readFileSync(scanManifestPath, 'utf8'));
-      artifacts = scanManifest.artifacts;
+      if (!artifacts) {
+        artifacts = scanManifest.artifacts;
+      }
+      if (Array.isArray(scanManifest.warnings)) {
+        warnings = scanManifest.warnings;
+      }
     } catch {
       // ignore
     }
@@ -105,7 +112,7 @@ export async function runScan(opts: {
   fs.writeFileSync(runManifestPath, `${JSON.stringify(doneManifest, null, 2)}\n`, 'utf8');
   await updateCurrent(paths.vibecode, doneManifest);
 
-  return { status: 'ok', run_id, scanDir, artifacts };
+  return { status: 'ok', run_id, scanDir, artifacts, warnings };
 }
 
 export function createCli(): Command {
@@ -149,13 +156,35 @@ export function createCli(): Command {
     .command('scan <task>')
     .description('Create a new run and scan the repository')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .option('--json', 'Output JSON envelope to stdout')
+    .option('--json', 'Output canonical JSON envelope to stdout')
     .action(async (task: string, options: { repo: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
       const result = await runScan({ task, repoRoot, jsonOutput: options.json });
 
       if (options.json) {
-        console.log(JSON.stringify({ status: result.status, run_id: result.run_id }));
+        if (result.status === 'error') {
+          console.log(JSON.stringify({
+            ok: false,
+            error: {
+              code: 'SCANNER_FAILED',
+              message: result.diagnostic ?? 'scanner failed',
+            },
+          }));
+          process.exitCode = 1;
+        } else {
+          const artifactPaths = result.artifacts
+            ? Object.values(result.artifacts)
+            : [];
+          console.log(JSON.stringify({
+            ok: true,
+            data: {
+              run_id: result.run_id,
+              scan_dir: result.scanDir,
+            },
+            artifacts: artifactPaths,
+            warnings: result.warnings ?? [],
+          }));
+        }
       } else if (result.status === 'error') {
         console.error(`scan failed: ${result.diagnostic}`);
         process.exitCode = 1;
