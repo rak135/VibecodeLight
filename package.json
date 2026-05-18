@@ -1,0 +1,30 @@
+{
+  "name": "vibecode-light",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VibecodeLight scaffold",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "vibecode": "tsx src/app/cli/index.ts"
+  },
+  "bin": {
+    "vibecode": "./src/app/cli/index.ts"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

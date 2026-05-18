@@ -1,0 +1,19 @@
+[project]
+name = "vibecode-scanner"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+]
+
+[project.scripts]
+vibecode-scan = "vibecode_scanner.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.4",
+]
