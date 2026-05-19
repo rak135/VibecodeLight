@@ -83,6 +83,16 @@ describe('scan command', () => {
     expect(artifactNames).toContain('environment.json');
   });
 
+  test('vibecode scan "task" --json artifacts list includes documentation artifacts', () => {
+    const result = runCli(['scan', 'docs scan test', '--json'], tmpRepo);
+    expect(result.status).toBe(0);
+    const jsonOut = JSON.parse(result.stdout.trim());
+    const artifactNames = jsonOut.artifacts.map((a: string) => a.split(/[\\/]/).pop());
+    expect(artifactNames).toContain('repo_instructions.json');
+    expect(artifactNames).toContain('docs.json');
+    expect(artifactNames).toContain('architecture_docs.json');
+  });
+
   test('vibecode scan produces new artifact files on disk', () => {
     const result = runCli(['scan', 'artifact disk test'], tmpRepo);
     expect(result.status).toBe(0);
@@ -93,6 +103,10 @@ describe('scan command', () => {
     expect(fs.existsSync(path.join(scanDir, 'commands.json'))).toBe(true);
     expect(fs.existsSync(path.join(scanDir, 'tooling.json'))).toBe(true);
     expect(fs.existsSync(path.join(scanDir, 'environment.json'))).toBe(true);
+    // Docs/instruction artifacts
+    expect(fs.existsSync(path.join(scanDir, 'repo_instructions.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'docs.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'architecture_docs.json'))).toBe(true);
     // Existing base artifacts must still be present
     expect(fs.existsSync(path.join(scanDir, 'repo_tree.txt'))).toBe(true);
     expect(fs.existsSync(path.join(scanDir, 'file_inventory.json'))).toBe(true);

@@ -19,11 +19,16 @@ from pathlib import Path
 from typing import Any
 
 from .command_scan import run_command_scan
+from .docs_scan import (
+    run_architecture_docs_scan,
+    run_docs_scan,
+    run_repo_instructions_scan,
+)
 from .environment_scan import run_environment_scan
 from .manifest_scan import run_manifest_scan
 from .tooling_scan import run_tooling_scan
 
-SCANNER_VERSION = "0.3.0"
+SCANNER_VERSION = "0.4.0"
 
 ALWAYS_EXCLUDED = [".git", ".vibecode"]
 
@@ -397,7 +402,30 @@ def run_base_scan(
         json.dumps(environment_result, indent=2), encoding="utf-8"
     )
 
-    # 13. scan_manifest.json (last - references all others)
+    # 13. repo_instructions.json
+    repo_instructions_result = run_repo_instructions_scan(repo_root)
+    warnings.extend(repo_instructions_result.get("warnings", []))
+    (out_dir / "repo_instructions.json").write_text(
+        json.dumps(repo_instructions_result, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    # 14. docs.json
+    docs_result = run_docs_scan(repo_root)
+    warnings.extend(docs_result.get("warnings", []))
+    (out_dir / "docs.json").write_text(
+        json.dumps(docs_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 15. architecture_docs.json
+    architecture_docs_result = run_architecture_docs_scan(repo_root)
+    warnings.extend(architecture_docs_result.get("warnings", []))
+    (out_dir / "architecture_docs.json").write_text(
+        json.dumps(architecture_docs_result, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    # 16. scan_manifest.json (last - references all others)
     produced_artifacts = {
         "scan_manifest.json": str(out_dir / "scan_manifest.json"),
         "repo_tree.txt": str(out_dir / "repo_tree.txt"),
@@ -410,6 +438,9 @@ def run_base_scan(
         "commands.json": str(out_dir / "commands.json"),
         "tooling.json": str(out_dir / "tooling.json"),
         "environment.json": str(out_dir / "environment.json"),
+        "repo_instructions.json": str(out_dir / "repo_instructions.json"),
+        "docs.json": str(out_dir / "docs.json"),
+        "architecture_docs.json": str(out_dir / "architecture_docs.json"),
     }
     scan_manifest: dict[str, Any] = {
         "ok": True,
