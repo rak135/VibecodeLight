@@ -22,6 +22,7 @@ import {
   FlashInputManifestError,
   formatPreviousRunSummary,
   getPreviousRunSummary,
+  parseFlashOutput,
 } from '../../core/context/index.js';
 
 const SCANNER_DIR = path.resolve(__dirname, '../../core/scanning/python');
@@ -575,6 +576,80 @@ export function createCli(): Command {
         }
       },
     );
+
+  const flash = program.command('flash').description('Flash output operations');
+
+  flash
+    .command('validate <path>')
+    .description('Validate a flash_output.md file against the contract')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((filePath: string, options: { json?: boolean }) => {
+      const resolvedPath = path.resolve(filePath);
+
+      let result: ReturnType<typeof parseFlashOutput>;
+      try {
+        const markdown = fs.readFileSync(resolvedPath, 'utf8');
+        result = parseFlashOutput(markdown, resolvedPath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const diagnostic = {
+          code: 'FLASH_OUTPUT_INVALID' as const,
+          message: `unable to read flash output: ${message}`,
+          path: resolvedPath,
+          details: [message],
+        };
+
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error: diagnostic }));
+        } else {
+          console.log(`flash output invalid: ${resolvedPath}`);
+          console.log(`  ${message}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      if (result.ok) {
+        if (options.json) {
+          console.log(
+            JSON.stringify({
+              ok: true,
+              data: { sections: result.sections.map((section) => section.name) },
+              artifacts: [],
+              warnings: [],
+            }),
+          );
+        } else {
+          console.log(`flash output valid: ${resolvedPath}`);
+          for (const section of result.sections) {
+            console.log(`- ${section.name}`);
+          }
+        }
+        return;
+      }
+
+      const diagnostic = result.diagnostic ?? {
+        code: 'FLASH_OUTPUT_INVALID' as const,
+        message: 'flash output invalid',
+        path: resolvedPath,
+        details: [],
+      };
+
+      if (options.json) {
+        console.log(JSON.stringify({ ok: false, error: diagnostic }));
+      } else {
+        console.log(`flash output invalid: ${resolvedPath}`);
+        if (diagnostic.details.length > 0) {
+          console.log('missing sections:');
+          for (const detail of diagnostic.details) {
+            console.log(`- ${detail}`);
+          }
+        } else {
+          console.log(diagnostic.message);
+        }
+      }
+      process.exitCode = 1;
+    });
 
   // context-build command
   program
