@@ -5,12 +5,12 @@ import { readSavedArtifact } from './artifact_reader.js';
 export const FLASH_INPUT_REQUIRED_INPUTS = {
   user_prompt: 'user_prompt.md',
   run_manifest: 'run_manifest.json',
+  scanner_config: 'scanner_config.json',
   scan_manifest: 'scan/scan_manifest.json',
   skills_catalog: 'skills/skills_catalog.json',
 } as const;
 
 export const FLASH_INPUT_OPTIONAL_INPUTS = {
-  scanner_config: 'scanner_config.json',
   repo_tree: 'scan/repo_tree.txt',
   file_inventory: 'scan/file_inventory.json',
   git_status: 'scan/git_status.json',
@@ -42,6 +42,7 @@ export interface FlashInputManifest {
   optional_inputs: Record<string, string>;
   missing_inputs: string[];
   warnings: string[];
+  artifacts: Record<string, string>;
 }
 
 export interface BuildFlashInputManifestOptions {
@@ -87,10 +88,16 @@ export function buildFlashInputManifest(opts: BuildFlashInputManifestOptions): F
 
   const missingInputs: string[] = [];
   const warnings: string[] = [];
+  const artifacts: Record<string, string> = {};
+  for (const [key, relativePath] of Object.entries(FLASH_INPUT_REQUIRED_INPUTS)) {
+    artifacts[key] = relativePath;
+  }
   for (const [key, relativePath] of Object.entries(FLASH_INPUT_OPTIONAL_INPUTS)) {
     if (readSavedArtifact(opts.runDir, relativePath) === null) {
       missingInputs.push(relativePath);
       warnings.push(`optional flash input artifact not available: ${key} (${relativePath})`);
+    } else {
+      artifacts[key] = relativePath;
     }
   }
 
@@ -117,6 +124,7 @@ export function buildFlashInputManifest(opts: BuildFlashInputManifestOptions): F
     optional_inputs: { ...FLASH_INPUT_OPTIONAL_INPUTS },
     missing_inputs: missingInputs,
     warnings,
+    artifacts,
   };
 }
 

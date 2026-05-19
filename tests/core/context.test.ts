@@ -26,6 +26,12 @@ function writeRequiredArtifacts(runDir: string, runId = 'test-run-id'): void {
     task: 'test task',
     status: 'done',
   }));
+  fs.writeFileSync(path.join(runDir, 'scanner_config.json'), JSON.stringify({
+    run_id: runId,
+    repo_root: '/repo',
+    task: 'test task',
+    paths: { scan_out: 'scan' },
+  }));
   fs.writeFileSync(path.join(runDir, 'scan', 'scan_manifest.json'), JSON.stringify({
     run_id: runId,
     artifacts: {},
@@ -51,15 +57,42 @@ describe('buildFlashInputManifest', () => {
 
     expect(manifest.required_inputs).toHaveProperty('user_prompt', 'user_prompt.md');
     expect(manifest.required_inputs).toHaveProperty('run_manifest', 'run_manifest.json');
+    expect(manifest.required_inputs).toHaveProperty('scanner_config', 'scanner_config.json');
     expect(manifest.required_inputs).toHaveProperty('scan_manifest', 'scan/scan_manifest.json');
     expect(manifest.required_inputs).toHaveProperty('skills_catalog', 'skills/skills_catalog.json');
+    expect(manifest.optional_inputs).not.toHaveProperty('scanner_config');
+
+    fs.rmSync(runDir, { recursive: true, force: true });
+  });
+
+  test('manifest includes artifacts map for saved required inputs and present optional inputs', () => {
+    const runDir = makeTmpRunDir();
+    writeRequiredArtifacts(runDir);
+    fs.writeFileSync(path.join(runDir, 'scan', 'repo_tree.txt'), 'tree artifact\n');
+
+    const manifest = buildFlashInputManifest({
+      run_id: 'test-run-id',
+      task: 'test task',
+      repo_root: '/repo',
+      runDir,
+    });
+
+    expect(manifest.artifacts).toMatchObject({
+      user_prompt: 'user_prompt.md',
+      run_manifest: 'run_manifest.json',
+      scanner_config: 'scanner_config.json',
+      scan_manifest: 'scan/scan_manifest.json',
+      skills_catalog: 'skills/skills_catalog.json',
+      repo_tree: 'scan/repo_tree.txt',
+    });
+    expect(manifest.artifacts).not.toHaveProperty('file_inventory');
 
     fs.rmSync(runDir, { recursive: true, force: true });
   });
 
   test('missing required artifact produces structured diagnostic', () => {
     const runDir = makeTmpRunDir();
-    // Only write partial artifacts - missing scan_manifest.json and skills_catalog.json
+    // Only write partial artifacts - missing scanner_config.json, scan_manifest.json, and skills_catalog.json
     fs.writeFileSync(path.join(runDir, 'user_prompt.md'), 'test task\n');
     fs.writeFileSync(path.join(runDir, 'run_manifest.json'), JSON.stringify({ run_id: 'x', created_at: 'x', task: 'x', status: 'done' }));
 
@@ -68,7 +101,7 @@ describe('buildFlashInputManifest', () => {
       task: 'test task',
       repo_root: '/repo',
       runDir,
-    })).toThrow(/missing required/i);
+    })).toThrow(/scanner_config\.json/);
 
     fs.rmSync(runDir, { recursive: true, force: true });
   });
@@ -122,33 +155,33 @@ describe('buildFlashInput', () => {
     });
 
     const sections = [
-      '## Task',
-      '## Run Metadata',
-      '## Git State',
-      '## Repository Tree',
-      '## File Inventory Summary',
-      '## Manifests and Dependencies',
-      '## Environment',
-      '## Commands',
-      '## Tooling',
-      '## Repository Instructions',
-      '## Documentation',
-      '## Architecture Documents',
-      '## Symbols',
-      '## Imports',
-      '## Entrypoints',
-      '## Tests',
-      '## Schemas',
-      '## Keyword Hits',
-      '## Recent History',
-      '## Skills Catalog',
-      '## Previous Run Summary',
-      '## Terminal Context',
-      '## Flash Instructions',
+      '# Task',
+      '# Run Metadata',
+      '# Git State',
+      '# Repository Tree',
+      '# File Inventory Summary',
+      '# Manifests and Dependencies',
+      '# Environment',
+      '# Commands',
+      '# Tooling',
+      '# Repository Instructions',
+      '# Documentation',
+      '# Architecture Documents',
+      '# Symbols',
+      '# Imports',
+      '# Entrypoints',
+      '# Tests',
+      '# Schemas',
+      '# Keyword Hits',
+      '# Recent History',
+      '# Skills Catalog',
+      '# Previous Run Summary',
+      '# Terminal Context',
+      '# Flash Instructions',
     ];
 
     for (const section of sections) {
-      expect(content).toContain(section);
+      expect(content).toMatch(new RegExp(`^${section}$`, 'm'));
     }
 
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -188,7 +221,7 @@ describe('buildFlashInput', () => {
       previousRunSummary: undefined,
     });
 
-    expect(content).toContain('## Previous Run Summary');
+    expect(content).toContain('# Previous Run Summary');
     expect(content).toContain('none available');
 
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -206,7 +239,7 @@ describe('buildFlashInput', () => {
       previousRunSummary: undefined,
     });
 
-    expect(content).toContain('## Terminal Context');
+    expect(content).toContain('# Terminal Context');
     expect(content).toContain('not included');
 
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -216,6 +249,7 @@ describe('buildFlashInput', () => {
     const runDir = makeTmpRunDir();
     fs.writeFileSync(path.join(runDir, 'user_prompt.md'), 'my specific task text\n');
     fs.writeFileSync(path.join(runDir, 'run_manifest.json'), JSON.stringify({ run_id: 'x', created_at: 'x', task: 'my specific task text', status: 'done' }));
+    fs.writeFileSync(path.join(runDir, 'scanner_config.json'), JSON.stringify({ task: 'my specific task text', paths: { scan_out: 'scan' } }));
     fs.writeFileSync(path.join(runDir, 'scan', 'scan_manifest.json'), JSON.stringify({ run_id: 'x', artifacts: {} }));
     fs.writeFileSync(path.join(runDir, 'skills', 'skills_catalog.json'), JSON.stringify({ generated_at: 'x', skills: [], warnings: [] }));
 
@@ -228,6 +262,24 @@ describe('buildFlashInput', () => {
     });
 
     expect(content).toContain('my specific task text');
+
+    fs.rmSync(runDir, { recursive: true, force: true });
+  });
+
+  test('includes scanner_config.json content from saved artifacts', () => {
+    const runDir = makeTmpRunDir();
+    writeRequiredArtifacts(runDir);
+
+    const content = buildFlashInput({
+      run_id: 'test-run-id',
+      task: 'test task',
+      repo_root: '/repo',
+      runDir,
+      previousRunSummary: undefined,
+    });
+
+    expect(content).toContain('scanner_config.json');
+    expect(content).toContain('"scan_out": "scan"');
 
     fs.rmSync(runDir, { recursive: true, force: true });
   });

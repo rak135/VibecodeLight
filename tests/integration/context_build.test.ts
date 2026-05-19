@@ -13,6 +13,16 @@ function runCli(args: string[], cwd = repoRoot) {
   });
 }
 
+function runPnpmVibecode(args: string[], cwd = repoRoot) {
+  const command = `pnpm vibecode ${args.map((arg) => `"${arg.replace(/"/g, '\\"')}"`).join(' ')}`;
+  return spawnSync(command, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 120000,
+    shell: true,
+  });
+}
+
 describe('context-build command', () => {
   let tmpRepo: string;
 
@@ -60,5 +70,47 @@ describe('context-build command', () => {
     expect(fs.existsSync(path.join(runDir, 'skills', 'skills_catalog.json'))).toBe(true);
     expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input_manifest.json'))).toBe(true);
     expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input.md'))).toBe(true);
+
+    const flashManifest = JSON.parse(
+      fs.readFileSync(path.join(runDir, 'flash', 'flash_input_manifest.json'), 'utf8'),
+    );
+    expect(flashManifest.required_inputs.scanner_config).toBe('scanner_config.json');
+    expect(flashManifest.artifacts.skills_catalog).toBe('skills/skills_catalog.json');
+    expect(flashManifest.artifacts.scan_manifest).toBe('scan/scan_manifest.json');
+
+    expect(fs.existsSync(path.join(runDir, 'flash', 'flash_output.md'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'output', 'context_pack.md'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'output', 'final_prompt.md'))).toBe(false);
+  });
+
+  test('pnpm vibecode context-build creates flash input artifacts', () => {
+    const result = runPnpmVibecode(['context-build', 'pnpm smoke task', '--repo', tmpRepo]);
+    expect(result.status).toBe(0);
+
+    const runsDir = path.join(tmpRepo, '.vibecode', 'runs');
+    const runs = fs.readdirSync(runsDir);
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+
+    const runDir = path.join(runsDir, runs[0]);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input_manifest.json'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input.md'))).toBe(true);
+  });
+
+  test('context-build includes previous completed run summary in flash input', () => {
+    const first = runCli(['context-build', 'previous summary first task', '--repo', tmpRepo, '--json']);
+    expect(first.status).toBe(0);
+    const firstPayload = JSON.parse(first.stdout.trim());
+
+    const second = runCli(['context-build', 'previous summary second task', '--repo', tmpRepo, '--json']);
+    expect(second.status).toBe(0);
+    const secondPayload = JSON.parse(second.stdout.trim());
+
+    const flashInput = fs.readFileSync(
+      path.join(secondPayload.data.runDir, 'flash', 'flash_input.md'),
+      'utf8',
+    );
+    expect(flashInput).toContain('# Previous Run Summary');
+    expect(flashInput).toContain(firstPayload.data.run_id);
+    expect(flashInput).toContain('previous summary first task');
   });
 });

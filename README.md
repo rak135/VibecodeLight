@@ -611,6 +611,16 @@ vibecode flash run latest
 vibecode terminal demo
 ```
 
+For local development, invoke the TypeScript CLI through pnpm:
+
+```powershell
+pnpm vibecode context-build "task"
+pnpm vibecode context-build "task" --repo <path>
+pnpm vibecode context-build "task" --json
+```
+
+The current `context-build` checkpoint creates a run, runs the deterministic scanner, writes `skills/skills_catalog.json`, and writes `flash/flash_input_manifest.json` plus `flash/flash_input.md`. It does not call a real flash model and does not produce `flash_output.md`, `context_pack.md`, or `final_prompt.md`.
+
 ### Internal scanner CLI
 
 ```powershell

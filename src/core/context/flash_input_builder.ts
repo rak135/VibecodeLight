@@ -117,6 +117,7 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
     {
       title: 'Manifests and Dependencies',
       body: renderMultiArtifactSection(opts.runDir, [
+        { relativePath: FLASH_INPUT_REQUIRED_INPUTS.scanner_config, kind: 'json' },
         { relativePath: FLASH_INPUT_REQUIRED_INPUTS.scan_manifest, kind: 'json' },
         { relativePath: FLASH_INPUT_OPTIONAL_INPUTS.manifests, kind: 'json' },
       ]),
@@ -197,8 +198,8 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
   ];
 
   const renderedSections = sections
-    .map((section) => `## ${section.title}\n${section.body}`)
+    .map((section) => `# ${section.title}\n${section.body}`)
     .join('\n\n');
 
-  return `# Flash Input\n\n${renderedSections}\n`;
+  return `${renderedSections}\n`;
 }

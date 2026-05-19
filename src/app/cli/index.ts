@@ -20,6 +20,8 @@ import {
   buildFlashInput,
   buildFlashInputManifest,
   FlashInputManifestError,
+  formatPreviousRunSummary,
+  getPreviousRunSummary,
 } from '../../core/context/index.js';
 
 const SCANNER_DIR = path.resolve(__dirname, '../../core/scanning/python');
@@ -235,11 +237,18 @@ export async function runContextBuild(opts: {
       repo_root: opts.repoRoot,
       runDir: result.runDir,
     });
+    const previousRunSummary = formatPreviousRunSummary(
+      getPreviousRunSummary({
+        vibecodePath: result.vibecodePath,
+        currentRunId: result.run_id,
+      }),
+    );
     const flashInput = buildFlashInput({
       run_id: result.run_id,
       task: opts.task,
       repo_root: opts.repoRoot,
       runDir: result.runDir,
+      previousRunSummary,
       manifest: flashManifest,
     });
     const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
