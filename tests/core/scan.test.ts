@@ -93,6 +93,20 @@ describe('scan command', () => {
     expect(artifactNames).toContain('architecture_docs.json');
   });
 
+  test('vibecode scan "task" --json artifacts list includes code map artifacts', () => {
+    const result = runCli(['scan', 'symbol import test schema keyword history', '--json'], tmpRepo);
+    expect(result.status).toBe(0);
+    const jsonOut = JSON.parse(result.stdout.trim());
+    const artifactNames = jsonOut.artifacts.map((a: string) => a.split(/[\\/]/).pop());
+    expect(artifactNames).toContain('symbols.json');
+    expect(artifactNames).toContain('imports.json');
+    expect(artifactNames).toContain('entrypoints.json');
+    expect(artifactNames).toContain('tests.json');
+    expect(artifactNames).toContain('schemas.json');
+    expect(artifactNames).toContain('keyword_hits.json');
+    expect(artifactNames).toContain('recent_history.json');
+  });
+
   test('vibecode scan produces new artifact files on disk', () => {
     const result = runCli(['scan', 'artifact disk test'], tmpRepo);
     expect(result.status).toBe(0);
@@ -107,6 +121,14 @@ describe('scan command', () => {
     expect(fs.existsSync(path.join(scanDir, 'repo_instructions.json'))).toBe(true);
     expect(fs.existsSync(path.join(scanDir, 'docs.json'))).toBe(true);
     expect(fs.existsSync(path.join(scanDir, 'architecture_docs.json'))).toBe(true);
+    // Code-map artifacts
+    expect(fs.existsSync(path.join(scanDir, 'symbols.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'imports.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'entrypoints.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'tests.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'schemas.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'keyword_hits.json'))).toBe(true);
+    expect(fs.existsSync(path.join(scanDir, 'recent_history.json'))).toBe(true);
     // Existing base artifacts must still be present
     expect(fs.existsSync(path.join(scanDir, 'repo_tree.txt'))).toBe(true);
     expect(fs.existsSync(path.join(scanDir, 'file_inventory.json'))).toBe(true);

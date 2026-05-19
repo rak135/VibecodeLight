@@ -24,11 +24,18 @@ from .docs_scan import (
     run_docs_scan,
     run_repo_instructions_scan,
 )
+from .entrypoint_scan import run_entrypoint_scan
 from .environment_scan import run_environment_scan
+from .history_scan import run_history_scan
+from .import_scan import run_import_scan
+from .keyword_scan import run_keyword_scan
 from .manifest_scan import run_manifest_scan
+from .schema_scan import run_schema_scan
+from .symbol_scan import run_symbol_scan
+from .test_scan import run_test_scan
 from .tooling_scan import run_tooling_scan
 
-SCANNER_VERSION = "0.4.0"
+SCANNER_VERSION = "0.5.0"
 
 ALWAYS_EXCLUDED = [".git", ".vibecode"]
 
@@ -425,7 +432,65 @@ def run_base_scan(
         encoding="utf-8",
     )
 
-    # 16. scan_manifest.json (last - references all others)
+    # 16. symbols.json (regex-based code map)
+    symbol_result = run_symbol_scan(repo_root, paths)
+    warnings.extend(symbol_result.get("warnings", []))
+    (out_dir / "symbols.json").write_text(
+        json.dumps(symbol_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 17. imports.json
+    import_result = run_import_scan(repo_root, paths)
+    warnings.extend(import_result.get("warnings", []))
+    (out_dir / "imports.json").write_text(
+        json.dumps(import_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 18. entrypoints.json
+    entrypoint_result = run_entrypoint_scan(repo_root, paths)
+    warnings.extend(entrypoint_result.get("warnings", []))
+    (out_dir / "entrypoints.json").write_text(
+        json.dumps(entrypoint_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 19. tests.json
+    test_result = run_test_scan(repo_root, paths)
+    warnings.extend(test_result.get("warnings", []))
+    (out_dir / "tests.json").write_text(
+        json.dumps(test_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 20. schemas.json
+    schema_result = run_schema_scan(repo_root, paths)
+    warnings.extend(schema_result.get("warnings", []))
+    (out_dir / "schemas.json").write_text(
+        json.dumps(schema_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 21. keyword_hits.json (uses already-computed inventory/symbols/docs)
+    keyword_result = run_keyword_scan(
+        task=task,
+        file_inventory=inventory,
+        symbols=symbol_result.get("symbols", []),
+        doc_payloads=[
+            docs_result,
+            architecture_docs_result,
+            repo_instructions_result,
+        ],
+    )
+    warnings.extend(keyword_result.get("warnings", []))
+    (out_dir / "keyword_hits.json").write_text(
+        json.dumps(keyword_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 22. recent_history.json
+    history_result = run_history_scan(repo_root)
+    warnings.extend(history_result.get("warnings", []))
+    (out_dir / "recent_history.json").write_text(
+        json.dumps(history_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 23. scan_manifest.json (last - references all others)
     produced_artifacts = {
         "scan_manifest.json": str(out_dir / "scan_manifest.json"),
         "repo_tree.txt": str(out_dir / "repo_tree.txt"),
@@ -441,6 +506,13 @@ def run_base_scan(
         "repo_instructions.json": str(out_dir / "repo_instructions.json"),
         "docs.json": str(out_dir / "docs.json"),
         "architecture_docs.json": str(out_dir / "architecture_docs.json"),
+        "symbols.json": str(out_dir / "symbols.json"),
+        "imports.json": str(out_dir / "imports.json"),
+        "entrypoints.json": str(out_dir / "entrypoints.json"),
+        "tests.json": str(out_dir / "tests.json"),
+        "schemas.json": str(out_dir / "schemas.json"),
+        "keyword_hits.json": str(out_dir / "keyword_hits.json"),
+        "recent_history.json": str(out_dir / "recent_history.json"),
     }
     scan_manifest: dict[str, Any] = {
         "ok": True,
