@@ -471,6 +471,24 @@ The flash model receives a skills catalog and selects which skills should be inc
 
 Selected skill content is expanded by TypeScript and inserted into the final prompt.
 
+Primary user-profile skills root (Windows default):
+
+```text
+%APPDATA%/VibecodeLight/skills/
+  default/
+  user/
+```
+
+The location can be overridden during development with the `VIBECODE_USER_PROFILE` environment variable (skills live under `<profile>/skills/`) or `VIBECODE_SKILLS_HOME` (points directly at the skills root).
+
+Each run gets a TypeScript-owned per-run skills catalog at:
+
+```text
+.vibecode/runs/<run_id>/skills/skills_catalog.json
+```
+
+The Python scanner does not produce this file.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ---
@@ -575,8 +593,12 @@ vibecode prompt "task"
 vibecode runs list
 vibecode runs show latest
 vibecode skills list
+vibecode skills project-list
 vibecode skills copy <skill-id>
+vibecode skills copy --all
 ```
+
+`skills list` and `skills project-list` accept `--json`. `skills copy` accepts `--force` to overwrite an existing destination and `--repo <path>` to target a specific repository.
 
 ### Debug/internal CLI
 

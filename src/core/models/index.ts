@@ -30,3 +30,25 @@ export interface InitResult {
   created: string[];
   existing: string[];
 }
+
+export type SkillSource = 'user-profile' | 'project';
+export type SkillScope = 'default' | 'user' | 'project';
+
+export interface SkillMetadata {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  source: SkillSource;
+  scope: SkillScope;
+  path: string;
+  has_skill_md: boolean;
+  has_skill_yaml: boolean;
+  warnings: string[];
+}
+
+export interface SkillsCatalog {
+  generated_at: string;
+  skills: SkillMetadata[];
+  warnings: string[];
+}
