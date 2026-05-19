@@ -16,6 +16,11 @@ import {
   writeSkillsCatalog,
 } from '../../core/skills/catalog.js';
 import { copyAllSkills, copySkill } from '../../core/skills/copy.js';
+import {
+  buildFlashInput,
+  buildFlashInputManifest,
+  FlashInputManifestError,
+} from '../../core/context/index.js';
 
 const SCANNER_DIR = path.resolve(__dirname, '../../core/scanning/python');
 
@@ -27,17 +32,61 @@ function pythonAvailable(): boolean {
 export interface ScanResult {
   status: 'ok' | 'error';
   run_id: string;
+  runDir?: string;
   scanDir: string;
   artifacts?: Record<string, string>;
   warnings?: string[];
   diagnostic?: string;
 }
 
-export async function runScan(opts: {
+interface ScannerPhaseSuccess {
+  status: 'ok';
+  run_id: string;
+  runDir: string;
+  scanDir: string;
+  vibecodePath: string;
+  runManifestPath: string;
+  manifest: RunManifest;
+  artifacts: Record<string, string>;
+  warnings: string[];
+}
+
+interface ScannerPhaseError {
+  status: 'error';
+  run_id: string;
+  runDir: string;
+  scanDir: string;
+  vibecodePath: string;
+  diagnostic: string;
+}
+
+type ScannerPhaseResult = ScannerPhaseSuccess | ScannerPhaseError;
+
+export interface ContextBuildResult {
+  status: 'ok' | 'error';
+  run_id: string;
+  runDir: string;
+  scanDir: string;
+  flashDir: string;
+  artifacts?: string[];
+  warnings?: string[];
+  diagnostic?: string;
+  error?: {
+    code: string;
+    message: string;
+    path?: string;
+    details: string[];
+  };
+}
+
+function writeRunManifest(runManifestPath: string, manifest: RunManifest): void {
+  fs.writeFileSync(runManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+}
+
+async function performScanPhase(opts: {
   task: string;
   repoRoot: string;
-  jsonOutput?: boolean;
-}): Promise<ScanResult> {
+}): Promise<ScannerPhaseResult> {
   const paths = getWorkspacePaths(opts.repoRoot);
 
   // Ensure .vibecode/ exists
@@ -73,7 +122,6 @@ export async function runScan(opts: {
     timeout: 120000,
   });
 
-  // Update run manifest
   const runManifestPath = path.join(runDir, 'run_manifest.json');
   const manifest: RunManifest = JSON.parse(fs.readFileSync(runManifestPath, 'utf8'));
 
@@ -82,19 +130,21 @@ export async function runScan(opts: {
       ...manifest,
       status: 'error',
     };
-    fs.writeFileSync(runManifestPath, `${JSON.stringify(errorManifest, null, 2)}\n`, 'utf8');
+    writeRunManifest(runManifestPath, errorManifest);
     await updateCurrent(paths.vibecode, errorManifest);
 
     const diagnostic = result.stderr || result.stdout || `scanner exited with code ${result.status}`;
-    return { status: 'error', run_id, scanDir, diagnostic };
+    return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic };
   }
 
   // Parse scanner stdout JSON summary if present
-  let artifacts: Record<string, string> | undefined;
+  let artifacts: Record<string, string> = {};
   if (result.stdout && result.stdout.trim()) {
     try {
       const parsed = JSON.parse(result.stdout.trim());
-      artifacts = parsed.artifacts;
+      if (parsed && typeof parsed === 'object' && parsed.artifacts && typeof parsed.artifacts === 'object') {
+        artifacts = parsed.artifacts as Record<string, string>;
+      }
     } catch {
       // Not JSON output - that's fine
     }
@@ -106,8 +156,8 @@ export async function runScan(opts: {
   if (fs.existsSync(scanManifestPath)) {
     try {
       const scanManifest = JSON.parse(fs.readFileSync(scanManifestPath, 'utf8'));
-      if (!artifacts) {
-        artifacts = scanManifest.artifacts;
+      if (Object.keys(artifacts).length === 0 && scanManifest && typeof scanManifest === 'object') {
+        artifacts = (scanManifest.artifacts as Record<string, string>) ?? {};
       }
       if (Array.isArray(scanManifest.warnings)) {
         warnings = scanManifest.warnings;
@@ -117,14 +167,141 @@ export async function runScan(opts: {
     }
   }
 
+  return {
+    status: 'ok',
+    run_id,
+    runDir,
+    scanDir,
+    vibecodePath: paths.vibecode,
+    runManifestPath,
+    manifest,
+    artifacts,
+    warnings,
+  };
+}
+
+export async function runScan(opts: {
+  task: string;
+  repoRoot: string;
+  jsonOutput?: boolean;
+}): Promise<ScanResult> {
+  const result = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
+
+  if (result.status === 'error') {
+    return { status: 'error', run_id: result.run_id, scanDir: result.scanDir, diagnostic: result.diagnostic };
+  }
+
   const doneManifest: RunManifest = {
-    ...manifest,
+    ...result.manifest,
     status: 'done',
   };
-  fs.writeFileSync(runManifestPath, `${JSON.stringify(doneManifest, null, 2)}\n`, 'utf8');
-  await updateCurrent(paths.vibecode, doneManifest);
+  writeRunManifest(result.runManifestPath, doneManifest);
+  await updateCurrent(result.vibecodePath, doneManifest);
 
-  return { status: 'ok', run_id, scanDir, artifacts, warnings };
+  return { status: 'ok', run_id: result.run_id, runDir: result.runDir, scanDir: result.scanDir, artifacts: result.artifacts, warnings: result.warnings };
+}
+
+export async function runContextBuild(opts: {
+  task: string;
+  repoRoot: string;
+  jsonOutput?: boolean;
+}): Promise<ContextBuildResult> {
+  const result = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
+
+  if (result.status === 'error') {
+    return {
+      status: 'error',
+      run_id: result.run_id,
+      runDir: result.runDir,
+      scanDir: result.scanDir,
+      flashDir: path.join(result.runDir, 'flash'),
+      diagnostic: result.diagnostic,
+      error: {
+        code: 'SCANNER_FAILED',
+        message: result.diagnostic,
+        path: result.scanDir,
+        details: [],
+      },
+    };
+  }
+
+  const flashDir = path.join(result.runDir, 'flash');
+  fs.mkdirSync(flashDir, { recursive: true });
+
+  try {
+    const flashManifest = buildFlashInputManifest({
+      run_id: result.run_id,
+      task: opts.task,
+      repo_root: opts.repoRoot,
+      runDir: result.runDir,
+    });
+    const flashInput = buildFlashInput({
+      run_id: result.run_id,
+      task: opts.task,
+      repo_root: opts.repoRoot,
+      runDir: result.runDir,
+      manifest: flashManifest,
+    });
+    const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
+    const flashInputPath = path.join(flashDir, 'flash_input.md');
+
+    writeRunManifest(result.runManifestPath, {
+      ...result.manifest,
+      status: 'done',
+    });
+    await updateCurrent(result.vibecodePath, {
+      ...result.manifest,
+      status: 'done',
+    });
+
+    fs.writeFileSync(flashManifestPath, `${JSON.stringify(flashManifest, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(flashInputPath, flashInput, 'utf8');
+
+    const artifactPaths = [
+      path.join(result.runDir, 'user_prompt.md'),
+      result.runManifestPath,
+      path.join(result.runDir, 'scanner_config.json'),
+      path.join(result.runDir, 'skills', 'skills_catalog.json'),
+      ...Object.values(result.artifacts),
+      flashManifestPath,
+      flashInputPath,
+    ];
+
+    return {
+      status: 'ok',
+      run_id: result.run_id,
+      runDir: result.runDir,
+      scanDir: result.scanDir,
+      flashDir,
+      artifacts: [...new Set(artifactPaths)],
+      warnings: [...result.warnings, ...flashManifest.warnings],
+    };
+  } catch (error) {
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
+    const failureManifest: RunManifest = {
+      ...result.manifest,
+      status: 'error',
+    };
+    writeRunManifest(result.runManifestPath, failureManifest);
+    await updateCurrent(result.vibecodePath, failureManifest);
+
+    const typedError = error as Partial<FlashInputManifestError> & { details?: string[] };
+    return {
+      status: 'error',
+      run_id: result.run_id,
+      runDir: result.runDir,
+      scanDir: result.scanDir,
+      flashDir,
+      diagnostic,
+      error: {
+        code: typedError.code ?? 'FLASH_INPUT_BUILD_FAILED',
+        message: diagnostic,
+        path: typedError.path ?? flashManifestPath,
+        details: Array.isArray(typedError.details) ? typedError.details : [],
+      },
+    };
+  }
 }
 
 export function createCli(): Command {
@@ -389,6 +566,68 @@ export function createCli(): Command {
         }
       },
     );
+
+  // context-build command
+  program
+    .command('context-build <task>')
+    .description('create a run, scan the repo, and build flash input artifacts')
+    .option('--repo <path>', 'repository root (default: cwd)', process.cwd())
+    .option('--json', 'output canonical JSON envelope')
+    .action(async (task: string, options: { repo?: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo ?? process.cwd());
+      const result = await runContextBuild({ task, repoRoot, jsonOutput: options.json });
+
+      if (result.status === 'error') {
+        if (options.json) {
+          console.log(
+            JSON.stringify({
+              ok: false,
+              error: {
+                code: result.error?.code ?? 'UNKNOWN',
+                message: result.error?.message ?? 'context-build failed',
+                path: result.error?.path,
+                details: result.error?.details ?? [],
+              },
+            }),
+          );
+        } else {
+          console.error(`context-build failed: ${result.error?.message ?? 'unknown error'}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const artifactPaths: string[] = result.artifacts ?? [];
+      if (options.json) {
+        console.log(
+          JSON.stringify({
+            ok: true,
+            data: {
+              run_id: result.run_id,
+              runDir: result.runDir,
+              flash_dir: result.runDir ? path.join(result.runDir, 'flash') : undefined,
+            },
+            artifacts: artifactPaths,
+            warnings: result.warnings ?? [],
+          }),
+        );
+      } else {
+        console.log(`run_id: ${result.run_id}`);
+        console.log(`runDir: ${result.runDir}`);
+        if (artifactPaths.length > 0) {
+          console.log('artifacts:');
+          for (const p of artifactPaths) {
+            console.log(`  ${p}`);
+          }
+        }
+        if ((result.warnings ?? []).length > 0) {
+          console.log('warnings:');
+          for (const w of result.warnings ?? []) {
+            console.log(`  ${w}`);
+          }
+        }
+      }
+    });
 
   return program;
 }
