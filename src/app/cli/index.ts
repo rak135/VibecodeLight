@@ -29,6 +29,7 @@ import {
   getPreviousRunSummary,
   parseFlashOutput,
 } from '../../core/context/index.js';
+import { renderFinalPrompt } from '../../core/prompting/index.js';
 
 const SCANNER_DIR = path.resolve(__dirname, '../../core/scanning/python');
 
@@ -1027,6 +1028,99 @@ export function createCli(): Command {
           console.log('warnings:');
           for (const w of result.warnings ?? []) {
             console.log(`  ${w}`);
+          }
+        }
+      }
+    });
+
+  const prompt = program.command('prompt').description('Prompt rendering operations');
+
+  prompt
+    .command('render <runId>')
+    .description('Render final_prompt.md from a finalized run')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((runId: string, options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const paths = getWorkspacePaths(repoRoot);
+
+      let resolvedRun: { runId: string; runDir: string } | undefined;
+      try {
+        resolvedRun = resolveRunDir(repoRoot, runId);
+      } catch (err) {
+        const error = {
+          code: 'RUN_NOT_FOUND',
+          message: err instanceof Error ? err.message : String(err),
+          path: path.join(paths.runs, runId),
+          details: [],
+        };
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error }));
+        } else {
+          console.error(`prompt render failed: ${error.message}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const { runDir } = resolvedRun;
+      if (!fs.existsSync(runDir)) {
+        const error = {
+          code: 'RUN_NOT_FOUND',
+          message: `run not found: ${resolvedRun.runId}`,
+          path: runDir,
+          details: [],
+        };
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error }));
+        } else {
+          console.error(`prompt render failed: ${error.message}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = renderFinalPrompt(runDir, { vibecodePath: paths.vibecode });
+
+      if (!result.ok) {
+        const error = result.error ?? {
+          code: 'PROMPT_RENDER_FAILED',
+          message: 'prompt render failed',
+          details: [],
+        };
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error }));
+        } else {
+          console.error(`prompt render failed: ${error.message}`);
+          if (error.path) console.error(`path: ${error.path}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const artifacts = result.artifacts ?? [];
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            run_id: result.runId,
+            runDir,
+            final_prompt: path.join(runDir, 'output', 'final_prompt.md'),
+          },
+          artifacts,
+          warnings: result.warnings ?? [],
+        }));
+      } else {
+        console.log(`run_id: ${result.runId}`);
+        console.log(`runDir: ${runDir}`);
+        console.log('artifacts:');
+        for (const artifact of artifacts) {
+          console.log(`  ${artifact}`);
+        }
+        if ((result.warnings ?? []).length > 0) {
+          console.log('warnings:');
+          for (const warning of result.warnings ?? []) {
+            console.log(`  ${warning}`);
           }
         }
       }
