@@ -775,17 +775,23 @@ Keep README updates minimal and targeted when behavior changes. Do not rewrite t
 
 ## Desktop App
 
-The desktop app is planned as an Electron shell around the same core pipeline used by the CLI.
+The desktop app now has a checkpoint Electron shell around the existing PTY adapter and keeps renderer access behind a preload/contextBridge API. Launch it for local development with:
+
+```powershell
+pnpm dev:desktop
+```
+
+The script compiles desktop TypeScript to ignored `dist-desktop/`, copies the minimal renderer HTML, and starts Electron with `VIBECODE_REPO` defaulting to the current working directory. The current renderer uses CDN-hosted xterm.js for this bundler-free checkpoint; a proper Electron renderer bundler is still planned.
 
 The desktop app should provide:
 
-- a real embedded PTY terminal;
+- a real embedded PTY terminal; currently implemented in the checkpoint shell;
 - a prompt composer overlay;
 - final prompt preview;
 - prompt send into the active terminal;
 - run artifact visibility.
 
-The GUI must call the same core logic as the CLI.
+The GUI must call the same core/adapters logic as the CLI through IPC/preload boundaries.
 
 If GUI and CLI produce different artifacts for the same task, the architecture is broken.
 
