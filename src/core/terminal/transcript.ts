@@ -1,3 +1,5 @@
+import { filterKnownPtyNoise, normalizeTerminalOutput } from './output_normalization.js';
+
 export interface OutputExcerptOptions {
   maxLines?: number;
   maxChars?: number;
@@ -27,6 +29,16 @@ export class OutputExcerpt {
 
   getText(): string {
     return this.text;
+  }
+
+  /**
+   * Returns a clean version of the excerpt suitable for JSON or human artifacts:
+   * - ANSI escape sequences stripped
+   * - Known PTY infrastructure noise filtered
+   * - Unicode preserved
+   */
+  getCleanText(): string {
+    return filterKnownPtyNoise(normalizeTerminalOutput(this.text));
   }
 
   clear(): void {

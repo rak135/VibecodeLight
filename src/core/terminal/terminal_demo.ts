@@ -96,7 +96,7 @@ export async function runTerminalDemo(options: TerminalDemoOptions = {}): Promis
     await runPrimaryCommand(session, options.command);
     await runGitStatus(session, warnings);
 
-    const excerpt = session.excerpt.getText();
+    const excerpt = session.excerpt.getCleanText();
     const artifacts = writeExcerptArtifact(repo, excerpt);
 
     return {
