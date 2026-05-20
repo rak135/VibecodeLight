@@ -171,6 +171,10 @@
         color: #7a89ad;
         margin-right: 6px;
       }
+
+      #send-status { color: #a8b3cf; font-size: 12px; }
+      #send-status.error { color: #ff8e8e; }
+      #send-status.ok { color: #7ec47e; }
     </style>
   </head>
   <body>
@@ -198,7 +202,9 @@
         <textarea id="composer-task" placeholder="Describe the task. The mock flash pipeline will render final_prompt.md and preview it here."></textarea>
         <div class="composer-row">
           <button id="generate-preview" type="button">Generate preview</button>
+          <button id="send-to-terminal" type="button" disabled title="Generate a preview first">Send to Terminal</button>
           <span id="composer-status">Idle.</span>
+          <span id="send-status" aria-live="polite"></span>
         </div>
         <div class="composer-section">
           <h3>Final prompt preview</h3>
@@ -222,15 +228,38 @@
       const closeComposerButton = document.getElementById('close-composer');
       const taskInput = document.getElementById('composer-task');
       const generateButton = document.getElementById('generate-preview');
+      const sendButton = document.getElementById('send-to-terminal');
       const composerStatus = document.getElementById('composer-status');
+      const sendStatus = document.getElementById('send-status');
       const previewElement = document.getElementById('composer-preview');
       const summaryElement = document.getElementById('composer-summary');
       const cols = 120;
       const rows = 32;
 
+      let currentPreview = null;
+      let terminalReady = false;
+
       function setComposerStatus(text, isError) {
         composerStatus.textContent = text;
         composerStatus.classList.toggle('error', Boolean(isError));
+      }
+
+      function setSendStatus(text, kind) {
+        sendStatus.textContent = text;
+        sendStatus.classList.toggle('error', kind === 'error');
+        sendStatus.classList.toggle('ok', kind === 'ok');
+      }
+
+      function refreshSendButton() {
+        const canSend = Boolean(currentPreview && currentPreview.ok && terminalReady);
+        sendButton.disabled = !canSend;
+        if (!currentPreview) {
+          sendButton.title = 'Generate a preview first';
+        } else if (!terminalReady) {
+          sendButton.title = 'No active terminal session';
+        } else {
+          sendButton.title = 'Send saved final_prompt.md into the active terminal';
+        }
       }
 
       function openComposer() {
@@ -244,16 +273,30 @@
         overlay.setAttribute('aria-hidden', 'true');
       }
 
-      function renderSummary(result) {
+      function renderSummary(result, send) {
         summaryElement.innerHTML = '';
+        let sendCell;
+        if (send && send.ok) {
+          sendCell = `true / sent at ${send.sentAt ?? ''}`;
+        } else if (result.terminalSend === 'not_sent') {
+          sendCell = 'false / not sent';
+        } else {
+          sendCell = String(result.terminalSend ?? 'unknown');
+        }
         const items = [
           ['run_id', result.run_id ?? '—'],
           ['runDir', result.runDir ?? '—'],
           ['final_prompt.md', result.finalPromptPath ?? '—'],
           ['context_pack.md', result.contextPackPath ?? '—'],
           ['selected_skills.json', result.selectedSkillsPath ?? '—'],
-          ['terminal send', result.terminalSend === 'not_sent' ? 'false / not sent' : String(result.terminalSend ?? 'unknown')],
+          ['terminal send', sendCell],
         ];
+        if (send && send.ok) {
+          items.push(['send_metadata.json', send.sendMetadataPath ?? '—']);
+          if (send.currentSendMetadataPath) {
+            items.push(['current/send_metadata.json', send.currentSendMetadataPath]);
+          }
+        }
         for (const [label, value] of items) {
           const li = document.createElement('li');
           const labelSpan = document.createElement('span');
@@ -279,6 +322,9 @@
         }
 
         generateButton.disabled = true;
+        currentPreview = null;
+        setSendStatus('');
+        refreshSendButton();
         setComposerStatus('Generating preview…', false);
         previewElement.textContent = 'Generating preview…';
 
@@ -289,23 +335,62 @@
             setComposerStatus(`Error: ${error.code} — ${error.message}`, true);
             previewElement.textContent = 'No preview (generation failed).';
             summaryElement.innerHTML = `<li><span class="label">error:</span> ${error.code}</li>`;
+            currentPreview = null;
             return;
           }
           previewElement.textContent = result.finalPrompt ?? '';
           renderSummary(result);
+          currentPreview = result;
           setComposerStatus(`Preview ready. Run: ${result.run_id}. No prompt was sent to terminal.`, false);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           setComposerStatus(`Error: ${message}`, true);
           previewElement.textContent = 'No preview (exception).';
+          currentPreview = null;
         } finally {
           generateButton.disabled = false;
+          refreshSendButton();
+        }
+      }
+
+      async function sendToTerminal() {
+        if (!window.vibecodeAPI || !window.vibecodeAPI.composer) {
+          setSendStatus('Composer API is unavailable.', 'error');
+          return;
+        }
+        if (!currentPreview || !currentPreview.ok || !currentPreview.run_id) {
+          setSendStatus('Generate a preview first.', 'error');
+          return;
+        }
+        if (!terminalReady) {
+          setSendStatus('No active terminal session.', 'error');
+          return;
+        }
+
+        sendButton.disabled = true;
+        setSendStatus('Sending final_prompt.md into active terminal…');
+
+        try {
+          const send = await window.vibecodeAPI.composer.sendPreview(currentPreview.run_id);
+          if (!send || send.ok !== true) {
+            const error = (send && send.error) || { code: 'UNKNOWN', message: 'unknown error' };
+            setSendStatus(`Send failed: ${error.code} — ${error.message}`, 'error');
+            return;
+          }
+          renderSummary(currentPreview, send);
+          setSendStatus(`Sent at ${send.sentAt} → ${send.sendMetadataPath}`, 'ok');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setSendStatus(`Send failed: ${message}`, 'error');
+        } finally {
+          refreshSendButton();
         }
       }
 
       openComposerButton.addEventListener('click', openComposer);
       closeComposerButton.addEventListener('click', closeComposer);
       generateButton.addEventListener('click', () => { void generatePreview(); });
+      sendButton.addEventListener('click', () => { void sendToTerminal(); });
       window.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && overlay.classList.contains('open')) {
           closeComposer();
@@ -334,11 +419,15 @@
         window.vibecodeAPI.terminal.onData((data) => term.write(data));
         window.vibecodeAPI.terminal.onExit((code) => {
           statusElement.textContent = `Terminal exited with code ${code ?? 'unknown'}`;
+          terminalReady = false;
+          refreshSendButton();
         });
         term.onData((data) => window.vibecodeAPI.terminal.write(data));
 
         const session = await window.vibecodeAPI.terminal.start(workspace.repoPath, cols, rows);
         statusElement.textContent = `PTY pid ${session.pid} · ${session.shell} · ${session.cwd}`;
+        terminalReady = true;
+        refreshSendButton();
 
         window.addEventListener('resize', () => {
           window.vibecodeAPI.terminal.resize(cols, rows);

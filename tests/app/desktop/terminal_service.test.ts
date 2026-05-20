@@ -74,7 +74,28 @@ describe('DesktopTerminalService', () => {
     const metadata = service.startSession(repoPath, 120, 40);
 
     expect(factory.mock.calls[0][0]).toMatchObject({ cwd: repoPath, cols: 120, rows: 40 });
-    expect(metadata).toEqual({ pid: fakePty.pid, cwd: repoPath, shell: fakePty.shell });
+    expect(metadata).toMatchObject({ pid: fakePty.pid, cwd: repoPath, shell: fakePty.shell });
+    expect(typeof metadata.sessionId).toBe('string');
+    expect(metadata.sessionId.length).toBeGreaterThan(0);
+  });
+
+  test('getActiveSessionInfo returns the running session and clears after close', async () => {
+    const fakePty = createFakePty();
+    const { DesktopTerminalService } = await import('../../../src/app/desktop/terminal_bridge.js');
+
+    const service = new DesktopTerminalService(() => fakePty);
+    expect(service.getActiveSessionInfo()).toBeUndefined();
+
+    const metadata = service.startSession(process.cwd(), 80, 24);
+    const active = service.getActiveSessionInfo();
+    expect(active).toBeDefined();
+    expect(active?.sessionId).toBe(metadata.sessionId);
+    expect(active?.pid).toBe(fakePty.pid);
+    expect(active?.cwd).toBe(metadata.cwd);
+    expect(active?.shell).toBe(fakePty.shell);
+
+    await service.closeSession();
+    expect(service.getActiveSessionInfo()).toBeUndefined();
   });
 
   test('forwards input to PTY session and resizes active session', async () => {

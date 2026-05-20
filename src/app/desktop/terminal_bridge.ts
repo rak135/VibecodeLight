@@ -12,6 +12,14 @@ export interface DesktopTerminalMetadata {
   pid: number;
   cwd: string;
   shell: string;
+  sessionId: string;
+}
+
+export interface DesktopActiveSession {
+  sessionId: string;
+  pid: number;
+  cwd: string;
+  shell: string;
 }
 
 type PtyFactory = typeof createPtySession;
@@ -25,8 +33,15 @@ interface WebContentsLike {
   send(channel: string, ...args: unknown[]): void;
 }
 
+let sessionCounter = 0;
+function makeSessionId(pid: number): string {
+  sessionCounter += 1;
+  return `desktop-${pid}-${Date.now().toString(36)}-${sessionCounter.toString(36)}`;
+}
+
 export class DesktopTerminalService {
   private session: PtySession | undefined;
+  private active: DesktopActiveSession | undefined;
   private readonly dataHandlers: Array<(data: string) => void> = [];
   private readonly exitHandlers: Array<(code: number | undefined) => void> = [];
 
@@ -41,18 +56,26 @@ export class DesktopTerminalService {
     const pty = this.ptyFactory({ cwd, cols, rows });
     this.session = pty;
 
+    const shell = (pty as PtySession & { shell?: string }).shell ?? 'unknown';
+    const sessionId = makeSessionId(pty.pid);
+    this.active = { sessionId, pid: pty.pid, cwd, shell };
+
     pty.onData((data) => {
       for (const handler of this.dataHandlers) handler(data);
     });
     pty.onExit((code) => {
+      this.active = undefined;
       for (const handler of this.exitHandlers) handler(code);
     });
 
-    return {
-      pid: pty.pid,
-      cwd,
-      shell: (pty as PtySession & { shell?: string }).shell ?? 'unknown',
-    };
+    return { pid: pty.pid, cwd, shell, sessionId };
+  }
+
+  getActiveSessionInfo(): DesktopActiveSession | undefined {
+    if (!this.session || this.session.isClosed) {
+      return undefined;
+    }
+    return this.active;
   }
 
   writeInput(data: string): void {
@@ -72,6 +95,7 @@ export class DesktopTerminalService {
       this.session.close();
     }
     this.session = undefined;
+    this.active = undefined;
   }
 
   onData(handler: (data: string) => void): void {

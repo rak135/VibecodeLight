@@ -25,12 +25,13 @@ function createWindow(): void {
   });
 
   if (!ipcRegistered) {
-    registerDesktopTerminalIpcHandlers(ipcMain, {
+    const terminalService = registerDesktopTerminalIpcHandlers(ipcMain, {
       getWebContents: () => mainWindow?.webContents,
       getRepoPath: repoPath,
     });
     registerDesktopComposerIpcHandlers(ipcMain, {
       getRepoPath: repoPath,
+      getTerminalService: () => terminalService,
     });
     ipcRegistered = true;
   }

@@ -809,9 +809,18 @@ The desktop app should provide:
 The checkpoint shell now ships a minimal composer overlay. Click **Open composer**, write a task, and press **Generate preview** to run the full mock prompt pipeline through the same core code as `pnpm vibecode prompt "task" --mock`. The overlay shows:
 
 - the exact saved `output/final_prompt.md` content (the preview equals the saved file — no hidden prompt material is added in the UI);
-- a run/artifact summary: `run_id`, `runDir`, `final_prompt.md`, `context_pack.md`, `skills/selected_skills.json`, terminal-send status (`false / not sent`).
+- a run/artifact summary: `run_id`, `runDir`, `final_prompt.md`, `context_pack.md`, `skills/selected_skills.json`, terminal-send status.
 
-This checkpoint does not send `final_prompt.md` into the terminal, does not create `terminal/send_metadata.json`, and does not implement approval, auto-approve, post-run state capture, or per-run commits. The terminal continues to work independently of the composer.
+### Send final prompt into terminal
+
+After a preview is generated and a terminal session is active, click **Send to Terminal** to send the saved `output/final_prompt.md` of the current run into the active embedded PTY session. The renderer never reads files directly — it calls `composer.sendPreview(runId)` through the preload contextBridge, the main process reads the saved file, and the existing `DesktopTerminalService` writes the bytes into the active session. The preview source and the bytes sent are the same file; the metadata records both hashes honestly. After a successful send VibecodeLight writes:
+
+```text
+.vibecode/runs/<run_id>/terminal/send_metadata.json
+.vibecode/current/send_metadata.json   # mirror; created only after send
+```
+
+`send_metadata.json` records `run_id`, `terminal_session_id`, `sent_file` (`output/final_prompt.md`), `sent_at`, `auto_approve: false`, `byte_count`, `char_count`, `content_sha256` (hash of the saved final prompt), `sent_payload_sha256` (hash of the bytes actually written; equal to `content_sha256` unless a trailing newline is appended), `newline_appended`, and `terminal_cwd`. The saved `output/final_prompt.md` is never mutated by send. This checkpoint does not implement auto-approve, post-run state capture, `after/` artifacts, per-run commits, or terminal-mode detection for Hermes/OpenCode/Codex. The terminal continues to work independently of the composer.
 
 The GUI must call the same core/adapters logic as the CLI through IPC/preload boundaries.
 

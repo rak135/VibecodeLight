@@ -40,7 +40,7 @@ describe('desktop preload bridge boundary', () => {
     expect(Object.keys(api).sort()).toEqual(['composer', 'terminal', 'workspace']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
-    expect(Object.keys(api.composer).sort()).toEqual(['generatePreview']);
+    expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'sendPreview']);
   });
 
   test("renderer-facing API does not expose forbidden keys", async () => {
@@ -80,5 +80,25 @@ describe('desktop preload bridge boundary', () => {
     await composer.generatePreview('integration smoke');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:generatePreview', 'integration smoke');
+  });
+
+  test('composer.sendPreview invokes composer:sendPreview IPC channel only', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const composer = api.composer as { sendPreview: (runId: string) => Promise<unknown> };
+    await composer.sendPreview('2026-05-20_001');
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001');
   });
 });
