@@ -185,6 +185,7 @@ Planned core stack:
 - pnpm
 - Vitest
 - ESLint
+- node-pty
 - Prettier
 - electron-vite
 - Python
@@ -639,7 +640,12 @@ pnpm vibecode context-build "task" --repo <path>
 pnpm vibecode context-build "task" --json
 pnpm vibecode flash run latest --mock
 pnpm vibecode flash run latest --mock --json
+pnpm vibecode terminal demo
+pnpm vibecode terminal demo --json
+pnpm vibecode terminal demo --repo <path>
 ```
+
+`terminal demo` starts a real PTY-backed PowerShell session in the requested repo, runs a small `VIBECODE_PTY_OK` demo command plus `git status --short`, and may write `.vibecode/runs/<run_id>/terminal/terminal_excerpt_after.md` only when a current run already exists.
 
 The current `context-build` checkpoint creates a run, runs the deterministic scanner, writes `skills/skills_catalog.json`, and writes `flash/flash_input_manifest.json` plus `flash/flash_input.md`. It does not call a real flash model and does not produce `flash_output.md`, `context_pack.md`, or `final_prompt.md`.
 

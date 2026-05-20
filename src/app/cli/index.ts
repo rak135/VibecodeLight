@@ -31,6 +31,7 @@ import {
   parseFlashOutput,
 } from '../../core/context/index.js';
 import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
+import { runTerminalDemo } from '../../core/terminal/index.js';
 
 function pythonAvailable(): boolean {
   const result = spawnSync('python', ['--version'], { encoding: 'utf8' });
@@ -1179,6 +1180,53 @@ export function createCli(): Command {
     .option('--json', 'Output canonical JSON envelope')
     .action((runId: string, options: { repo: string; json?: boolean }) => {
       handlePromptRender(runId, { repo: options.repo, json: options.json ?? prompt.opts<{ json?: boolean }>().json });
+    });
+
+  const terminalCmd = program.command('terminal').description('Terminal commands');
+
+  terminalCmd
+    .command('demo')
+    .description('Start a real PTY terminal demo')
+    .option('--repo <path>', 'Working directory for terminal session', process.cwd())
+    .option('--command <cmd>', 'Command to run in terminal')
+    .option('--json', 'Output JSON envelope')
+    .action(async (options: { repo: string; command?: string; json?: boolean }) => {
+      const result = await runTerminalDemo({
+        repo: options.repo,
+        command: options.command,
+        json: options.json,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else if (result.ok) {
+        console.log('terminal demo: ok');
+        console.log(`shell: ${result.shell}`);
+        console.log(`pid: ${result.pid}`);
+        console.log(`cwd: ${result.cwd}`);
+        if ((result.artifacts ?? []).length > 0) {
+          console.log('artifacts:');
+          for (const artifact of result.artifacts ?? []) {
+            console.log(`  ${artifact}`);
+          }
+        }
+        if ((result.warnings ?? []).length > 0) {
+          console.log('warnings:');
+          for (const warning of result.warnings ?? []) {
+            console.log(`  ${warning}`);
+          }
+        }
+        if (result.excerpt) {
+          console.log('excerpt:');
+          console.log(result.excerpt);
+        }
+      } else {
+        console.error(`terminal demo failed: ${result.error?.message ?? 'unknown error'}`);
+        if (result.error?.code) {
+          console.error(`code: ${result.error.code}`);
+        }
+      }
+      process.exitCode = result.ok ? 0 : 1;
     });
 
   return program;

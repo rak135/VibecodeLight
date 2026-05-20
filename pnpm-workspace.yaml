@@ -2,5 +2,6 @@ packages:
   - .
 allowBuilds:
   esbuild: true
+  node-pty: true
 onlyBuiltDependencies:
   - esbuild
