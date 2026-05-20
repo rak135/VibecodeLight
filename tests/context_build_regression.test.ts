@@ -29,6 +29,8 @@ describe('context-build regression coverage', () => {
     const runDir = path.join(runsDir, runs[0]);
     expect(fs.existsSync(path.join(runDir, 'flash', 'flash_output.md'))).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'output', 'context_pack.md'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skills.json'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'output', 'final_prompt.md'))).toBe(false);
 
     fs.rmSync(tmpRepo, { recursive: true, force: true });
@@ -49,6 +51,8 @@ describe('context-build regression coverage', () => {
     expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input_manifest.json'))).toBe(true);
     expect(fs.existsSync(path.join(runDir, 'flash', 'flash_output.md'))).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'output', 'context_pack.md'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skills.json'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'output', 'final_prompt.md'))).toBe(false);
 
     fs.rmSync(tmpRepo, { recursive: true, force: true });

@@ -582,6 +582,16 @@ pnpm vibecode flash run <run_id> --mock
 
 `flash run` writes `flash_output.md`, `flash_output_meta.json`, and `tool_calls.json` under the selected run's `flash/` directory. Default local/test runs do not call live providers; use `--mock` unless an explicit live-provider mode is being tested.
 
+Finalize a saved flash output into downstream context artifacts:
+
+```powershell
+pnpm vibecode context finalize latest
+pnpm vibecode context finalize latest --json
+pnpm vibecode context finalize <run_id>
+```
+
+`context finalize` validates `flash/flash_output.md`, writes `output/context_pack.md`, resolves selected skills into `skills/selected_skills.json`, and expands available `SKILL.md` files into `skills/selected_skill_contents.md`. It does not create `output/final_prompt.md`; final prompt rendering is a later step.
+
 Future JSON flash output is allowed later, but it is not the initial implementation contract.
 
 If JSON mode is introduced later, `flash_output.json` must be schema-validated before use.

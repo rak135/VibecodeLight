@@ -23,6 +23,8 @@ import {
   buildFlashInput,
   buildFlashInputManifest,
   FlashInputManifestError,
+  contextFinalizeErrorToDiagnostic,
+  finalizeContext,
   formatPreviousRunSummary,
   getPreviousRunSummary,
   parseFlashOutput,
@@ -92,6 +94,21 @@ export interface FlashRunResult {
   flashDir?: string;
   artifacts?: string[];
   warnings?: string[];
+  error?: {
+    code: string;
+    message: string;
+    path?: string;
+    details: string[];
+  };
+}
+
+export interface ContextFinalizeCliResult {
+  status: 'ok' | 'error';
+  run_id?: string;
+  runDir?: string;
+  artifacts?: string[];
+  warnings?: string[];
+  missing_skills?: string[];
   error?: {
     code: string;
     message: string;
@@ -455,6 +472,47 @@ export async function runFlash(opts: {
       runDir: resolvedRun?.runDir,
       flashDir: resolvedRun?.runDir ? path.join(resolvedRun.runDir, 'flash') : undefined,
       error: toErrorEnvelope(error, resolvedRun?.runDir),
+    };
+  }
+}
+
+export async function runContextFinalize(opts: {
+  runSelector: string;
+  repoRoot: string;
+}): Promise<ContextFinalizeCliResult> {
+  let resolvedRun: { runId: string; runDir: string } | undefined;
+
+  try {
+    resolvedRun = resolveRunDir(opts.repoRoot, opts.runSelector);
+    const { runId, runDir } = resolvedRun;
+
+    if (!fs.existsSync(runDir)) {
+      throw new LlmAdapterError(`run not found: ${runId}`, {
+        code: 'RUN_NOT_FOUND',
+        path: runDir,
+        details: [],
+      });
+    }
+
+    const result = finalizeContext(runDir);
+    return {
+      status: 'ok',
+      run_id: result.run_id,
+      runDir,
+      artifacts: result.artifacts,
+      warnings: result.warnings,
+      missing_skills: result.missing_skills,
+    };
+  } catch (error) {
+    const fallbackPath = resolvedRun?.runDir ?? path.join(getWorkspacePaths(opts.repoRoot).runs, opts.runSelector);
+    const diagnostic = error instanceof LlmAdapterError
+      ? toErrorEnvelope(error, fallbackPath)
+      : contextFinalizeErrorToDiagnostic(error, fallbackPath);
+    return {
+      status: 'error',
+      run_id: resolvedRun?.runId,
+      runDir: resolvedRun?.runDir,
+      error: diagnostic,
     };
   }
 }
@@ -852,6 +910,64 @@ export function createCli(): Command {
         }
       }
       process.exitCode = 1;
+    });
+
+  const context = program.command('context').description('Context artifact operations');
+
+  context
+    .command('finalize <runId>')
+    .description('Finalize context pack and selected skill artifacts for a flash output')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action(async (runId: string, options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const result = await runContextFinalize({ runSelector: runId, repoRoot });
+
+      if (result.status === 'error') {
+        const error = result.error ?? {
+          code: 'CONTEXT_FINALIZE_FAILED',
+          message: 'context finalize failed',
+          path: result.runDir,
+          details: [],
+        };
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error }));
+        } else {
+          console.error(`context finalize failed: ${error.message}`);
+          if (error.path) {
+            console.error(`path: ${error.path}`);
+          }
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const artifacts = result.artifacts ?? [];
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            run_id: result.run_id,
+            runDir: result.runDir,
+            missing_skills: result.missing_skills ?? [],
+          },
+          artifacts,
+          warnings: result.warnings ?? [],
+        }));
+      } else {
+        console.log(`run_id: ${result.run_id}`);
+        console.log(`runDir: ${result.runDir}`);
+        console.log('artifacts:');
+        for (const artifact of artifacts) {
+          console.log(`  ${artifact}`);
+        }
+        if ((result.warnings ?? []).length > 0) {
+          console.log('warnings:');
+          for (const warning of result.warnings ?? []) {
+            console.log(`  ${warning}`);
+          }
+        }
+      }
     });
 
   // context-build command
