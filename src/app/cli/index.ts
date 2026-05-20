@@ -5,6 +5,9 @@ import { spawnSync } from 'child_process';
 import { Command } from 'commander';
 import YAML from 'yaml';
 
+import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
+import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
+import { loadProviderConfig } from '../../adapters/llm/provider_config.js';
 import { createRun } from '../../core/runs/run_store.js';
 import { updateCurrent } from '../../core/runs/current.js';
 import { initWorkspace } from '../../core/workspace/initializer.js';
@@ -80,6 +83,65 @@ export interface ContextBuildResult {
     path?: string;
     details: string[];
   };
+}
+
+export interface FlashRunResult {
+  status: 'ok' | 'error';
+  run_id?: string;
+  runDir?: string;
+  flashDir?: string;
+  artifacts?: string[];
+  warnings?: string[];
+  error?: {
+    code: string;
+    message: string;
+    path?: string;
+    details: string[];
+  };
+}
+
+function toErrorEnvelope(error: unknown, fallbackPath?: string): NonNullable<FlashRunResult['error']> {
+  if (error instanceof LlmAdapterError) {
+    return {
+      code: error.code,
+      message: error.message,
+      path: error.path ?? fallbackPath,
+      details: error.details,
+    };
+  }
+
+  return {
+    code: 'FLASH_RUN_FAILED',
+    message: error instanceof Error ? error.message : String(error),
+    path: fallbackPath,
+    details: [],
+  };
+}
+
+function resolveRunDir(repoRoot: string, runSelector: string): { runId: string; runDir: string } {
+  const paths = getWorkspacePaths(repoRoot);
+  if (runSelector === 'latest') {
+    const currentManifestPath = path.join(paths.current, 'run_manifest.json');
+    if (!fs.existsSync(currentManifestPath)) {
+      throw new LlmAdapterError('no latest run found; run context-build first', {
+        code: 'RUN_NOT_FOUND',
+        path: currentManifestPath,
+        details: ['Expected .vibecode/current/run_manifest.json to identify the latest run.'],
+      });
+    }
+
+    const manifest = JSON.parse(fs.readFileSync(currentManifestPath, 'utf8')) as Partial<RunManifest>;
+    if (!manifest.run_id) {
+      throw new LlmAdapterError('latest run manifest does not contain run_id', {
+        code: 'RUN_MANIFEST_INVALID',
+        path: currentManifestPath,
+        details: [],
+      });
+    }
+    return { runId: manifest.run_id, runDir: path.join(paths.runs, manifest.run_id) };
+  }
+
+  return { runId: runSelector, runDir: path.join(paths.runs, runSelector) };
 }
 
 function writeRunManifest(runManifestPath: string, manifest: RunManifest): void {
@@ -310,6 +372,89 @@ export async function runContextBuild(opts: {
         path: typedError.path ?? flashManifestPath,
         details: Array.isArray(typedError.details) ? typedError.details : [],
       },
+    };
+  }
+}
+
+export async function runFlash(opts: {
+  runSelector: string;
+  repoRoot: string;
+  mock?: boolean;
+  live?: boolean;
+}): Promise<FlashRunResult> {
+  let resolvedRun: { runId: string; runDir: string } | undefined;
+
+  try {
+    resolvedRun = resolveRunDir(opts.repoRoot, opts.runSelector);
+    const { runId, runDir } = resolvedRun;
+    const flashDir = path.join(runDir, 'flash');
+    const flashInputPath = path.join(flashDir, 'flash_input.md');
+
+    if (!fs.existsSync(runDir)) {
+      throw new LlmAdapterError(`run not found: ${runId}`, {
+        code: 'RUN_NOT_FOUND',
+        path: runDir,
+        details: [],
+      });
+    }
+
+    if (!fs.existsSync(flashInputPath)) {
+      throw new LlmAdapterError(`missing flash_input.md for run ${runId}`, {
+        code: 'FLASH_INPUT_NOT_FOUND',
+        path: flashInputPath,
+        details: ['Run context-build before flash run, or choose a run containing flash/flash_input.md.'],
+      });
+    }
+
+    const flashInputMd = fs.readFileSync(flashInputPath, 'utf8');
+
+    if (!opts.mock) {
+      const providerConfig = loadProviderConfig(process.env, { live: opts.live ?? false });
+      if (!providerConfig) {
+        throw new ProviderNotConfiguredError('no flash provider configured; set VIBECODE_PROVIDER and VIBECODE_API_KEY or use --mock', {
+          path: flashInputPath,
+          details: [],
+        });
+      }
+
+      if (!opts.live) {
+        throw new LlmAdapterError(
+          'live model calls are disabled in normal flash run; use --mock for tests/smoke or pass --live with provider configuration',
+          { code: 'LIVE_PROVIDER_DISABLED', path: flashInputPath, details: ['Default flash run does not call real providers.'] },
+        );
+      }
+
+      throw new LlmAdapterError('live flash provider adapters are not implemented in this checkpoint', {
+        code: 'PROVIDER_NOT_IMPLEMENTED',
+        path: flashInputPath,
+        details: [`provider: ${providerConfig.provider}`],
+      });
+    }
+
+    const adapter = new MockFlashAdapter();
+    await adapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
+
+    const artifacts = [
+      path.join(flashDir, 'flash_output.md'),
+      path.join(flashDir, 'flash_output_meta.json'),
+      path.join(flashDir, 'tool_calls.json'),
+    ];
+
+    return {
+      status: 'ok',
+      run_id: runId,
+      runDir,
+      flashDir,
+      artifacts,
+      warnings: [],
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      run_id: resolvedRun?.runId,
+      runDir: resolvedRun?.runDir,
+      flashDir: resolvedRun?.runDir ? path.join(resolvedRun.runDir, 'flash') : undefined,
+      error: toErrorEnvelope(error, resolvedRun?.runDir),
     };
   }
 }
@@ -578,6 +723,64 @@ export function createCli(): Command {
     );
 
   const flash = program.command('flash').description('Flash output operations');
+
+  flash
+    .command('run <runId>')
+    .description('Run the flash model for a saved flash input')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--mock', 'Use deterministic mock flash adapter')
+    .option('--live', 'Allow live provider calls when configured')
+    .option('--json', 'Output canonical JSON envelope')
+    .action(async (runId: string, options: { repo: string; mock?: boolean; live?: boolean; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const result = await runFlash({
+        runSelector: runId,
+        repoRoot,
+        mock: options.mock,
+        live: options.live,
+      });
+
+      if (result.status === 'error') {
+        const error = result.error ?? {
+          code: 'FLASH_RUN_FAILED',
+          message: 'flash run failed',
+          path: result.flashDir,
+          details: [],
+        };
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error }));
+        } else {
+          console.error(`flash run failed: ${error.message}`);
+          if (error.path) {
+            console.error(`path: ${error.path}`);
+          }
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const artifacts = result.artifacts ?? [];
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            run_id: result.run_id,
+            runDir: result.runDir,
+            flash_dir: result.flashDir,
+            flash_output: result.flashDir ? path.join(result.flashDir, 'flash_output.md') : undefined,
+          },
+          artifacts,
+          warnings: result.warnings ?? [],
+        }));
+      } else {
+        console.log(`run_id: ${result.run_id}`);
+        console.log(`flashDir: ${result.flashDir}`);
+        console.log('artifacts:');
+        for (const artifact of artifacts) {
+          console.log(`  ${artifact}`);
+        }
+      }
+    });
 
   flash
     .command('validate <path>')

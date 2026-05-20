@@ -572,6 +572,16 @@ Optional extracted metadata:
 .vibecode/runs/<run_id>/flash/flash_output_meta.json
 ```
 
+Run the deterministic mock flash adapter against a saved context-build run:
+
+```powershell
+pnpm vibecode flash run latest --mock
+pnpm vibecode flash run latest --mock --json
+pnpm vibecode flash run <run_id> --mock
+```
+
+`flash run` writes `flash_output.md`, `flash_output_meta.json`, and `tool_calls.json` under the selected run's `flash/` directory. Default local/test runs do not call live providers; use `--mock` unless an explicit live-provider mode is being tested.
+
 Future JSON flash output is allowed later, but it is not the initial implementation contract.
 
 If JSON mode is introduced later, `flash_output.json` must be schema-validated before use.
@@ -617,6 +627,8 @@ For local development, invoke the TypeScript CLI through pnpm:
 pnpm vibecode context-build "task"
 pnpm vibecode context-build "task" --repo <path>
 pnpm vibecode context-build "task" --json
+pnpm vibecode flash run latest --mock
+pnpm vibecode flash run latest --mock --json
 ```
 
 The current `context-build` checkpoint creates a run, runs the deterministic scanner, writes `skills/skills_catalog.json`, and writes `flash/flash_input_manifest.json` plus `flash/flash_input.md`. It does not call a real flash model and does not produce `flash_output.md`, `context_pack.md`, or `final_prompt.md`.

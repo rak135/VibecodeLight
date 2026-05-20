@@ -33,4 +33,24 @@ describe('context-build regression coverage', () => {
 
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   });
+
+  test('context-build creates flash input artifacts without creating downstream output artifacts', () => {
+    const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-context-build-flash-only-'));
+    fs.writeFileSync(path.join(tmpRepo, 'hello.py'), 'print("hello")\n', 'utf8');
+
+    const result = runCli(['context-build', 'flash input only regression task', '--repo', tmpRepo]);
+    expect(result.status).toBe(0);
+
+    const runsDir = path.join(tmpRepo, '.vibecode', 'runs');
+    const [runId] = fs.readdirSync(runsDir);
+    const runDir = path.join(runsDir, runId);
+
+    expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input.md'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input_manifest.json'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'flash_output.md'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'output', 'context_pack.md'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'output', 'final_prompt.md'))).toBe(false);
+
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  });
 });
