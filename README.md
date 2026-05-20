@@ -799,10 +799,19 @@ pnpm vibecode desktop smoke --json
 The desktop app should provide:
 
 - a real embedded PTY terminal; currently implemented in the checkpoint shell;
-- a prompt composer overlay;
+- a prompt composer overlay (preview only in this checkpoint);
 - final prompt preview;
 - prompt send into the active terminal;
 - run artifact visibility.
+
+### Composer preview overlay
+
+The checkpoint shell now ships a minimal composer overlay. Click **Open composer**, write a task, and press **Generate preview** to run the full mock prompt pipeline through the same core code as `pnpm vibecode prompt "task" --mock`. The overlay shows:
+
+- the exact saved `output/final_prompt.md` content (the preview equals the saved file — no hidden prompt material is added in the UI);
+- a run/artifact summary: `run_id`, `runDir`, `final_prompt.md`, `context_pack.md`, `skills/selected_skills.json`, terminal-send status (`false / not sent`).
+
+This checkpoint does not send `final_prompt.md` into the terminal, does not create `terminal/send_metadata.json`, and does not implement approval, auto-approve, post-run state capture, or per-run commits. The terminal continues to work independently of the composer.
 
 The GUI must call the same core/adapters logic as the CLI through IPC/preload boundaries.
 

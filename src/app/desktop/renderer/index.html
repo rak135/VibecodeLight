@@ -24,6 +24,14 @@
         padding: 12px 16px;
         border-bottom: 1px solid #2a2f3a;
         background: #151923;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      header .titles {
+        min-width: 0;
       }
 
       h1 {
@@ -50,15 +58,158 @@
         background: #151923;
         font-size: 12px;
       }
+
+      button {
+        font: inherit;
+        background: #2a3a55;
+        color: #f5f7fb;
+        border: 1px solid #3a4d6e;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      button:hover { background: #34466a; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+      #composer-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 10, 14, 0.78);
+        z-index: 10;
+        padding: 24px;
+        box-sizing: border-box;
+        overflow: auto;
+      }
+
+      #composer-overlay.open { display: block; }
+
+      #composer-panel {
+        max-width: 960px;
+        margin: 0 auto;
+        background: #161a24;
+        border: 1px solid #2a2f3a;
+        border-radius: 8px;
+        padding: 16px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      #composer-panel h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      #composer-task {
+        width: 100%;
+        min-height: 100px;
+        font: inherit;
+        background: #0f131c;
+        color: #f5f7fb;
+        border: 1px solid #2a2f3a;
+        border-radius: 4px;
+        padding: 8px;
+        box-sizing: border-box;
+        resize: vertical;
+      }
+
+      .composer-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      #composer-status {
+        color: #a8b3cf;
+        font-size: 12px;
+      }
+
+      #composer-status.error { color: #ff8e8e; }
+
+      .composer-section h3 {
+        margin: 8px 0 4px;
+        font-size: 13px;
+        color: #a8b3cf;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      #composer-preview {
+        background: #0f131c;
+        border: 1px solid #2a2f3a;
+        border-radius: 4px;
+        padding: 10px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        max-height: 360px;
+        overflow: auto;
+        margin: 0;
+      }
+
+      #composer-summary {
+        background: #0f131c;
+        border: 1px solid #2a2f3a;
+        border-radius: 4px;
+        padding: 10px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        margin: 0;
+        list-style: none;
+      }
+
+      #composer-summary li {
+        margin: 2px 0;
+        word-break: break-all;
+      }
+
+      #composer-summary .label {
+        color: #7a89ad;
+        margin-right: 6px;
+      }
     </style>
   </head>
   <body>
     <header>
-      <h1>VibecodeLight Desktop</h1>
-      <div>Repository: <span id="repo">loading…</span></div>
+      <div class="titles">
+        <h1>VibecodeLight Desktop</h1>
+        <div>Repository: <span id="repo">loading…</span></div>
+      </div>
+      <div>
+        <button id="open-composer" type="button">Open composer</button>
+      </div>
     </header>
     <main id="terminal"></main>
     <footer id="status">Starting terminal…</footer>
+
+    <section id="composer-overlay" aria-hidden="true">
+      <div id="composer-panel" role="dialog" aria-labelledby="composer-title">
+        <div class="composer-row" style="justify-content: space-between;">
+          <h2 id="composer-title">Composer · preview only (no send)</h2>
+          <button id="close-composer" type="button">Close</button>
+        </div>
+        <label for="composer-task" class="composer-section">
+          <h3>Task prompt</h3>
+        </label>
+        <textarea id="composer-task" placeholder="Describe the task. The mock flash pipeline will render final_prompt.md and preview it here."></textarea>
+        <div class="composer-row">
+          <button id="generate-preview" type="button">Generate preview</button>
+          <span id="composer-status">Idle.</span>
+        </div>
+        <div class="composer-section">
+          <h3>Final prompt preview</h3>
+          <pre id="composer-preview" aria-live="polite">No preview yet.</pre>
+        </div>
+        <div class="composer-section">
+          <h3>Run / artifact summary</h3>
+          <ul id="composer-summary"><li><span class="label">state:</span>no run yet</li></ul>
+        </div>
+      </div>
+    </section>
 
     <!-- Local xterm assets are copied from node_modules/@xterm/xterm by scripts/launch_desktop.js. -->
     <script src="vendor/xterm/xterm.js"></script>
@@ -66,8 +217,100 @@
       const terminalElement = document.getElementById('terminal');
       const repoElement = document.getElementById('repo');
       const statusElement = document.getElementById('status');
+      const overlay = document.getElementById('composer-overlay');
+      const openComposerButton = document.getElementById('open-composer');
+      const closeComposerButton = document.getElementById('close-composer');
+      const taskInput = document.getElementById('composer-task');
+      const generateButton = document.getElementById('generate-preview');
+      const composerStatus = document.getElementById('composer-status');
+      const previewElement = document.getElementById('composer-preview');
+      const summaryElement = document.getElementById('composer-summary');
       const cols = 120;
       const rows = 32;
+
+      function setComposerStatus(text, isError) {
+        composerStatus.textContent = text;
+        composerStatus.classList.toggle('error', Boolean(isError));
+      }
+
+      function openComposer() {
+        overlay.classList.add('open');
+        overlay.setAttribute('aria-hidden', 'false');
+        taskInput.focus();
+      }
+
+      function closeComposer() {
+        overlay.classList.remove('open');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
+
+      function renderSummary(result) {
+        summaryElement.innerHTML = '';
+        const items = [
+          ['run_id', result.run_id ?? '—'],
+          ['runDir', result.runDir ?? '—'],
+          ['final_prompt.md', result.finalPromptPath ?? '—'],
+          ['context_pack.md', result.contextPackPath ?? '—'],
+          ['selected_skills.json', result.selectedSkillsPath ?? '—'],
+          ['terminal send', result.terminalSend === 'not_sent' ? 'false / not sent' : String(result.terminalSend ?? 'unknown')],
+        ];
+        for (const [label, value] of items) {
+          const li = document.createElement('li');
+          const labelSpan = document.createElement('span');
+          labelSpan.className = 'label';
+          labelSpan.textContent = `${label}:`;
+          li.appendChild(labelSpan);
+          li.appendChild(document.createTextNode(' '));
+          li.appendChild(document.createTextNode(value));
+          summaryElement.appendChild(li);
+        }
+      }
+
+      async function generatePreview() {
+        if (!window.vibecodeAPI || !window.vibecodeAPI.composer) {
+          setComposerStatus('Composer API is unavailable.', true);
+          return;
+        }
+
+        const task = (taskInput.value ?? '').trim();
+        if (!task) {
+          setComposerStatus('Task prompt is required.', true);
+          return;
+        }
+
+        generateButton.disabled = true;
+        setComposerStatus('Generating preview…', false);
+        previewElement.textContent = 'Generating preview…';
+
+        try {
+          const result = await window.vibecodeAPI.composer.generatePreview(task);
+          if (!result || result.ok !== true) {
+            const error = (result && result.error) || { code: 'UNKNOWN', message: 'unknown error' };
+            setComposerStatus(`Error: ${error.code} — ${error.message}`, true);
+            previewElement.textContent = 'No preview (generation failed).';
+            summaryElement.innerHTML = `<li><span class="label">error:</span> ${error.code}</li>`;
+            return;
+          }
+          previewElement.textContent = result.finalPrompt ?? '';
+          renderSummary(result);
+          setComposerStatus(`Preview ready. Run: ${result.run_id}. No prompt was sent to terminal.`, false);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setComposerStatus(`Error: ${message}`, true);
+          previewElement.textContent = 'No preview (exception).';
+        } finally {
+          generateButton.disabled = false;
+        }
+      }
+
+      openComposerButton.addEventListener('click', openComposer);
+      closeComposerButton.addEventListener('click', closeComposer);
+      generateButton.addEventListener('click', () => { void generatePreview(); });
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && overlay.classList.contains('open')) {
+          closeComposer();
+        }
+      });
 
       async function main() {
         if (!window.vibecodeAPI) {

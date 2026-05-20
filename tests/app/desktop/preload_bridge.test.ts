@@ -1,6 +1,7 @@
 type ExposedApi = {
   terminal: Record<string, unknown>;
   workspace: Record<string, unknown>;
+  composer: Record<string, unknown>;
 };
 
 function collectKeys(value: unknown): string[] {
@@ -20,7 +21,7 @@ describe('desktop preload bridge boundary', () => {
     vi.restoreAllMocks();
   });
 
-  test('exposes only allowed terminal and workspace APIs', async () => {
+  test('exposes only allowed terminal, workspace, and composer APIs', async () => {
     const ipcRenderer = {
       invoke: vi.fn(),
       send: vi.fn(),
@@ -36,9 +37,10 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['composer', 'terminal', 'workspace']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
+    expect(Object.keys(api.composer).sort()).toEqual(['generatePreview']);
   });
 
   test("renderer-facing API does not expose forbidden keys", async () => {
@@ -55,6 +57,28 @@ describe('desktop preload bridge boundary', () => {
     await import('../../../src/app/desktop/preload.js');
 
     const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
-    expect(collectKeys(api)).not.toEqual(expect.arrayContaining(['require', 'eval', 'spawn', 'fs', 'child_process']));
+    expect(collectKeys(api)).not.toEqual(
+      expect.arrayContaining(['require', 'eval', 'spawn', 'fs', 'child_process', 'readFile', 'writeFile']),
+    );
+  });
+
+  test('composer.generatePreview invokes composer:generatePreview IPC channel only', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const composer = api.composer as { generatePreview: (task: string) => Promise<unknown> };
+    await composer.generatePreview('integration smoke');
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:generatePreview', 'integration smoke');
   });
 });

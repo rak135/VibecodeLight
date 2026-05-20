@@ -1,5 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+export interface ComposerPreviewIpcResult {
+  ok: boolean;
+  run_id?: string;
+  runDir?: string;
+  finalPromptPath?: string;
+  contextPackPath?: string;
+  selectedSkillsPath?: string;
+  finalPrompt?: string;
+  terminalSend?: 'not_sent';
+  warnings?: string[];
+  error?: { code: string; message: string; path?: string; details: string[] };
+}
+
 export interface VibecodePreloadApi {
   terminal: {
     start(repoPath: string, cols: number, rows: number): Promise<{ pid: number; cwd: string; shell: string }>;
@@ -11,6 +24,9 @@ export interface VibecodePreloadApi {
   };
   workspace: {
     getInfo(): Promise<{ repoPath: string }>;
+  };
+  composer: {
+    generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
   };
 }
 
@@ -39,6 +55,11 @@ export function createVibecodeApi(): VibecodePreloadApi {
     workspace: {
       getInfo() {
         return ipcRenderer.invoke('workspace:info') as Promise<{ repoPath: string }>;
+      },
+    },
+    composer: {
+      generatePreview(task: string) {
+        return ipcRenderer.invoke('composer:generatePreview', task) as Promise<ComposerPreviewIpcResult>;
       },
     },
   };

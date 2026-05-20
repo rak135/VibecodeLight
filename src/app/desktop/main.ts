@@ -2,6 +2,7 @@ import * as path from 'path';
 
 import { app, BrowserWindow, ipcMain } from 'electron';
 
+import { registerDesktopComposerIpcHandlers } from './composer_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 
 let mainWindow: BrowserWindow | undefined;
@@ -26,6 +27,9 @@ function createWindow(): void {
   if (!ipcRegistered) {
     registerDesktopTerminalIpcHandlers(ipcMain, {
       getWebContents: () => mainWindow?.webContents,
+      getRepoPath: repoPath,
+    });
+    registerDesktopComposerIpcHandlers(ipcMain, {
       getRepoPath: repoPath,
     });
     ipcRegistered = true;

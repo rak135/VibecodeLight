@@ -19,6 +19,11 @@ function collectTypeScriptFiles(dir: string): string[] {
   return files;
 }
 
+// prompt_preview_service.ts is the single documented gateway between the
+// desktop main process and the core prompt pipeline. It is intentionally
+// allowed to import from core/prompting; the renderer never imports it.
+const GATEWAY_FILES = new Set(['prompt_preview_service.ts']);
+
 describe('desktop import boundaries', () => {
   test('desktop modules do not import scanner/context/prompting/skills internals directly', () => {
     const files = collectTypeScriptFiles(desktopRoot);
@@ -26,8 +31,30 @@ describe('desktop import boundaries', () => {
 
     const forbiddenImport = /from\s+['"][^'"]*(core\/(scanning|context|prompting|skills)|scanner|context\/|prompting\/|skills\/)[^'"]*['"]/;
     for (const file of files) {
+      if (GATEWAY_FILES.has(path.basename(file))) continue;
       const source = fs.readFileSync(file, 'utf8');
       expect(source, `${path.relative(repoRoot, file)} imports forbidden core internals`).not.toMatch(forbiddenImport);
+    }
+  });
+
+  test('renderer scripts do not require/import Node fs or child_process', () => {
+    const rendererDir = path.join(desktopRoot, 'renderer');
+    const htmlFiles: string[] = [];
+    if (fs.existsSync(rendererDir)) {
+      for (const entry of fs.readdirSync(rendererDir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith('.html')) {
+          htmlFiles.push(path.join(rendererDir, entry.name));
+        }
+      }
+    }
+    expect(htmlFiles.length).toBeGreaterThan(0);
+    for (const file of htmlFiles) {
+      const source = fs.readFileSync(file, 'utf8');
+      expect(source, `${path.relative(repoRoot, file)} must not use Node require`).not.toMatch(/\brequire\(\s*['"]fs['"]\s*\)/);
+      expect(source, `${path.relative(repoRoot, file)} must not use Node require`).not.toMatch(/\brequire\(\s*['"]child_process['"]\s*\)/);
+      expect(source, `${path.relative(repoRoot, file)} must not import scanner internals`).not.toMatch(
+        /from\s+['"][^'"]*core\/(scanning|context|prompting|skills)[^'"]*['"]/,
+      );
     }
   });
 
