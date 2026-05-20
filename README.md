@@ -721,11 +721,14 @@ Expected TypeScript commands:
 
 ```powershell
 pnpm test
+pnpm test:serial
 pnpm test:live
 pnpm lint
 pnpm typecheck
 pnpm build
 ```
+
+`pnpm test` runs the full Vitest suite (parallel by default). `pnpm test:serial` runs the same suite with `--fileParallelism=false` and is available as a fallback if the parallel run shows flakiness on a given Windows ConPTY/node-pty environment.
 
 Expected Python scanner commands:
 
@@ -781,7 +784,17 @@ The desktop app now has a checkpoint Electron shell around the existing PTY adap
 pnpm dev:desktop
 ```
 
-The script compiles desktop TypeScript to ignored `dist-desktop/`, copies the minimal renderer HTML, and starts Electron with `VIBECODE_REPO` defaulting to the current working directory. The current renderer uses CDN-hosted xterm.js for this bundler-free checkpoint; a proper Electron renderer bundler is still planned.
+The script compiles desktop TypeScript to ignored `dist-desktop/`, copies the minimal renderer HTML, copies local `@xterm/xterm` assets into `dist-desktop/app/desktop/renderer/vendor/xterm/`, and starts Electron with `VIBECODE_REPO` defaulting to the current working directory. The renderer loads xterm from these local vendor files — no internet/CDN required.
+
+For an automated headless smoke of the desktop terminal bridge (no Electron window), run:
+
+```powershell
+pnpm desktop:smoke
+pnpm vibecode desktop smoke --repo <path>
+pnpm vibecode desktop smoke --json
+```
+
+`desktop smoke` exercises the same `DesktopTerminalService` that Electron uses, spawns a real PTY in the requested repo, writes `Write-Output "VIBECODE_ELECTRON_PTY_OK"`, verifies the marker appears in the output, then closes the session. It does not create any `.vibecode/`, `terminal/`, `output/`, or `after/` artifacts.
 
 The desktop app should provide:
 

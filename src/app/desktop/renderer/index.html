@@ -2,9 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://unpkg.com; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' https://unpkg.com 'unsafe-inline';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
     <title>VibecodeLight</title>
-    <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css" />
+    <link rel="stylesheet" href="vendor/xterm/xterm.css" />
     <style>
       :root {
         color-scheme: dark;
@@ -60,8 +60,8 @@
     <main id="terminal"></main>
     <footer id="status">Starting terminal…</footer>
 
-    <!-- Checkpoint-only renderer: CDN xterm keeps this shell bundler-free. A proper electron-vite bundle is planned. -->
-    <script src="https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+    <!-- Local xterm assets are copied from node_modules/@xterm/xterm by scripts/launch_desktop.js. -->
+    <script src="vendor/xterm/xterm.js"></script>
     <script>
       const terminalElement = document.getElementById('terminal');
       const repoElement = document.getElementById('repo');

@@ -32,6 +32,7 @@ import {
 } from '../../core/context/index.js';
 import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
 import { runTerminalDemo } from '../../core/terminal/index.js';
+import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
 
 function pythonAvailable(): boolean {
   const result = spawnSync('python', ['--version'], { encoding: 'utf8' });
@@ -1180,6 +1181,57 @@ export function createCli(): Command {
     .option('--json', 'Output canonical JSON envelope')
     .action((runId: string, options: { repo: string; json?: boolean }) => {
       handlePromptRender(runId, { repo: options.repo, json: options.json ?? prompt.opts<{ json?: boolean }>().json });
+    });
+
+  const desktopCmd = program.command('desktop').description('Desktop shell commands');
+
+  desktopCmd
+    .command('smoke')
+    .description('Headless smoke test of the desktop terminal bridge (no Electron window)')
+    .option('--repo <path>', 'Working directory for terminal session', process.cwd())
+    .option('--marker <text>', 'Marker string to wait for', 'VIBECODE_ELECTRON_PTY_OK')
+    .option('--timeout <ms>', 'Timeout in milliseconds', '15000')
+    .option('--json', 'Output JSON envelope')
+    .action(async (options: { repo: string; marker: string; timeout: string; json?: boolean }) => {
+      const result = await runDesktopSmoke({
+        repo: options.repo,
+        marker: options.marker,
+        timeoutMs: Number(options.timeout),
+      });
+
+      if (options.json) {
+        if (result.ok) {
+          console.log(JSON.stringify({
+            ok: true,
+            data: {
+              marker: result.marker,
+              marker_seen: result.marker_seen,
+              pid: result.pid,
+              shell: result.shell,
+              cwd: result.cwd,
+            },
+            artifacts: [],
+            warnings: [],
+          }));
+        } else {
+          console.log(JSON.stringify({
+            ok: false,
+            error: result.error ?? { code: 'DESKTOP_SMOKE_FAILED', message: 'desktop smoke failed' },
+          }));
+        }
+      } else if (result.ok) {
+        console.log('desktop smoke: ok');
+        console.log(`marker: ${result.marker}`);
+        console.log(`shell: ${result.shell}`);
+        console.log(`pid: ${result.pid}`);
+        console.log(`cwd: ${result.cwd}`);
+      } else {
+        console.error(`desktop smoke failed: ${result.error?.message ?? 'marker not seen'}`);
+        if (result.error?.code) {
+          console.error(`code: ${result.error.code}`);
+        }
+      }
+      process.exitCode = result.ok ? 0 : 1;
     });
 
   const terminalCmd = program.command('terminal').description('Terminal commands');

@@ -7,10 +7,12 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:serial": "vitest run --fileParallelism=false",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
     "vibecode": "tsx src/app/cli/index.ts",
-    "dev:desktop": "node scripts/launch_desktop.js"
+    "dev:desktop": "node scripts/launch_desktop.js",
+    "desktop:smoke": "tsx src/app/cli/index.ts desktop smoke --json"
   },
   "bin": {
     "vibecode": "./bin/vibecode.js"
@@ -19,7 +21,6 @@
     "@xterm/xterm": "^6.0.0",
     "commander": "^12.1.0",
     "node-pty": "^1.1.0",
-    "xterm": "^5.3.0",
     "yaml": "^2.5.0"
   },
   "devDependencies": {
