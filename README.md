@@ -643,6 +643,20 @@ pnpm vibecode flash run latest --mock --json
 
 The current `context-build` checkpoint creates a run, runs the deterministic scanner, writes `skills/skills_catalog.json`, and writes `flash/flash_input_manifest.json` plus `flash/flash_input.md`. It does not call a real flash model and does not produce `flash_output.md`, `context_pack.md`, or `final_prompt.md`.
 
+### Full CLI dogfood
+
+Run the complete mock prompt pipeline without Electron:
+
+```powershell
+pnpm vibecode prompt "task" --mock
+pnpm vibecode prompt "task" --mock --json
+pnpm vibecode runs list
+pnpm vibecode runs show latest
+pnpm vibecode runs show latest --json
+```
+
+`prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. It does not send anything to a terminal in this checkpoint, so no `terminal/send_metadata.json` or `after/` post-run artifacts are created.
+
 ### Internal scanner CLI
 
 ```powershell

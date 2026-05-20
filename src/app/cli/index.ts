@@ -10,13 +10,14 @@ import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { loadProviderConfig } from '../../adapters/llm/provider_config.js';
 import { createRun } from '../../core/runs/run_store.js';
 import { updateCurrent } from '../../core/runs/current.js';
+import { getRunInfo, listRuns } from '../../core/runs/run_display.js';
+import { performScanPhase, writeRunManifest } from '../../core/runs/scan_phase.js';
 import { initWorkspace } from '../../core/workspace/initializer.js';
 import { getWorkspacePaths } from '../../core/workspace/paths.js';
 import { RunManifest } from '../../core/models/index.js';
 import {
   buildSkillsCatalog,
   discoverProjectSkills,
-  writeSkillsCatalog,
 } from '../../core/skills/catalog.js';
 import { copyAllSkills, copySkill } from '../../core/skills/copy.js';
 import {
@@ -29,9 +30,7 @@ import {
   getPreviousRunSummary,
   parseFlashOutput,
 } from '../../core/context/index.js';
-import { renderFinalPrompt } from '../../core/prompting/index.js';
-
-const SCANNER_DIR = path.resolve(__dirname, '../../core/scanning/python');
+import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
 
 function pythonAvailable(): boolean {
   const result = spawnSync('python', ['--version'], { encoding: 'utf8' });
@@ -47,29 +46,6 @@ export interface ScanResult {
   warnings?: string[];
   diagnostic?: string;
 }
-
-interface ScannerPhaseSuccess {
-  status: 'ok';
-  run_id: string;
-  runDir: string;
-  scanDir: string;
-  vibecodePath: string;
-  runManifestPath: string;
-  manifest: RunManifest;
-  artifacts: Record<string, string>;
-  warnings: string[];
-}
-
-interface ScannerPhaseError {
-  status: 'error';
-  run_id: string;
-  runDir: string;
-  scanDir: string;
-  vibecodePath: string;
-  diagnostic: string;
-}
-
-type ScannerPhaseResult = ScannerPhaseSuccess | ScannerPhaseError;
 
 export interface ContextBuildResult {
   status: 'ok' | 'error';
@@ -162,106 +138,6 @@ function resolveRunDir(repoRoot: string, runSelector: string): { runId: string; 
   return { runId: runSelector, runDir: path.join(paths.runs, runSelector) };
 }
 
-function writeRunManifest(runManifestPath: string, manifest: RunManifest): void {
-  fs.writeFileSync(runManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-}
-
-async function performScanPhase(opts: {
-  task: string;
-  repoRoot: string;
-}): Promise<ScannerPhaseResult> {
-  const paths = getWorkspacePaths(opts.repoRoot);
-
-  // Ensure .vibecode/ exists
-  if (!fs.existsSync(paths.vibecode)) {
-    fs.mkdirSync(path.join(paths.vibecode, 'runs'), { recursive: true });
-    fs.mkdirSync(path.join(paths.vibecode, 'current'), { recursive: true });
-  }
-
-  const { run_id, runDir, scanDir } = await createRun({
-    vibecodePath: paths.vibecode,
-    task: opts.task,
-    repoRoot: opts.repoRoot,
-  });
-
-  // TypeScript-owned skills catalog for this run. Built from user-profile +
-  // project SKILLS/ before the scanner runs so it is always present in the
-  // run package even if the scanner subprocess fails.
-  const catalog = buildSkillsCatalog({ repoRoot: opts.repoRoot });
-  writeSkillsCatalog(path.join(runDir, 'skills', 'skills_catalog.json'), catalog);
-
-  const scannerConfigPath = path.join(runDir, 'scanner_config.json');
-  const scannerArgs = [
-    '-m', 'vibecode_scanner',
-    '--repo', opts.repoRoot,
-    '--task', opts.task,
-    '--scanner-config', scannerConfigPath,
-    '--out', scanDir,
-  ];
-
-  const result = spawnSync('python', scannerArgs, {
-    cwd: SCANNER_DIR,
-    encoding: 'utf8',
-    timeout: 120000,
-  });
-
-  const runManifestPath = path.join(runDir, 'run_manifest.json');
-  const manifest: RunManifest = JSON.parse(fs.readFileSync(runManifestPath, 'utf8'));
-
-  if (result.status !== 0) {
-    const errorManifest: RunManifest = {
-      ...manifest,
-      status: 'error',
-    };
-    writeRunManifest(runManifestPath, errorManifest);
-    await updateCurrent(paths.vibecode, errorManifest);
-
-    const diagnostic = result.stderr || result.stdout || `scanner exited with code ${result.status}`;
-    return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic };
-  }
-
-  // Parse scanner stdout JSON summary if present
-  let artifacts: Record<string, string> = {};
-  if (result.stdout && result.stdout.trim()) {
-    try {
-      const parsed = JSON.parse(result.stdout.trim());
-      if (parsed && typeof parsed === 'object' && parsed.artifacts && typeof parsed.artifacts === 'object') {
-        artifacts = parsed.artifacts as Record<string, string>;
-      }
-    } catch {
-      // Not JSON output - that's fine
-    }
-  }
-
-  // Read scan_manifest.json for artifact list and warnings (authoritative)
-  let warnings: string[] = [];
-  const scanManifestPath = path.join(scanDir, 'scan_manifest.json');
-  if (fs.existsSync(scanManifestPath)) {
-    try {
-      const scanManifest = JSON.parse(fs.readFileSync(scanManifestPath, 'utf8'));
-      if (Object.keys(artifacts).length === 0 && scanManifest && typeof scanManifest === 'object') {
-        artifacts = (scanManifest.artifacts as Record<string, string>) ?? {};
-      }
-      if (Array.isArray(scanManifest.warnings)) {
-        warnings = scanManifest.warnings;
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  return {
-    status: 'ok',
-    run_id,
-    runDir,
-    scanDir,
-    vibecodePath: paths.vibecode,
-    runManifestPath,
-    manifest,
-    artifacts,
-    warnings,
-  };
-}
 
 export async function runScan(opts: {
   task: string;
@@ -1033,7 +909,268 @@ export function createCli(): Command {
       }
     });
 
-  const prompt = program.command('prompt').description('Prompt rendering operations');
+  const handlePromptRender = (runId: string | undefined, options: { repo: string; json?: boolean }): void => {
+    if (!runId) {
+      const error = { code: 'RUN_ID_REQUIRED', message: 'run id is required', path: '', details: [] };
+      if (options.json) console.log(JSON.stringify({ ok: false, error }));
+      else console.error(`prompt render failed: ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const repoRoot = path.resolve(options.repo);
+    const paths = getWorkspacePaths(repoRoot);
+
+    let resolvedRun: { runId: string; runDir: string } | undefined;
+    try {
+      resolvedRun = resolveRunDir(repoRoot, runId);
+    } catch (err) {
+      const error = {
+        code: 'RUN_NOT_FOUND',
+        message: err instanceof Error ? err.message : String(err),
+        path: path.join(paths.runs, runId),
+        details: [],
+      };
+      if (options.json) {
+        console.log(JSON.stringify({ ok: false, error }));
+      } else {
+        console.error(`prompt render failed: ${error.message}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    const { runDir } = resolvedRun;
+    if (!fs.existsSync(runDir)) {
+      const error = {
+        code: 'RUN_NOT_FOUND',
+        message: `run not found: ${resolvedRun.runId}`,
+        path: runDir,
+        details: [],
+      };
+      if (options.json) {
+        console.log(JSON.stringify({ ok: false, error }));
+      } else {
+        console.error(`prompt render failed: ${error.message}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    const result = renderFinalPrompt(runDir, { vibecodePath: paths.vibecode });
+
+    if (!result.ok) {
+      const error = result.error ?? {
+        code: 'PROMPT_RENDER_FAILED',
+        message: 'prompt render failed',
+        details: [],
+      };
+      if (options.json) {
+        console.log(JSON.stringify({ ok: false, error }));
+      } else {
+        console.error(`prompt render failed: ${error.message}`);
+        if (error.path) console.error(`path: ${error.path}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    const artifacts = result.artifacts ?? [];
+    if (options.json) {
+      console.log(JSON.stringify({
+        ok: true,
+        data: {
+          run_id: result.runId,
+          runDir,
+          final_prompt: path.join(runDir, 'output', 'final_prompt.md'),
+        },
+        artifacts,
+        warnings: result.warnings ?? [],
+      }));
+    } else {
+      console.log(`run_id: ${result.runId}`);
+      console.log(`runDir: ${runDir}`);
+      console.log('artifacts:');
+      for (const artifact of artifacts) {
+        console.log(`  ${artifact}`);
+      }
+      if ((result.warnings ?? []).length > 0) {
+        console.log('warnings:');
+        for (const warning of result.warnings ?? []) {
+          console.log(`  ${warning}`);
+        }
+      }
+    }
+  };
+
+  const runs = program.command('runs').description('Run inspection commands');
+
+  runs
+    .command('list')
+    .description('List VibecodeLight runs')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const paths = getWorkspacePaths(repoRoot);
+      const infos = listRuns(paths.vibecode, paths.runs);
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: { runs: infos },
+          artifacts: [],
+          warnings: [],
+        }));
+        return;
+      }
+
+      console.log('run_id\tcreated_at\ttask\thas_final_prompt');
+      for (const info of infos) {
+        const task = info.task.length > 80 ? `${info.task.slice(0, 77)}...` : info.task;
+        console.log(`${info.run_id}\t${info.created_at}\t${task}\t${info.has_final_prompt ? 'yes' : 'no'}`);
+      }
+    });
+
+  runs
+    .command('show <runId>')
+    .description('Show a VibecodeLight run')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((runId: string, options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const paths = getWorkspacePaths(repoRoot);
+      let resolvedRun: { runId: string; runDir: string };
+      try {
+        resolvedRun = resolveRunDir(repoRoot, runId);
+      } catch (err) {
+        const error = {
+          code: 'RUN_NOT_FOUND',
+          message: err instanceof Error ? err.message : String(err),
+          path: runId === 'latest' ? path.join(paths.current, 'run_manifest.json') : path.join(paths.runs, runId),
+          details: [],
+        };
+        if (options.json) console.log(JSON.stringify({ ok: false, error }));
+        else console.error(`runs show failed: ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (!fs.existsSync(resolvedRun.runDir)) {
+        const error = {
+          code: 'RUN_NOT_FOUND',
+          message: `run not found: ${resolvedRun.runId}`,
+          path: resolvedRun.runDir,
+          details: [],
+        };
+        if (options.json) console.log(JSON.stringify({ ok: false, error }));
+        else console.error(`runs show failed: ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const info = getRunInfo(resolvedRun.runDir);
+      const artifacts = Object.values(info.artifacts).filter((value): value is string => typeof value === 'string');
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: info,
+          artifacts,
+          warnings: [],
+        }));
+        return;
+      }
+
+      console.log(`run: ${info.run_id}`);
+      console.log(`task: ${info.task}`);
+      console.log(`repo: ${info.repo_root}`);
+      console.log(`created: ${info.created_at}`);
+      console.log(`runDir: ${info.runDir}`);
+      console.log(`final_prompt: ${info.artifacts.final_prompt ?? 'not found'}`);
+      console.log(`send_metadata: ${info.artifacts.send_metadata ?? 'not present'}`);
+      console.log('artifacts:');
+      const artifactLines: Array<[string, string | undefined]> = [
+        ['user_prompt.md', info.artifacts.user_prompt],
+        ['run_manifest.json', info.artifacts.run_manifest],
+        ['scanner_config.json', info.artifacts.scanner_config],
+        ['flash/flash_input.md', info.artifacts.flash_input],
+        ['flash/flash_output.md', info.artifacts.flash_output],
+        ['output/context_pack.md', info.artifacts.context_pack],
+        ['skills/selected_skills.json', info.artifacts.selected_skills],
+        ['output/final_prompt.md', info.artifacts.final_prompt],
+      ];
+      for (const [label, artifactPath] of artifactLines) {
+        console.log(`  ${label}: ${artifactPath ? 'exists' : 'missing'}`);
+      }
+    });
+
+  const prompt = program
+    .command('prompt')
+    .description('Run full prompt pipeline: scan → flash → context → render')
+    .argument('[args...]', 'Task prompt, or render <runId>')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--mock', 'Use mock flash adapter (required for this checkpoint)')
+    .option('--json', 'Output canonical JSON envelope')
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; json?: boolean }) => {
+      const parts = args ?? [];
+      if (parts[0] === 'render') {
+        handlePromptRender(parts[1], options);
+        return;
+      }
+
+      const task = parts.join(' ').trim();
+      if (!task) {
+        const error = { code: 'TASK_REQUIRED', message: 'task is required', path: '', details: [] };
+        if (options.json) console.log(JSON.stringify({ ok: false, error }));
+        else console.error(error.message);
+        process.exitCode = 1;
+        return;
+      }
+
+      const repoRoot = path.resolve(options.repo);
+      const result = await runPromptPipeline({
+        task,
+        repoRoot,
+        mock: options.mock === true,
+      });
+
+      if (result.ok === false) {
+        const error = {
+          code: result.error.code,
+          message: result.error.message,
+          path: result.error.path ?? '',
+          details: result.error.details,
+        };
+        if (options.json) console.log(JSON.stringify({ ok: false, error }));
+        else console.error(`prompt failed: ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            run_id: result.run_id,
+            runDir: result.runDir,
+            finalPromptPath: result.finalPromptPath,
+          },
+          artifacts: result.artifacts,
+          warnings: result.warnings,
+        }));
+        return;
+      }
+
+      console.log(`run: ${result.run_id}`);
+      console.log(`runDir: ${result.runDir}`);
+      console.log(`final_prompt: ${result.finalPromptPath}`);
+      console.log('artifacts:');
+      for (const artifact of result.artifacts) {
+        console.log(`  ${artifact}`);
+      }
+      console.log('note: no terminal send in this checkpoint');
+    });
 
   prompt
     .command('render <runId>')
@@ -1041,89 +1178,7 @@ export function createCli(): Command {
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
     .action((runId: string, options: { repo: string; json?: boolean }) => {
-      const repoRoot = path.resolve(options.repo);
-      const paths = getWorkspacePaths(repoRoot);
-
-      let resolvedRun: { runId: string; runDir: string } | undefined;
-      try {
-        resolvedRun = resolveRunDir(repoRoot, runId);
-      } catch (err) {
-        const error = {
-          code: 'RUN_NOT_FOUND',
-          message: err instanceof Error ? err.message : String(err),
-          path: path.join(paths.runs, runId),
-          details: [],
-        };
-        if (options.json) {
-          console.log(JSON.stringify({ ok: false, error }));
-        } else {
-          console.error(`prompt render failed: ${error.message}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      const { runDir } = resolvedRun;
-      if (!fs.existsSync(runDir)) {
-        const error = {
-          code: 'RUN_NOT_FOUND',
-          message: `run not found: ${resolvedRun.runId}`,
-          path: runDir,
-          details: [],
-        };
-        if (options.json) {
-          console.log(JSON.stringify({ ok: false, error }));
-        } else {
-          console.error(`prompt render failed: ${error.message}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      const result = renderFinalPrompt(runDir, { vibecodePath: paths.vibecode });
-
-      if (!result.ok) {
-        const error = result.error ?? {
-          code: 'PROMPT_RENDER_FAILED',
-          message: 'prompt render failed',
-          details: [],
-        };
-        if (options.json) {
-          console.log(JSON.stringify({ ok: false, error }));
-        } else {
-          console.error(`prompt render failed: ${error.message}`);
-          if (error.path) console.error(`path: ${error.path}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      const artifacts = result.artifacts ?? [];
-      if (options.json) {
-        console.log(JSON.stringify({
-          ok: true,
-          data: {
-            run_id: result.runId,
-            runDir,
-            final_prompt: path.join(runDir, 'output', 'final_prompt.md'),
-          },
-          artifacts,
-          warnings: result.warnings ?? [],
-        }));
-      } else {
-        console.log(`run_id: ${result.runId}`);
-        console.log(`runDir: ${runDir}`);
-        console.log('artifacts:');
-        for (const artifact of artifacts) {
-          console.log(`  ${artifact}`);
-        }
-        if ((result.warnings ?? []).length > 0) {
-          console.log('warnings:');
-          for (const warning of result.warnings ?? []) {
-            console.log(`  ${warning}`);
-          }
-        }
-      }
+      handlePromptRender(runId, { repo: options.repo, json: options.json ?? prompt.opts<{ json?: boolean }>().json });
     });
 
   return program;
