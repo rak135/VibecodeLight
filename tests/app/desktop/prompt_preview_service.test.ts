@@ -95,4 +95,17 @@ describe('DesktopPromptPreviewService', () => {
     const afterDir = path.join(result.runDir, 'after');
     expect(fs.existsSync(afterDir)).toBe(false);
   });
+
+  test('generatePromptPreview uses explicit repoRoot not process.cwd()', async () => {
+    const { generatePromptPreview } = await import('../../../src/app/desktop/prompt_preview_service.js');
+
+    const result = await generatePromptPreview({ task: 'explicit repo root regression', repoRoot: tmpRepo });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.runDir.startsWith(tmpRepo)).toBe(true);
+    expect(result.runDir.startsWith(process.cwd())).toBe(false);
+    expect(result.runDir).toContain(path.join(tmpRepo, '.vibecode', 'runs'));
+  });
 });

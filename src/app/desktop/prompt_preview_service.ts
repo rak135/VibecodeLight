@@ -58,14 +58,15 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
   }
 
   const pipelineResult = await runPromptPipeline({ task, repoRoot, mock: true });
-  if (!pipelineResult.ok) {
+  if (pipelineResult.ok === false) {
+    const error = pipelineResult.error;
     return {
       ok: false,
       error: {
-        code: pipelineResult.error.code,
-        message: pipelineResult.error.message,
-        path: pipelineResult.error.path,
-        details: pipelineResult.error.details,
+        code: error.code,
+        message: error.message,
+        path: error.path,
+        details: error.details,
       },
     };
   }

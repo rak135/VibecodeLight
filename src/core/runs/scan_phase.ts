@@ -5,10 +5,15 @@ import { spawnSync } from 'child_process';
 import { RunManifest } from '../models/index.js';
 import { buildSkillsCatalog, writeSkillsCatalog } from '../skills/catalog.js';
 import { getWorkspacePaths } from '../workspace/paths.js';
+import { formatScannerFailureDiagnostic } from '../scanning/scanner_subprocess.js';
 import { updateCurrent } from './current.js';
 import { createRun } from './run_store.js';
 
-const SCANNER_DIR = path.resolve(__dirname, '../scanning/python');
+export function resolveScannerDir(fromDir: string): string {
+  return path.resolve(fromDir, '../../../src/core/scanning/python');
+}
+
+const SCANNER_DIR = resolveScannerDir(__dirname);
 
 export interface ScannerPhaseSuccess {
   status: 'ok';
@@ -87,7 +92,11 @@ export async function performScanPhase(opts: {
     writeRunManifest(runManifestPath, errorManifest);
     await updateCurrent(paths.vibecode, errorManifest);
 
-    const diagnostic = result.stderr || result.stdout || `scanner exited with code ${result.status}`;
+    const diagnostic = formatScannerFailureDiagnostic({
+      cwd: SCANNER_DIR,
+      repoRoot: opts.repoRoot,
+      result,
+    });
     return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic };
   }
 
