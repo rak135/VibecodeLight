@@ -2,6 +2,7 @@ type ExposedApi = {
   terminal: Record<string, unknown>;
   workspace: Record<string, unknown>;
   composer: Record<string, unknown>;
+  artifacts: Record<string, unknown>;
 };
 
 function collectKeys(value: unknown): string[] {
@@ -37,10 +38,11 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['composer', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'composer', 'terminal', 'workspace']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'sendPreview']);
+    expect(Object.keys(api.artifacts).sort()).toEqual(['copyToClipboard', 'openPath']);
   });
 
   test("renderer-facing API does not expose forbidden keys", async () => {

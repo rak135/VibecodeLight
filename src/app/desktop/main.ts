@@ -1,6 +1,6 @@
 import * as path from 'path';
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, shell } from 'electron';
 
 import { resolveDesktopRepo, RepoResolveResult } from './repo_resolver.js';
 import { registerDesktopComposerIpcHandlers } from './composer_bridge.js';
@@ -64,6 +64,15 @@ function createWindow(): void {
         source: null,
         error: repoResolution.error,
       };
+    });
+
+    ipcMain.handle('artifacts:copyToClipboard', (_event, text: string) => {
+      clipboard.writeText(typeof text === 'string' ? text : '');
+    });
+    ipcMain.handle('artifacts:openPath', async (_event, p: string) => {
+      if (typeof p !== 'string' || !p) return { ok: false, error: 'path required' };
+      const result = await shell.openPath(p);
+      return { ok: result === '', error: result || undefined };
     });
 
     ipcRegistered = true;

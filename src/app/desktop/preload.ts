@@ -57,6 +57,10 @@ export interface VibecodePreloadApi {
     generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
     sendPreview(runId: string): Promise<ComposerSendIpcResult>;
   };
+  artifacts: {
+    copyToClipboard(text: string): void;
+    openPath(p: string): Promise<{ ok: boolean; error?: string }>;
+  };
 }
 
 export function createVibecodeApi(): VibecodePreloadApi {
@@ -96,6 +100,14 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       sendPreview(runId: string) {
         return ipcRenderer.invoke('composer:sendPreview', runId) as Promise<ComposerSendIpcResult>;
+      },
+    },
+    artifacts: {
+      copyToClipboard(text: string) {
+        void ipcRenderer.invoke('artifacts:copyToClipboard', text);
+      },
+      openPath(p: string) {
+        return ipcRenderer.invoke('artifacts:openPath', p) as Promise<{ ok: boolean; error?: string }>;
       },
     },
   };

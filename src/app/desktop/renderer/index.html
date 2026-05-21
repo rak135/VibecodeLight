@@ -172,6 +172,22 @@
         margin-right: 6px;
       }
 
+      #artifact-actions {
+        display: none;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      #artifact-actions.visible {
+        display: flex;
+      }
+
+      #artifact-actions button {
+        font-size: 12px;
+        padding: 4px 8px;
+      }
+
       #send-status { color: #a8b3cf; font-size: 12px; }
       #send-status.error { color: #ff8e8e; }
       #send-status.ok { color: #7ec47e; }
@@ -213,6 +229,11 @@
         <div class="composer-section">
           <h3>Run / artifact summary</h3>
           <ul id="composer-summary"><li><span class="label">state:</span>no run yet</li></ul>
+          <div id="artifact-actions" aria-live="polite">
+            <button id="copy-run-dir" type="button">Copy run dir</button>
+            <button id="copy-prompt-path" type="button">Copy prompt</button>
+            <button id="open-run-dir" type="button">Open run dir</button>
+          </div>
         </div>
       </div>
     </section>
@@ -233,6 +254,10 @@
       const sendStatus = document.getElementById('send-status');
       const previewElement = document.getElementById('composer-preview');
       const summaryElement = document.getElementById('composer-summary');
+      const artifactActions = document.getElementById('artifact-actions');
+      const copyRunDirButton = document.getElementById('copy-run-dir');
+      const copyPromptPathButton = document.getElementById('copy-prompt-path');
+      const openRunDirButton = document.getElementById('open-run-dir');
       const cols = 120;
       const rows = 32;
 
@@ -273,6 +298,47 @@
         overlay.setAttribute('aria-hidden', 'true');
       }
 
+      function setArtifactActionsVisible(visible) {
+        artifactActions.classList.toggle('visible', Boolean(visible));
+      }
+
+      function renderErrorSummary(error) {
+        setArtifactActionsVisible(false);
+        summaryElement.innerHTML = '';
+
+        const safeError = error || {};
+        const items = [
+          ['error code', safeError.code ?? 'UNKNOWN'],
+          ['message', safeError.message ?? 'unknown error'],
+        ];
+        for (const [label, value] of items) {
+          const li = document.createElement('li');
+          const labelSpan = document.createElement('span');
+          labelSpan.className = 'label';
+          labelSpan.textContent = `${label}:`;
+          li.appendChild(labelSpan);
+          li.appendChild(document.createTextNode(' '));
+          li.appendChild(document.createTextNode(String(value)));
+          summaryElement.appendChild(li);
+        }
+
+        if (Array.isArray(safeError.details) && safeError.details.length > 0) {
+          const detailsItem = document.createElement('li');
+          const labelSpan = document.createElement('span');
+          labelSpan.className = 'label';
+          labelSpan.textContent = 'details:';
+          detailsItem.appendChild(labelSpan);
+          const detailsList = document.createElement('ul');
+          for (const detail of safeError.details) {
+            const detailItem = document.createElement('li');
+            detailItem.textContent = String(detail);
+            detailsList.appendChild(detailItem);
+          }
+          detailsItem.appendChild(detailsList);
+          summaryElement.appendChild(detailsItem);
+        }
+      }
+
       function renderSummary(result, send) {
         summaryElement.innerHTML = '';
         let sendCell;
@@ -307,6 +373,7 @@
           li.appendChild(document.createTextNode(value));
           summaryElement.appendChild(li);
         }
+        setArtifactActionsVisible(Boolean(result.runDir));
       }
 
       async function generatePreview() {
@@ -323,6 +390,7 @@
 
         generateButton.disabled = true;
         currentPreview = null;
+        setArtifactActionsVisible(false);
         setSendStatus('');
         refreshSendButton();
         setComposerStatus('Generating preview…', false);
@@ -331,10 +399,10 @@
         try {
           const result = await window.vibecodeAPI.composer.generatePreview(task);
           if (!result || result.ok !== true) {
-            const error = (result && result.error) || { code: 'UNKNOWN', message: 'unknown error' };
+            const error = (result && result.error) || { code: 'UNKNOWN', message: 'unknown error', details: [] };
             setComposerStatus(`Error: ${error.code} — ${error.message}`, true);
             previewElement.textContent = 'No preview (generation failed).';
-            summaryElement.innerHTML = `<li><span class="label">error:</span> ${error.code}</li>`;
+            renderErrorSummary(error);
             currentPreview = null;
             return;
           }
@@ -346,6 +414,7 @@
           const message = error instanceof Error ? error.message : String(error);
           setComposerStatus(`Error: ${message}`, true);
           previewElement.textContent = 'No preview (exception).';
+          renderErrorSummary({ code: 'EXCEPTION', message, details: [] });
           currentPreview = null;
         } finally {
           generateButton.disabled = false;
@@ -373,8 +442,9 @@
         try {
           const send = await window.vibecodeAPI.composer.sendPreview(currentPreview.run_id);
           if (!send || send.ok !== true) {
-            const error = (send && send.error) || { code: 'UNKNOWN', message: 'unknown error' };
+            const error = (send && send.error) || { code: 'UNKNOWN', message: 'unknown error', details: [] };
             setSendStatus(`Send failed: ${error.code} — ${error.message}`, 'error');
+            renderErrorSummary(error);
             return;
           }
           renderSummary(currentPreview, send);
@@ -382,15 +452,47 @@
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           setSendStatus(`Send failed: ${message}`, 'error');
+          renderErrorSummary({ code: 'EXCEPTION', message, details: [] });
         } finally {
           refreshSendButton();
         }
+      }
+
+      function copyArtifactPath(value, label) {
+        if (!value || !window.vibecodeAPI || !window.vibecodeAPI.artifacts) {
+          setComposerStatus(`Cannot copy ${label}: artifact API is unavailable.`, true);
+          return;
+        }
+        window.vibecodeAPI.artifacts.copyToClipboard(value);
+        setComposerStatus(`Copied ${label}.`, false);
+      }
+
+      async function openArtifactPath(value, label) {
+        if (!value || !window.vibecodeAPI || !window.vibecodeAPI.artifacts) {
+          setComposerStatus(`Cannot open ${label}: artifact API is unavailable.`, true);
+          return;
+        }
+        const result = await window.vibecodeAPI.artifacts.openPath(value);
+        if (!result || result.ok !== true) {
+          setComposerStatus(`Open ${label} failed: ${(result && result.error) || 'unknown error'}`, true);
+          return;
+        }
+        setComposerStatus(`Opened ${label}.`, false);
       }
 
       openComposerButton.addEventListener('click', openComposer);
       closeComposerButton.addEventListener('click', closeComposer);
       generateButton.addEventListener('click', () => { void generatePreview(); });
       sendButton.addEventListener('click', () => { void sendToTerminal(); });
+      copyRunDirButton.addEventListener('click', () => {
+        copyArtifactPath(currentPreview && currentPreview.runDir, 'run dir');
+      });
+      copyPromptPathButton.addEventListener('click', () => {
+        copyArtifactPath(currentPreview && currentPreview.finalPromptPath, 'prompt path');
+      });
+      openRunDirButton.addEventListener('click', () => {
+        void openArtifactPath(currentPreview && currentPreview.runDir, 'run dir');
+      });
       window.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && overlay.classList.contains('open')) {
           closeComposer();
