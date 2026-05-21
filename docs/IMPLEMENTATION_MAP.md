@@ -477,7 +477,6 @@ A complete run should look like:
     keyword_hits.json
     recent_history.json
     previous_run_summary.json
-    terminal_context.json
 
   skills/
     skills_catalog.json
@@ -497,7 +496,6 @@ A complete run should look like:
 
   terminal/
     send_metadata.json
-    terminal_excerpt_after.md
     terminal_transcript.md
 
   after/
@@ -1706,7 +1704,7 @@ Prove that VibecodeLight can host a real terminal, not a fake textbox.
 - Resize support.
 - Multiline paste support.
 - Session metadata.
-- Transcript capture support for both excerpt and full transcript modes.
+- Transcript capture support for optional full transcript mode.
 
 ## CLI or test surface
 
@@ -1722,7 +1720,6 @@ For terminal-related test runs:
 
 ```text
 .vibecode/runs/<run_id>/terminal/
-  terminal_excerpt_after.md
   terminal_transcript.md   # when full transcript mode is enabled
 ```
 
@@ -1736,7 +1733,6 @@ Suggested tests:
 - Commands can be written and output can be read.
 - Session can be resized.
 - Session can be closed cleanly.
-- Transcript excerpt policy writes a bounded excerpt.
 - Full transcript mode writes a full transcript when enabled.
 
 Some PTY tests may be platform-specific or integration-level.
@@ -1746,7 +1742,7 @@ Some PTY tests may be platform-specific or integration-level.
 - A real PowerShell session can run inside the PTY adapter.
 - Basic commands work.
 - Interactive CLI tools can be manually smoke-tested.
-- Transcript excerpt and full transcript modes both work.
+- Full transcript mode works when enabled.
 - Terminal logic is isolated from context generation.
 
 ---
@@ -1876,7 +1872,7 @@ Send exactly the previewed `final_prompt.md` into the active terminal session.
 - Send metadata artifact.
 - Default preview-required behavior.
 - Auto-approve option.
-- Terminal excerpt and full transcript capture.
+- Send metadata capture and optional full transcript capture.
 
 The initial implementation does not try to detect whether the terminal is shell, Hermes, OpenCode, Codex, or another interactive tool.
 
@@ -1893,7 +1889,6 @@ VibecodeLight behaves like communication with a real terminal. The user remains 
 ```text
 .vibecode/runs/<run_id>/terminal/
   send_metadata.json
-  terminal_excerpt_after.md
   terminal_transcript.md   # when enabled
 ```
 
@@ -1918,8 +1913,7 @@ Suggested tests:
 - Send reads the saved `final_prompt.md`.
 - Send metadata identifies the exact sent file.
 - Auto-approve still writes and sends the saved final prompt.
-- Terminal excerpt is captured after send.
-- Full transcript is captured when enabled.
+- - Full transcript is captured when enabled.
 - Send metadata is mirrored to `.vibecode/current/send_metadata.json` only after send.
 
 Manual tests:
@@ -1938,32 +1932,21 @@ Manual tests:
 
 ---
 
-# Checkpoint: Terminal transcript and follow-up context
+# Checkpoint: Previous run summary only
 
 ## Purpose
 
-Allow follow-up prompts to include previous run summary and terminal context when useful.
+Keep prompt generation scoped to current-run scan material plus concise previous-run summary. Follow-up terminal-output context is deferred.
 
 ## Implement
 
 - Previous run summary inclusion.
-- Terminal excerpt inclusion option.
-- Follow-up context toggle in CLI/UI.
-- Explicit `include terminal context` option.
-- Bounded excerpt by default.
-- Full transcript opt-in.
-
-Default:
-
-```text
-previous_run_summary = included
-terminal_context = included only for follow-up/repair or explicit user choice
-```
+- No terminal-output inclusion flag or artifact.
+- Full transcript remains opt-in only if implemented separately from prompt generation.
 
 ## CLI surface
 
 ```powershell
-vibecode prompt "fix the failing test" --include-terminal-context
 vibecode prompt "continue from previous run"
 ```
 
@@ -1972,35 +1955,13 @@ vibecode prompt "continue from previous run"
 ```text
 .vibecode/runs/<run_id>/scan/
   previous_run_summary.json
-  terminal_context.json
-```
-
-Terminal source artifacts:
-
-```text
-.vibecode/runs/<previous_run_id>/terminal/
-  terminal_excerpt_after.md
-  terminal_transcript.md
 ```
 
 ## Required tests
 
-Write tests first.
-
-Suggested tests:
-
 - Previous run summary is available to the next run.
-- Terminal context is included when explicitly requested.
-- Terminal context is omitted by default for unrelated prompts.
-- Flash input records whether terminal context was included and why.
-- Full transcript is not included silently.
-
-## Success criteria
-
-- Repair prompts can include relevant prior context.
-- The run records whether terminal context was included.
-- The system does not silently include huge transcripts by default.
-- Terminal context remains separate from source repo scan.
+- Terminal output is not included in flash input.
+- No follow-up terminal artifacts are created.
 
 ---
 

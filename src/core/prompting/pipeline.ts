@@ -8,7 +8,6 @@ import { buildFlashInput,
   finalizeContext,
   formatPreviousRunSummary,
   getPreviousRunSummary,
-  writeTerminalContextArtifact,
 } from '../context/index.js';
 import { renderFinalPrompt } from './renderer.js';
 import { updateCurrent } from '../runs/current.js';
@@ -20,11 +19,6 @@ export interface PromptPipelineOptions {
   repoRoot: string;
   mock: boolean;
   live?: boolean;
-  /**
-   * When true, look for the most recent terminal_excerpt_after.md in previous runs
-   * and include it as terminal context in the new run's flash_input.md.
-   */
-  includeTerminalContext?: boolean;
 }
 
 export interface PromptPipelineSuccess {
@@ -79,56 +73,6 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     return errorResult('SCANNER_FAILED', scan.diagnostic, scan.scanDir, []);
   }
 
-  const terminalContextPath = opts.includeTerminalContext
-    ? (() => {
-        const runsDir = path.join(scan.vibecodePath, 'runs');
-        let found: { sourceRunId: string; sourcePath: string; excerpt: string } | undefined;
-
-        try {
-          const runIds = fs
-            .readdirSync(runsDir)
-            .filter((entry) => {
-              try {
-                return fs.statSync(path.join(runsDir, entry)).isDirectory();
-              } catch {
-                return false;
-              }
-            })
-            .sort()
-            .reverse();
-
-          for (const rid of runIds) {
-            if (rid === scan.run_id) continue;
-            const ep = path.join(runsDir, rid, 'terminal', 'terminal_excerpt_after.md');
-            if (fs.existsSync(ep)) {
-              found = { sourceRunId: rid, sourcePath: ep, excerpt: fs.readFileSync(ep, 'utf8') };
-              break;
-            }
-          }
-        } catch {
-          // no runs dir yet
-        }
-
-        if (found) {
-          return writeTerminalContextArtifact(scan.runDir, {
-            included: true,
-            reason: 'user requested --include-terminal-context',
-            sourceRunId: found.sourceRunId,
-            sourcePath: found.sourcePath,
-            excerpt: found.excerpt,
-          });
-        }
-
-        return writeTerminalContextArtifact(scan.runDir, {
-          included: false,
-          reason: 'no terminal excerpt found in previous runs',
-        });
-      })()
-    : writeTerminalContextArtifact(scan.runDir, {
-        included: false,
-        reason: 'not requested',
-      });
-
   const flashDir = path.join(scan.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
 
@@ -138,7 +82,6 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     path.join(scan.runDir, 'scanner_config.json'),
     path.join(scan.scanDir, 'scan_manifest.json'),
     path.join(scan.runDir, 'skills', 'skills_catalog.json'),
-    terminalContextPath,
     ...Object.values(scan.artifacts),
   ];
   const warnings = [...scan.warnings];

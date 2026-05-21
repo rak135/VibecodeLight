@@ -14,7 +14,6 @@ export interface DesktopActiveSession {
 export interface DesktopTerminalServiceLike {
   writeInput(data: string): void;
   getActiveSessionInfo(): DesktopActiveSession | undefined;
-  getActiveCleanExcerpt(): string | undefined;
 }
 
 export interface SendPromptIpcSuccess {
@@ -44,11 +43,6 @@ export interface SendPromptForRunRequest {
   runId: string;
   repoRoot: string;
   terminalService: DesktopTerminalServiceLike;
-  /**
-   * Optional terminal output excerpt captured after send.
-   * When provided and non-empty, written to terminal/terminal_excerpt_after.md.
-   */
-  terminalExcerpt?: string;
 }
 
 function errorResult(code: string, message: string, pathValue?: string, details: string[] = []): SendPromptIpcError {
@@ -98,7 +92,6 @@ export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promi
     writer,
     vibecodePath,
     runId,
-    terminalExcerpt: req.terminalExcerpt,
   });
 
   if (!result.ok) {

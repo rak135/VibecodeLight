@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 
 import { PtyError } from '../../adapters/pty/index.js';
@@ -35,37 +34,6 @@ function terminalError(error: unknown): { code: string; message: string } {
   };
 }
 
-function currentRunDir(repo: string): string | undefined {
-  const manifestPath = path.join(repo, '.vibecode', 'current', 'run_manifest.json');
-  if (!fs.existsSync(manifestPath)) {
-    return undefined;
-  }
-
-  try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { run_id?: string };
-    if (!manifest.run_id) {
-      return undefined;
-    }
-    const runDir = path.join(repo, '.vibecode', 'runs', manifest.run_id);
-    return fs.existsSync(runDir) ? runDir : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeExcerptArtifact(repo: string, excerpt: string): string[] {
-  const runDir = currentRunDir(repo);
-  if (!runDir) {
-    return [];
-  }
-
-  const terminalDir = path.join(runDir, 'terminal');
-  fs.mkdirSync(terminalDir, { recursive: true });
-  const artifactPath = path.join(terminalDir, 'terminal_excerpt_after.md');
-  fs.writeFileSync(artifactPath, `# Terminal excerpt after\n\n\`\`\`text\n${excerpt}\n\`\`\`\n`, 'utf8');
-  return [artifactPath];
-}
-
 async function runPrimaryCommand(session: TerminalSession, command: string | undefined): Promise<void> {
   if (!command) {
     await writeAndWait(session, DEFAULT_COMMAND, DEFAULT_MARKER, COMMAND_TIMEOUT_MS);
@@ -97,7 +65,6 @@ export async function runTerminalDemo(options: TerminalDemoOptions = {}): Promis
     await runGitStatus(session, warnings);
 
     const excerpt = session.excerpt.getCleanText();
-    const artifacts = writeExcerptArtifact(repo, excerpt);
 
     return {
       ok: true,
@@ -105,7 +72,7 @@ export async function runTerminalDemo(options: TerminalDemoOptions = {}): Promis
       pid: session.metadata.pid,
       cwd: session.metadata.cwd,
       excerpt,
-      artifacts,
+      artifacts: [],
       warnings,
     };
   } catch (error) {

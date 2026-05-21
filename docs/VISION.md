@@ -190,7 +190,6 @@ Základní struktura runu:
     keyword_hits.json
     recent_history.json
     previous_run_summary.json
-    terminal_context.json
 
   skills/
     skills_catalog.json
@@ -210,7 +209,6 @@ Základní struktura runu:
 
   terminal/
     send_metadata.json
-    terminal_excerpt_after.md
     terminal_transcript.md
 
   after/
@@ -219,7 +217,7 @@ Základní struktura runu:
     checks_summary.md
 ```
 
-`terminal_transcript.md` je volitelný podle konfigurace. Výchozí chování má ukládat spíš krátký terminálový excerpt než celý transcript.
+`terminal_transcript.md` je volitelný podle konfigurace.
 
 `checks_summary.md` může být v počátku prázdné nebo částečné, dokud aplikace neumí spolehlivě zachytávat výsledky checků.
 
@@ -693,12 +691,6 @@ Send metadata se ukládá do:
 
 ```text
 .vibecode/runs/<run_id>/terminal/send_metadata.json
-```
-
-Terminálový excerpt:
-
-```text
-.vibecode/runs/<run_id>/terminal/terminal_excerpt_after.md
 ```
 
 Volitelný celý transcript:

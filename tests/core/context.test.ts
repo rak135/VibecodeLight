@@ -6,7 +6,6 @@ import {
   buildFlashInputManifest,
   buildFlashInput,
   getPreviousRunSummary,
-  getTerminalContext,
 } from '../../src/core/context/index.js';
 
 // Helpers
@@ -176,7 +175,6 @@ describe('buildFlashInput', () => {
       '# Recent History',
       '# Skills Catalog',
       '# Previous Run Summary',
-      '# Terminal Context',
       '# Flash Instructions',
     ];
 
@@ -227,9 +225,14 @@ describe('buildFlashInput', () => {
     fs.rmSync(runDir, { recursive: true, force: true });
   });
 
-  test('terminal context section says "not included" by default (no terminal_context.json)', () => {
+  test('flash input does not include terminal context section', () => {
     const runDir = makeTmpRunDir();
     writeRequiredArtifacts(runDir);
+    fs.writeFileSync(
+      path.join(runDir, 'terminal_context.json'),
+      JSON.stringify({ included: true, excerpt: 'previous run output must not be used' }),
+      'utf8',
+    );
 
     const content = buildFlashInput({
       run_id: 'test-run-id',
@@ -239,8 +242,8 @@ describe('buildFlashInput', () => {
       previousRunSummary: undefined,
     });
 
-    expect(content).toContain('# Terminal Context');
-    expect(content).toContain('not included');
+    expect(content).not.toContain('# Terminal Context');
+    expect(content).not.toContain('previous run output must not be used');
 
     fs.rmSync(runDir, { recursive: true, force: true });
   });
@@ -328,26 +331,5 @@ describe('getPreviousRunSummary', () => {
     expect(summary?.task).toBe('previous task');
 
     fs.rmSync(tmp, { recursive: true, force: true });
-  });
-});
-
-describe('getTerminalContext', () => {
-  test('returns null when no terminal_context.json exists', () => {
-    const runDir = makeTmpRunDir();
-    const ctx = getTerminalContext({ runDir });
-    expect(ctx).toBeNull();
-    fs.rmSync(runDir, { recursive: true, force: true });
-  });
-
-  test('returns content string when terminal_context.json exists', () => {
-    const runDir = makeTmpRunDir();
-    const ctxData = { transcript: 'some terminal output' };
-    fs.writeFileSync(path.join(runDir, 'terminal_context.json'), JSON.stringify(ctxData));
-
-    const ctx = getTerminalContext({ runDir });
-    expect(ctx).not.toBeNull();
-    expect(JSON.parse(ctx!)).toEqual(ctxData);
-
-    fs.rmSync(runDir, { recursive: true, force: true });
   });
 });

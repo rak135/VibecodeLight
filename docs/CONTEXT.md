@@ -312,7 +312,6 @@ Canonical scan layout:
   keyword_hits.json
   recent_history.json
   previous_run_summary.json
-  terminal_context.json
 ```
 
 `scan_manifest.json` records which artifacts were produced.
@@ -1168,35 +1167,9 @@ Reason:
 
 ---
 
-### 22. Terminal Context for Follow-Up Repair
+### 22. Previous Run Summary Scope
 
-Terminal excerpts can be included when the prompt clearly depends on prior terminal output or when the user explicitly chooses to include terminal context.
-
-Examples:
-
-```text
-fix the failing test
-oprav chybu výše
-navazujeme na předchozí výstup
-```
-
-Output:
-
-```json
-{
-  "terminal_context": {
-    "included": true,
-    "reason": "explicit user choice or follow-up repair",
-    "excerpt": "pytest failure ..."
-  }
-}
-```
-
-Base rule:
-
-- do not include terminal output by default,
-- include it when the user prompt clearly depends on previous terminal output or user explicitly requests it,
-- avoid silently including huge transcripts.
+Follow-up terminal-output inclusion is deferred. Prompt generation uses current-run scan material plus the bounded previous run summary only.
 
 ---
 
@@ -1483,7 +1456,6 @@ Canonical structure:
         keyword_hits.json
         recent_history.json
         previous_run_summary.json
-        terminal_context.json
 
       skills/
         skills_catalog.json
@@ -1503,7 +1475,6 @@ Canonical structure:
 
       terminal/
         send_metadata.json
-        terminal_excerpt_after.md
         terminal_transcript.md
 
       after/
@@ -1731,7 +1702,7 @@ respecting the final prompt
 
 ---
 
-## Terminal Context and Sending
+## Terminal Sending
 
 VibecodeLight sends `final_prompt.md` into the active terminal session.
 
@@ -1748,12 +1719,6 @@ Send metadata is stored in:
 
 ```text
 terminal/send_metadata.json
-```
-
-Terminal excerpt is stored in:
-
-```text
-terminal/terminal_excerpt_after.md
 ```
 
 Optional full transcript is stored in:
@@ -1876,7 +1841,6 @@ After send, it should also produce:
 
 ```text
 terminal/send_metadata.json
-terminal/terminal_excerpt_after.md
 after/git_status_after.json
 after/changed_files_after.json
 after/checks_summary.md

@@ -405,7 +405,6 @@ Canonical run layout:
     keyword_hits.json
     recent_history.json
     previous_run_summary.json
-    terminal_context.json
 
   skills/
     skills_catalog.json
@@ -425,7 +424,6 @@ Canonical run layout:
 
   terminal/
     send_metadata.json
-    terminal_excerpt_after.md
     terminal_transcript.md
 
   after/
@@ -438,7 +436,7 @@ Canonical run layout:
 
 `after/` is for post-run git/check artifacts.
 
-`terminal/` is for send metadata and terminal transcript/excerpt artifacts.
+`terminal/` is for send metadata and optional terminal transcript artifacts.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -645,7 +643,7 @@ pnpm vibecode terminal demo --json
 pnpm vibecode terminal demo --repo <path>
 ```
 
-`terminal demo` starts a real PTY-backed PowerShell session in the requested repo, runs a small `VIBECODE_PTY_OK` demo command plus `git status --short`, and may write `.vibecode/runs/<run_id>/terminal/terminal_excerpt_after.md` only when a current run already exists.
+`terminal demo` starts a real PTY-backed PowerShell session in the requested repo and runs a small `VIBECODE_PTY_OK` demo command plus `git status --short` without sending a prompt or writing send/follow-up artifacts.
 
 The current `context-build` checkpoint creates a run, runs the deterministic scanner, writes `skills/skills_catalog.json`, and writes `flash/flash_input_manifest.json` plus `flash/flash_input.md`. It does not call a real flash model and does not produce `flash_output.md`, `context_pack.md`, or `final_prompt.md`.
 
@@ -662,7 +660,6 @@ pnpm vibecode runs show latest --json
 ```
 
 `prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. It does not send anything to a terminal in this checkpoint, so no `terminal/send_metadata.json` or `after/` post-run artifacts are created.
-Use `--include-terminal-context` to pull the most recent previous `terminal/terminal_excerpt_after.md` into `terminal_context.json` and `flash_input.md`.
 
 ### Internal scanner CLI
 

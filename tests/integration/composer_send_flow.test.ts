@@ -5,35 +5,28 @@ import path from 'path';
 import { registerDesktopComposerIpcHandlers } from '../../src/app/desktop/composer_bridge.js';
 import { generatePromptPreview } from '../../src/app/desktop/prompt_preview_service.js';
 import { sendFinalPromptForRun, type DesktopTerminalServiceLike } from '../../src/app/desktop/prompt_send_service.js';
-import { runPromptPipeline } from '../../src/core/prompting/pipeline.js';
 import { sha256 } from '../../src/core/terminal/hash.js';
 
 interface FakeTerminalService {
   active: { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
   writes: string[];
   failOnWrite?: boolean;
-  excerpt?: string;
   writeInput(data: string): void;
   getActiveSessionInfo(): { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
-  getActiveCleanExcerpt(): string | undefined;
 }
 
-function createFakeService(active: FakeTerminalService['active'], failOnWrite = false, excerpt?: string): FakeTerminalService {
+function createFakeService(active: FakeTerminalService['active'], failOnWrite = false): FakeTerminalService {
   const writes: string[] = [];
   return {
     active,
     writes,
     failOnWrite,
-    excerpt,
     writeInput(data: string) {
       if (this.failOnWrite) throw new Error('simulated PTY failure');
       writes.push(data);
     },
     getActiveSessionInfo() {
       return this.active;
-    },
-    getActiveCleanExcerpt() {
-      return this.excerpt;
     },
   };
 }
@@ -96,6 +89,7 @@ describe('composer preview -> send integration flow', () => {
 
     // no after/ artifacts created by send
     expect(fs.existsSync(path.join(preview.runDir, 'after'))).toBe(false);
+    expect(fs.existsSync(path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
   });
 
   test('failed send (writer throws) does not create send_metadata.json or current mirror', async () => {
@@ -135,16 +129,12 @@ describe('composer preview -> send integration flow', () => {
     expect(send.error.code).toBe('NO_ACTIVE_TERMINAL');
   });
 
-  test('send with active terminal excerpt writes terminal_excerpt_after.md', async () => {
-    const preview = await generatePromptPreview({ task: 'integration: gui send writes terminal excerpt', repoRoot: tmpRepo });
+  test('composer send does not write terminal_excerpt_after.md', async () => {
+    const preview = await generatePromptPreview({ task: 'integration: gui send current info only', repoRoot: tmpRepo });
     expect(preview.ok).toBe(true);
     if (!preview.ok) return;
 
-    const service = createFakeService(
-      { sessionId: 'desktop-int-003', cwd: tmpRepo, pid: 2468, shell: 'pwsh' },
-      false,
-      '\u001b[35mdesktop gui excerpt\u001b[0m\n',
-    );
+    const service = createFakeService({ sessionId: 'desktop-int-003', cwd: tmpRepo, pid: 2468, shell: 'pwsh' });
     const ipcMain = createFakeIpcMain();
     registerDesktopComposerIpcHandlers(ipcMain, {
       getRepoPath: () => tmpRepo,
@@ -155,13 +145,10 @@ describe('composer preview -> send integration flow', () => {
 
     expect(send.ok).toBe(true);
     const excerptPath = path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md');
-    expect(fs.existsSync(excerptPath)).toBe(true);
-    const excerpt = fs.readFileSync(excerptPath, 'utf8');
-    expect(excerpt).toContain('desktop gui excerpt');
-    expect(excerpt).not.toContain('\u001b[35m');
+    expect(fs.existsSync(excerptPath)).toBe(false);
   });
 
-  test('send without terminal excerpt does not write terminal_excerpt_after.md', async () => {
+  test('composer send still writes metadata without terminal excerpt artifacts', async () => {
     const preview = await generatePromptPreview({ task: 'integration: gui send without terminal excerpt', repoRoot: tmpRepo });
     expect(preview.ok).toBe(true);
     if (!preview.ok) return;
@@ -176,42 +163,8 @@ describe('composer preview -> send integration flow', () => {
     const send = await ipcMain.invoke('composer:sendPreview', preview.run_id) as Awaited<ReturnType<typeof sendFinalPromptForRun>>;
 
     expect(send.ok).toBe(true);
+    if (!send.ok) return;
+    expect(fs.existsSync(send.sendMetadataPath)).toBe(true);
     expect(fs.existsSync(path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
-  });
-
-  test('include-terminal-context follow-up includes excerpt produced by desktop send', async () => {
-    const preview = await generatePromptPreview({ task: 'integration: produce terminal context for follow-up', repoRoot: tmpRepo });
-    expect(preview.ok).toBe(true);
-    if (!preview.ok) return;
-
-    const knownExcerpt = 'known desktop send excerpt for follow-up\nsecond line\n';
-    const service = createFakeService(
-      { sessionId: 'desktop-int-005', cwd: tmpRepo, pid: 2470, shell: 'pwsh' },
-      false,
-      knownExcerpt,
-    );
-    const send = await sendFinalPromptForRun({
-      runId: preview.run_id,
-      repoRoot: tmpRepo,
-      terminalExcerpt: service.getActiveCleanExcerpt(),
-      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
-    });
-
-    expect(send.ok).toBe(true);
-    const excerptPath = path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md');
-    expect(fs.existsSync(excerptPath)).toBe(true);
-    expect(fs.readFileSync(excerptPath, 'utf8')).toContain('known desktop send excerpt for follow-up');
-
-    const followUp = await runPromptPipeline({
-      task: 'integration: include previous terminal context',
-      repoRoot: tmpRepo,
-      mock: true,
-      includeTerminalContext: true,
-    });
-
-    expect(followUp.ok).toBe(true);
-    if (!followUp.ok) return;
-    const flashInput = fs.readFileSync(path.join(followUp.runDir, 'flash', 'flash_input.md'), 'utf8');
-    expect(flashInput).toContain('known desktop send excerpt for follow-up');
   });
 });

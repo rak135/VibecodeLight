@@ -486,7 +486,6 @@ Generated workspace folder:
         keyword_hits.json
         recent_history.json
         previous_run_summary.json
-        terminal_context.json
 
       skills/
         skills_catalog.json
@@ -506,7 +505,6 @@ Generated workspace folder:
 
       terminal/
         send_metadata.json
-        terminal_excerpt_after.md
         terminal_transcript.md
 
       after/
@@ -626,7 +624,6 @@ schemas.json
 keyword_hits.json
 recent_history.json
 previous_run_summary.json
-terminal_context.json
 ```
 
 The scanner output includes:

@@ -476,7 +476,6 @@ Canonical run layout:
     keyword_hits.json
     recent_history.json
     previous_run_summary.json
-    terminal_context.json
 
   skills/
     skills_catalog.json
@@ -496,7 +495,6 @@ Canonical run layout:
 
   terminal/
     send_metadata.json
-    terminal_excerpt_after.md
     terminal_transcript.md
 
   after/

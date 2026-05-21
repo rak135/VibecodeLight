@@ -44,6 +44,7 @@ describe.skipIf(!ptyAvailable)('PTY integration', () => {
     expect(result.ok).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, '.vibecode', 'runs'))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, 'terminal', 'send_metadata.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, 'after'))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, 'output', 'final_prompt.md'))).toBe(false);
   }, 20000);

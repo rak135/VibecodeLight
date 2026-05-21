@@ -37,6 +37,7 @@ describe('terminal demo JSON output cleanup', () => {
       // tolerate failure in environments without node-pty
     }
     expect(fs.existsSync(path.join(tmpDir, 'terminal', 'send_metadata.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
   });
 
   test('terminal demo does not create after/ artifacts', async () => {

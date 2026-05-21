@@ -7,7 +7,6 @@ import {
   FLASH_INPUT_REQUIRED_INPUTS,
   FlashInputManifest,
 } from './flash_input_manifest.js';
-import { getTerminalContext } from './terminal_context.js';
 
 // Note: getPreviousRunSummary is called by the CLI/orchestrator and passed as previousRunSummary string.
 // The builder only formats what it receives.
@@ -94,26 +93,6 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
       runDir: opts.runDir,
     });
 
-  const terminalCtxRaw = getTerminalContext({ runDir: opts.runDir });
-
-  let terminalCtxBody: string;
-  if (terminalCtxRaw === null) {
-    terminalCtxBody = 'not included (no terminal context artifact)';
-  } else {
-    try {
-      const parsed = JSON.parse(terminalCtxRaw) as { included?: boolean; excerpt?: string; reason?: string };
-      if (parsed.included === true && parsed.excerpt) {
-        const meta = [`reason: ${parsed.reason ?? 'unspecified'}`];
-        terminalCtxBody = `${meta.join('\n')}\n\n\`\`\`text\n${parsed.excerpt.trim()}\n\`\`\``;
-      } else {
-        const reason = parsed.reason ?? 'not requested';
-        terminalCtxBody = `not included (${reason})`;
-      }
-    } catch {
-      terminalCtxBody = terminalCtxRaw;
-    }
-  }
-
   const sections: Array<{ title: string; body: string }> = [
     { title: 'Task', body: renderTaskSection(opts.runDir) },
     { title: 'Run Metadata', body: renderRunMetadataSection(manifest) },
@@ -199,10 +178,6 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
     {
       title: 'Previous Run Summary',
       body: opts.previousRunSummary ?? 'none available',
-    },
-    {
-      title: 'Terminal Context',
-      body: terminalCtxBody,
     },
     {
       title: 'Flash Instructions',

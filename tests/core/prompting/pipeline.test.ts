@@ -48,7 +48,9 @@ const requiredArtifacts = [
 ];
 
 const forbiddenArtifacts = [
+  'terminal_context.json',
   'terminal/send_metadata.json',
+  'terminal/terminal_excerpt_after.md',
   'after/git_status_after.json',
   'after/changed_files_after.json',
   'after/checks_summary.md',
@@ -108,6 +110,30 @@ describe('full prompt pipeline', () => {
     }
   });
 
+  test('prompt generation does not include terminal context from previous runs', async () => {
+    const prevRunDir = path.join(tmpRepo, '.vibecode', 'runs', '20250101-000000-PREV');
+    fs.mkdirSync(path.join(prevRunDir, 'terminal'), { recursive: true });
+    fs.writeFileSync(
+      path.join(prevRunDir, 'terminal', 'terminal_excerpt_after.md'),
+      'previous terminal output must not enter prompt\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(prevRunDir, 'run_manifest.json'),
+      JSON.stringify({ run_id: '20250101-000000-PREV', created_at: '2025-01-01T00:00:00.000Z', task: 'prev', status: 'done' }),
+      'utf8',
+    );
+
+    const result = await runPromptPipeline({ task: 'current-info only prompt test', repoRoot: tmpRepo, mock: true });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(fs.existsSync(path.join(result.runDir, 'terminal_context.json'))).toBe(false);
+    const flashInput = fs.readFileSync(path.join(result.runDir, 'flash', 'flash_input.md'), 'utf8');
+    expect(flashInput).not.toContain('# Terminal Context');
+    expect(flashInput).not.toContain('previous terminal output must not enter prompt');
+  });
+
   test('final_prompt.md includes user task', async () => {
     const task = 'unique final prompt user task 9217';
     const result = await runPromptPipeline({ task, repoRoot: tmpRepo, mock: true });
@@ -142,6 +168,14 @@ describe('full prompt pipeline', () => {
     expect(envelope.data.finalPromptPath).toBeTruthy();
     expect(Array.isArray(envelope.artifacts)).toBe(true);
     expect(Array.isArray(envelope.warnings)).toBe(true);
+  });
+
+  test('prompt rejects removed --include-terminal-context flag', () => {
+    const result = runCli(['prompt', 'removed terminal context flag task', '--repo', tmpRepo, '--mock', '--include-terminal-context'], tmpRepo);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('unknown option');
+    expect(result.stderr).toContain('--include-terminal-context');
   });
 
   test('failure returns canonical error envelope', () => {

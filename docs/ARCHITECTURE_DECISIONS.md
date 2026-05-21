@@ -441,7 +441,7 @@ During initialization, TypeScript inserts:
 
 into `.gitignore` and reports that it did so.
 
-`.vibecode/` contains run artifacts, current pointers, scan outputs, flash inputs/outputs, prompt outputs, send metadata, post-run metadata, and terminal excerpts/transcripts.
+`.vibecode/` contains run artifacts, current pointers, scan outputs, flash inputs/outputs, prompt outputs, send metadata, post-run metadata, and terminal transcripts.
 
 `.vibecode/` is never scanned as part of the target repository.
 
@@ -846,7 +846,6 @@ Expected scan layout:
   keyword_hits.json
   recent_history.json
   previous_run_summary.json
-  terminal_context.json
 ```
 
 `scan_manifest.json` records which artifacts were produced.
@@ -903,7 +902,6 @@ A complete run should look like:
     keyword_hits.json
     recent_history.json
     previous_run_summary.json
-    terminal_context.json
 
   skills/
     skills_catalog.json
@@ -923,7 +921,6 @@ A complete run should look like:
 
   terminal/
     send_metadata.json
-    terminal_excerpt_after.md
     terminal_transcript.md
 
   after/
@@ -933,8 +930,6 @@ A complete run should look like:
 ```
 
 `terminal_transcript.md` is optional according to config.
-
-Default terminal logging stores only excerpts.
 
 Full transcript is configurable.
 
@@ -1372,7 +1367,6 @@ Main model receives compressed, task-specific context.
 scan artifacts
 skills catalog metadata
 previous run summary
-terminal excerpt when relevant
 read-only tools
 ```
 
@@ -1420,7 +1414,7 @@ no hidden text may be added after render
 
 # Terminal Logging
 
-Default terminal logging stores a short excerpt after prompt send.
+Default terminal logging stores send metadata after prompt send.
 
 Config may enable full transcript.
 
@@ -1428,7 +1422,6 @@ Artifacts:
 
 ```text
 terminal/send_metadata.json
-terminal/terminal_excerpt_after.md
 terminal/terminal_transcript.md
 ```
 
