@@ -8,6 +8,7 @@ import {
   writeSendMetadata,
   FINAL_PROMPT_RELATIVE_PATH,
 } from './send_metadata.js';
+import { writeTerminalExcerptAfter } from './terminal_excerpt_after.js';
 
 export interface TerminalSendWriter {
   readonly sessionId: string;
@@ -33,6 +34,12 @@ export interface SendPromptOptions {
    * basename of runDir (matches the workspace layout).
    */
   runId?: string;
+  /**
+   * Optional terminal output excerpt captured after send.
+   * When provided and non-empty, written to terminal/terminal_excerpt_after.md (clean, bounded).
+   * When absent or empty, terminal_excerpt_after.md is not written.
+   */
+  terminalExcerpt?: string;
 }
 
 export interface SendPromptError {
@@ -48,6 +55,8 @@ export interface SendPromptSuccess {
   metadata: SendMetadata;
   metadataPath: string;
   currentMetadataPath?: string;
+  /** Path to terminal_excerpt_after.md if it was written, otherwise undefined. */
+  excerptPath?: string;
 }
 
 export interface SendPromptFailure {
@@ -118,11 +127,17 @@ export async function sendFinalPrompt(opts: SendPromptOptions): Promise<SendProm
     currentMetadataPath = mirrorSendMetadataToCurrent(opts.vibecodePath, meta);
   }
 
+  let excerptPath: string | undefined;
+  if (opts.terminalExcerpt && opts.terminalExcerpt.length > 0) {
+    excerptPath = writeTerminalExcerptAfter(opts.runDir, opts.terminalExcerpt);
+  }
+
   return {
     ok: true,
     run_id: runId,
     metadata: meta,
     metadataPath,
     currentMetadataPath,
+    excerptPath,
   };
 }

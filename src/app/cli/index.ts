@@ -1113,8 +1113,9 @@ export function createCli(): Command {
     .argument('[args...]', 'Task prompt, or render <runId>')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--mock', 'Use mock flash adapter (required for this checkpoint)')
+    .option('--include-terminal-context', 'Include terminal output from previous run in prompt context')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; includeTerminalContext?: boolean; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -1135,6 +1136,7 @@ export function createCli(): Command {
         task,
         repoRoot,
         mock: options.mock === true,
+        includeTerminalContext: options.includeTerminalContext === true,
       });
 
       if (result.ok === false) {

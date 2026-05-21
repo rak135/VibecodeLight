@@ -94,7 +94,25 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
       runDir: opts.runDir,
     });
 
-  const terminalCtx = getTerminalContext({ runDir: opts.runDir });
+  const terminalCtxRaw = getTerminalContext({ runDir: opts.runDir });
+
+  let terminalCtxBody: string;
+  if (terminalCtxRaw === null) {
+    terminalCtxBody = 'not included (no terminal context artifact)';
+  } else {
+    try {
+      const parsed = JSON.parse(terminalCtxRaw) as { included?: boolean; excerpt?: string; reason?: string };
+      if (parsed.included === true && parsed.excerpt) {
+        const meta = [`reason: ${parsed.reason ?? 'unspecified'}`];
+        terminalCtxBody = `${meta.join('\n')}\n\n\`\`\`text\n${parsed.excerpt.trim()}\n\`\`\``;
+      } else {
+        const reason = parsed.reason ?? 'not requested';
+        terminalCtxBody = `not included (${reason})`;
+      }
+    } catch {
+      terminalCtxBody = terminalCtxRaw;
+    }
+  }
 
   const sections: Array<{ title: string; body: string }> = [
     { title: 'Task', body: renderTaskSection(opts.runDir) },
@@ -184,7 +202,7 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
     },
     {
       title: 'Terminal Context',
-      body: terminalCtx ?? 'not included (no terminal context artifact)',
+      body: terminalCtxBody,
     },
     {
       title: 'Flash Instructions',

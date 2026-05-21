@@ -662,6 +662,7 @@ pnpm vibecode runs show latest --json
 ```
 
 `prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. It does not send anything to a terminal in this checkpoint, so no `terminal/send_metadata.json` or `after/` post-run artifacts are created.
+Use `--include-terminal-context` to pull the most recent previous `terminal/terminal_excerpt_after.md` into `terminal_context.json` and `flash_input.md`.
 
 ### Internal scanner CLI
 
