@@ -14,6 +14,7 @@ export interface DesktopActiveSession {
 export interface DesktopTerminalServiceLike {
   writeInput(data: string): void;
   getActiveSessionInfo(): DesktopActiveSession | undefined;
+  getActiveCleanExcerpt(): string | undefined;
 }
 
 export interface SendPromptIpcSuccess {

@@ -17,6 +17,7 @@ export interface ComposerBridgeOptions {
     runId: string;
     repoRoot: string;
     terminalService: DesktopTerminalServiceLike;
+    terminalExcerpt?: string;
   }) => Promise<SendPromptIpcResult>;
 }
 
@@ -51,6 +52,7 @@ export function registerDesktopComposerIpcHandlers(
     if (!terminalService) {
       return noActiveTerminal();
     }
-    return invokeSend({ runId, repoRoot, terminalService });
+    const excerpt = terminalService.getActiveCleanExcerpt?.();
+    return invokeSend({ runId, repoRoot, terminalService, terminalExcerpt: excerpt });
   });
 }

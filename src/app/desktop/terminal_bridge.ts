@@ -2,6 +2,7 @@ import * as path from 'path';
 
 import { createPtySession } from '../../adapters/pty/index.js';
 import type { PtySession } from '../../adapters/pty/index.js';
+import { buildCleanExcerpt } from '../../core/terminal/terminal_excerpt_after.js';
 
 export interface DesktopTerminalEvents {
   onData: (data: string) => void;
@@ -42,6 +43,7 @@ function makeSessionId(pid: number): string {
 export class DesktopTerminalService {
   private session: PtySession | undefined;
   private active: DesktopActiveSession | undefined;
+  private transcript = '';
   private readonly dataHandlers: Array<(data: string) => void> = [];
   private readonly exitHandlers: Array<(code: number | undefined) => void> = [];
 
@@ -52,6 +54,8 @@ export class DesktopTerminalService {
       this.session.close();
     }
 
+    this.transcript = '';
+
     const cwd = path.resolve(repoPath);
     const pty = this.ptyFactory({ cwd, cols, rows });
     this.session = pty;
@@ -61,6 +65,8 @@ export class DesktopTerminalService {
     this.active = { sessionId, pid: pty.pid, cwd, shell };
 
     pty.onData((data) => {
+      this.transcript += data;
+      this.transcript = this.transcript.slice(-200_000);
       for (const handler of this.dataHandlers) handler(data);
     });
     pty.onExit((code) => {
@@ -76,6 +82,16 @@ export class DesktopTerminalService {
       return undefined;
     }
     return this.active;
+  }
+
+  getActiveCleanExcerpt(): string | undefined {
+    if (!this.session || this.session.isClosed || !this.active) {
+      return undefined;
+    }
+    if (this.transcript.length === 0) {
+      return undefined;
+    }
+    return buildCleanExcerpt(this.transcript);
   }
 
   writeInput(data: string): void {
@@ -96,6 +112,7 @@ export class DesktopTerminalService {
     }
     this.session = undefined;
     this.active = undefined;
+    this.transcript = '';
   }
 
   onData(handler: (data: string) => void): void {

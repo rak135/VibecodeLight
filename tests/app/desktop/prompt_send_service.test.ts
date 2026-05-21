@@ -13,20 +13,29 @@ function makeFinalizedRun(repoRoot: string, runId: string, finalPromptContent: s
 interface FakeTerminalService {
   active: { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
   writes: string[];
+  excerpt?: string;
+  failOnWrite?: boolean;
   writeInput(data: string): void;
   getActiveSessionInfo(): { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
+  getActiveCleanExcerpt(): string | undefined;
 }
 
-function createFakeService(active: FakeTerminalService['active']): FakeTerminalService {
+function createFakeService(active: FakeTerminalService['active'], excerpt?: string, failOnWrite = false): FakeTerminalService {
   const writes: string[] = [];
   return {
     active,
     writes,
+    excerpt,
+    failOnWrite,
     writeInput(data: string) {
+      if (this.failOnWrite) throw new Error('simulated PTY failure');
       writes.push(data);
     },
     getActiveSessionInfo() {
       return this.active;
+    },
+    getActiveCleanExcerpt() {
+      return this.excerpt;
     },
   };
 }
@@ -145,16 +154,19 @@ describe('DesktopPromptSendService', () => {
     expect(service.active).toBe(before);
   });
 
-  test('sends terminal_excerpt_after.md when terminalExcerpt is provided', async () => {
+  test('passes active terminal excerpt to sendFinalPrompt and writes terminal_excerpt_after.md', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const content = '# Task\nDo X\n';
     const { runDir } = makeFinalizedRun(tmpRepo, 'r5', content);
-    const service = createFakeService({ sessionId: 'desktop-77-xyz', cwd: tmpRepo, pid: 77, shell: 'pwsh' });
+    const service = createFakeService(
+      { sessionId: 'desktop-77-xyz', cwd: tmpRepo, pid: 77, shell: 'pwsh' },
+      '\u001b[32msome terminal output\u001b[0m\n',
+    );
 
     const result = await sendFinalPromptForRun({
       runId: 'r5',
       repoRoot: tmpRepo,
-      terminalExcerpt: 'some terminal output\n',
+      terminalExcerpt: service.getActiveCleanExcerpt(),
       terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
     });
 
@@ -165,9 +177,10 @@ describe('DesktopPromptSendService', () => {
     expect(fs.existsSync(excerptPath)).toBe(true);
     const content2 = fs.readFileSync(excerptPath, 'utf8');
     expect(content2).toContain('some terminal output');
+    expect(content2).not.toContain('\u001b[32m');
   });
 
-  test('does not write terminal_excerpt_after.md when terminalExcerpt is absent', async () => {
+  test('does not write terminal_excerpt_after.md when excerpt is undefined', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const content = '# Task\nDo X\n';
     const { runDir } = makeFinalizedRun(tmpRepo, 'r6', content);
@@ -176,9 +189,31 @@ describe('DesktopPromptSendService', () => {
     await sendFinalPromptForRun({
       runId: 'r6',
       repoRoot: tmpRepo,
+      terminalExcerpt: service.getActiveCleanExcerpt(),
       terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
     });
 
+    expect(fs.existsSync(path.join(runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
+  });
+
+  test('does not write terminal_excerpt_after.md on send failure', async () => {
+    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
+    const content = '# Task\nDo X\n';
+    const { runDir } = makeFinalizedRun(tmpRepo, 'r7', content);
+    const service = createFakeService(
+      { sessionId: 'desktop-77-xyz', cwd: tmpRepo, pid: 77, shell: 'pwsh' },
+      'terminal output before failed send\n',
+      true,
+    );
+
+    const result = await sendFinalPromptForRun({
+      runId: 'r7',
+      repoRoot: tmpRepo,
+      terminalExcerpt: service.getActiveCleanExcerpt(),
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+    });
+
+    expect(result.ok).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
   });
 
