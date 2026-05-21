@@ -47,7 +47,11 @@ export interface VibecodePreloadApi {
     onExit(callback: (code: number | undefined) => void): void;
   };
   workspace: {
-    getInfo(): Promise<{ repoPath: string }>;
+    getInfo(): Promise<{
+      repoPath: string;
+      source?: string | null;
+      error?: { code: string; message: string; resolvedPath?: string; details: string[] } | null;
+    }>;
   };
   composer: {
     generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
@@ -79,7 +83,11 @@ export function createVibecodeApi(): VibecodePreloadApi {
     },
     workspace: {
       getInfo() {
-        return ipcRenderer.invoke('workspace:info') as Promise<{ repoPath: string }>;
+        return ipcRenderer.invoke('workspace:getInfo') as Promise<{
+          repoPath: string;
+          source?: string | null;
+          error?: { code: string; message: string; resolvedPath?: string; details: string[] } | null;
+        }>;
       },
     },
     composer: {

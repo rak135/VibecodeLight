@@ -138,4 +138,16 @@ describe('DesktopTerminalService', () => {
 
     expect(fakePty.closed).toBe(true);
   });
+
+  test('startSession uses the resolved repo root as PTY cwd', async () => {
+    const fakePty = createFakePty();
+    const factory = vi.fn((_options?: PtySessionOptions) => fakePty);
+    const { DesktopTerminalService } = await import('../../../src/app/desktop/terminal_bridge.js');
+    const resolvedRoot = path.resolve(process.cwd());
+
+    const service = new DesktopTerminalService(factory);
+    service.startSession(resolvedRoot, 100, 30);
+
+    expect(factory.mock.calls[0][0]).toMatchObject({ cwd: resolvedRoot });
+  });
 });

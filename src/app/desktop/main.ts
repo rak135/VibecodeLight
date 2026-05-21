@@ -2,14 +2,30 @@ import * as path from 'path';
 
 import { app, BrowserWindow, ipcMain } from 'electron';
 
+import { resolveDesktopRepo, RepoResolveResult } from './repo_resolver.js';
 import { registerDesktopComposerIpcHandlers } from './composer_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 
 let mainWindow: BrowserWindow | undefined;
 let ipcRegistered = false;
 
-function repoPath(): string {
-  return process.env.VIBECODE_REPO || process.cwd();
+function parseRepoArg(): string | undefined {
+  const argv = process.argv.slice(2);
+  const idx = argv.indexOf('--repo');
+  if (idx >= 0 && idx + 1 < argv.length) {
+    return argv[idx + 1];
+  }
+  return undefined;
+}
+
+const repoResolution: RepoResolveResult = resolveDesktopRepo({
+  repoArg: parseRepoArg(),
+  cwd: process.cwd(),
+});
+
+function getRepoPath(): string {
+  if (repoResolution.ok) return repoResolution.repoRoot;
+  return '';
 }
 
 function createWindow(): void {
@@ -27,12 +43,29 @@ function createWindow(): void {
   if (!ipcRegistered) {
     const terminalService = registerDesktopTerminalIpcHandlers(ipcMain, {
       getWebContents: () => mainWindow?.webContents,
-      getRepoPath: repoPath,
+      getRepoPath,
     });
     registerDesktopComposerIpcHandlers(ipcMain, {
-      getRepoPath: repoPath,
+      getRepoPath,
       getTerminalService: () => terminalService,
     });
+
+    // Expose workspace info including repo root and any resolution error
+    ipcMain.handle('workspace:getInfo', () => {
+      if (repoResolution.ok) {
+        return {
+          repoPath: repoResolution.repoRoot,
+          source: repoResolution.source,
+          error: null,
+        };
+      }
+      return {
+        repoPath: '',
+        source: null,
+        error: repoResolution.error,
+      };
+    });
+
     ipcRegistered = true;
   }
 

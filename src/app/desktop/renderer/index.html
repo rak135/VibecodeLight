@@ -414,6 +414,16 @@
         term.focus();
 
         const workspace = await window.vibecodeAPI.workspace.getInfo();
+        if (workspace.error) {
+          repoElement.textContent = `ERROR: ${workspace.error.message}`;
+          repoElement.style.color = '#ff6b6b';
+          statusElement.textContent = `Repo root error: ${workspace.error.message}`;
+          const banner = document.createElement('div');
+          banner.style.cssText = 'background:#5c1f1f;color:#ff9999;padding:12px 16px;margin:8px;border-radius:4px;font-size:13px;';
+          banner.textContent = `Repo root error: ${workspace.error.message}`;
+          document.body.insertBefore(banner, document.body.firstChild);
+          return;
+        }
         repoElement.textContent = workspace.repoPath;
 
         window.vibecodeAPI.terminal.onData((data) => term.write(data));

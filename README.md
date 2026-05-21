@@ -782,7 +782,16 @@ The desktop app now has a checkpoint Electron shell around the existing PTY adap
 pnpm dev:desktop
 ```
 
-The script compiles desktop TypeScript to ignored `dist-desktop/`, copies the minimal renderer HTML, copies local `@xterm/xterm` assets into `dist-desktop/app/desktop/renderer/vendor/xterm/`, and starts Electron with `VIBECODE_REPO` defaulting to the current working directory. The renderer loads xterm from these local vendor files — no internet/CDN required.
+The script compiles desktop TypeScript to ignored `dist-desktop/`, copies the minimal renderer HTML, copies local `@xterm/xterm` assets into `dist-desktop/app/desktop/renderer/vendor/xterm/`, and starts Electron. The renderer loads xterm from these local vendor files — no internet/CDN required.
+
+Desktop resolves the workspace repo root in this priority order: `--repo` argument → `VIBECODE_REPO` environment variable → current working directory. To set the environment variable during local development:
+
+```powershell
+$env:VIBECODE_REPO = "C:\\path\\to\\repo"
+pnpm dev:desktop
+```
+
+Prompt generation uses the current resolved repo only; it does not add follow-up terminal context or create follow-up terminal-context artifacts.
 
 For an automated headless smoke of the desktop terminal bridge (no Electron window), run:
 

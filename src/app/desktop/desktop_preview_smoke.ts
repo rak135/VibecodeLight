@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { generatePromptPreview } from './prompt_preview_service.js';
+import { resolveDesktopRepo } from './repo_resolver.js';
 
 export async function runSmoke(repoRoot: string): Promise<void> {
   const resolvedRepoRoot = path.resolve(repoRoot);
@@ -42,9 +43,21 @@ export async function runSmoke(repoRoot: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const repoRoot = (process.env.VIBECODE_REPO ?? process.cwd()).trim() || process.cwd();
+  const repoArg = (() => {
+    const argv = process.argv.slice(2);
+    const idx = argv.indexOf('--repo');
+    return idx >= 0 && idx + 1 < argv.length ? argv[idx + 1] : undefined;
+  })();
+
+  const resolution = resolveDesktopRepo({ repoArg, cwd: process.cwd() });
+  if (!resolution.ok) {
+    console.error(`DESKTOP_PREVIEW_SMOKE_FAILED: ${resolution.error.code}: ${resolution.error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
   try {
-    await runSmoke(repoRoot);
+    await runSmoke(resolution.repoRoot);
     console.log('DESKTOP_PREVIEW_SMOKE_OK');
   } catch (error) {
     const message = error instanceof Error ? error.stack ?? error.message : String(error);
