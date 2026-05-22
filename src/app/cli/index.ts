@@ -7,6 +7,7 @@ import YAML from 'yaml';
 
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
+import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
 import { loadProviderConfig } from '../../adapters/llm/provider_config.js';
 import { createRun } from '../../core/runs/run_store.js';
 import { updateCurrent } from '../../core/runs/current.js';
@@ -320,11 +321,8 @@ export async function runFlash(opts: {
         );
       }
 
-      throw new LlmAdapterError('live flash provider adapters are not implemented in this checkpoint', {
-        code: 'PROVIDER_NOT_IMPLEMENTED',
-        path: flashInputPath,
-        details: [`provider: ${providerConfig.provider}`],
-      });
+      const liveAdapter = new OpenAiCompatibleAdapter(providerConfig);
+      await liveAdapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
     }
 
     const adapter = new MockFlashAdapter();

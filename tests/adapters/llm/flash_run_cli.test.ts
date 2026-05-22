@@ -12,6 +12,13 @@ function runCli(args: string[], cwd: string, extraEnv: Record<string, string | u
   delete env.VIBECODE_API_KEY;
   delete env.VIBECODE_MODEL;
   delete env.VIBECODE_BASE_URL;
+  delete env.VIBECODE_FLASH_PROVIDER;
+  delete env.VIBECODE_FLASH_API_KEY;
+  delete env.VIBECODE_FLASH_MODEL;
+  delete env.VIBECODE_FLASH_BASE_URL;
+  delete env.VIBECODE_FLASH_TIMEOUT_MS;
+  delete env.VIBECODE_FLASH_MAX_TOKENS;
+  delete env.VIBECODE_FLASH_TEMPERATURE;
   return spawnSync(process.execPath, [binPath, ...args], {
     cwd,
     encoding: 'utf8',

@@ -26,6 +26,13 @@ function runCli(args: string[], cwd: string) {
       VIBECODE_API_KEY: undefined,
       VIBECODE_MODEL: undefined,
       VIBECODE_BASE_URL: undefined,
+      VIBECODE_FLASH_PROVIDER: undefined,
+      VIBECODE_FLASH_API_KEY: undefined,
+      VIBECODE_FLASH_MODEL: undefined,
+      VIBECODE_FLASH_BASE_URL: undefined,
+      VIBECODE_FLASH_TIMEOUT_MS: undefined,
+      VIBECODE_FLASH_MAX_TOKENS: undefined,
+      VIBECODE_FLASH_TEMPERATURE: undefined,
     },
   });
 }
@@ -150,8 +157,8 @@ describe('full prompt pipeline', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toEqual({
-      code: 'MOCK_REQUIRED',
-      message: 'use --mock flag; live provider not configured for this checkpoint',
+      code: 'FLASH_PROVIDER_NOT_CONFIGURED',
+      message: 'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.',
       path: '',
       details: [],
     });
@@ -186,8 +193,8 @@ describe('full prompt pipeline', () => {
     expect(envelope).toEqual({
       ok: false,
       error: {
-        code: 'MOCK_REQUIRED',
-        message: 'use --mock flag; live provider not configured for this checkpoint',
+        code: 'FLASH_PROVIDER_NOT_CONFIGURED',
+        message: 'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.',
         path: '',
         details: [],
       },

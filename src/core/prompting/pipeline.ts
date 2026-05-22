@@ -1,7 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 
+import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
+import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
+import { loadProviderConfig } from '../../adapters/llm/provider_config.js';
 import { buildFlashInput,
   buildFlashInputManifest,
   contextFinalizeErrorToDiagnostic,
@@ -19,6 +22,7 @@ export interface PromptPipelineOptions {
   repoRoot: string;
   mock: boolean;
   live?: boolean;
+  adapter?: LlmAdapter;
 }
 
 export interface PromptPipelineSuccess {
@@ -59,13 +63,24 @@ function errorResult(code: string, message: string, pathValue = '', details: str
 }
 
 export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<PromptPipelineResult> {
-  if (opts.mock === false) {
-    return errorResult(
-      'MOCK_REQUIRED',
-      'use --mock flag; live provider not configured for this checkpoint',
-      '',
-      [],
-    );
+  // Resolve which adapter to use
+  let adapter: LlmAdapter;
+  if (opts.mock) {
+    adapter = new MockFlashAdapter();
+  } else if (opts.adapter) {
+    adapter = opts.adapter;
+  } else {
+    // Live mode: require provider config
+    const providerConfig = loadProviderConfig(process.env, { live: opts.live ?? false, workspaceRoot: opts.repoRoot });
+    if (!providerConfig) {
+      return errorResult(
+        'FLASH_PROVIDER_NOT_CONFIGURED',
+        'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.',
+        '',
+        [],
+      );
+    }
+    adapter = new OpenAiCompatibleAdapter(providerConfig);
   }
 
   const scan = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
@@ -114,8 +129,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     artifacts.push(flashManifestPath, flashInputPath);
     warnings.push(...flashManifest.warnings);
 
-    const adapter = new MockFlashAdapter();
-    await adapter.run({ flashInputMd: flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
+    const adapter2 = adapter;
+    await adapter2.run({ flashInputMd: flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
     artifacts.push(
       path.join(flashDir, 'flash_output.md'),
       path.join(flashDir, 'flash_output_meta.json'),

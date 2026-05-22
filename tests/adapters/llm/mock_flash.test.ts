@@ -85,6 +85,10 @@ describe('MockFlashAdapter', () => {
     const { runId } = makeRun(workspaceRoot);
     process.env.VIBECODE_PROVIDER = 'provider-that-must-not-be-called';
     process.env.VIBECODE_API_KEY = 'not-a-real-key';
+    delete process.env.VIBECODE_FLASH_PROVIDER;
+    delete process.env.VIBECODE_FLASH_API_KEY;
+    delete process.env.VIBECODE_FLASH_MODEL;
+    delete process.env.VIBECODE_FLASH_BASE_URL;
     const adapter = new MockFlashAdapter();
 
     const result = await adapter.run({ flashInputMd: '', runId, workspaceRoot });
