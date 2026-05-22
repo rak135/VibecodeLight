@@ -209,7 +209,7 @@
     <section id="composer-overlay" aria-hidden="true">
       <div id="composer-panel" role="dialog" aria-labelledby="composer-title">
         <div class="composer-row" style="justify-content: space-between;">
-          <h2 id="composer-title">Composer · preview only (no send)</h2>
+          <h2 id="composer-title">Composer</h2>
           <button id="close-composer" type="button">Close</button>
         </div>
         <label for="composer-task" class="composer-section">
@@ -218,7 +218,7 @@
         <textarea id="composer-task" placeholder="Describe the task. The mock flash pipeline will render final_prompt.md and preview it here."></textarea>
         <div class="composer-row">
           <button id="generate-preview" type="button">Generate preview</button>
-          <button id="send-to-terminal" type="button" disabled title="Generate a preview first">Send to Terminal</button>
+          <button id="send-to-terminal" type="button" disabled title="Generate a preview first">Approve &amp; Send</button>
           <span id="composer-status">Idle.</span>
           <span id="send-status" aria-live="polite"></span>
         </div>
@@ -283,7 +283,7 @@
         } else if (!terminalReady) {
           sendButton.title = 'No active terminal session';
         } else {
-          sendButton.title = 'Send saved final_prompt.md into the active terminal';
+          sendButton.title = 'Approve and submit prompt with Enter';
         }
       }
 
@@ -437,13 +437,13 @@
         }
 
         sendButton.disabled = true;
-        setSendStatus('Sending final_prompt.md into active terminal…');
+        setSendStatus('Sending final_prompt.md with Enter…');
 
         try {
           const send = await window.vibecodeAPI.composer.sendPreview(currentPreview.run_id);
           if (!send || send.ok !== true) {
             const error = (send && send.error) || { code: 'UNKNOWN', message: 'unknown error', details: [] };
-            setSendStatus(`Send failed: ${error.code} — ${error.message}`, 'error');
+            setSendStatus(`Approve & Send failed: ${error.code} — ${error.message}`, 'error');
             renderErrorSummary(error);
             return;
           }
@@ -451,7 +451,7 @@
           setSendStatus(`Sent at ${send.sentAt} → ${send.sendMetadataPath}`, 'ok');
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          setSendStatus(`Send failed: ${message}`, 'error');
+          setSendStatus(`Approve & Send failed: ${message}`, 'error');
           renderErrorSummary({ code: 'EXCEPTION', message, details: [] });
         } finally {
           refreshSendButton();

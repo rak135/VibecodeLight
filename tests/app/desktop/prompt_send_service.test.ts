@@ -99,7 +99,7 @@ describe('DesktopPromptSendService', () => {
     expect(service.writes).toEqual([]);
   });
 
-  test('sends saved final_prompt.md content to the active terminal session and writes metadata', async () => {
+  test('sends saved final_prompt.md content plus Enter to the active terminal session and writes metadata', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const content = '# Task\nDo X\n';
     const { runDir, finalPromptPath } = makeFinalizedRun(tmpRepo, 'r3', content);
@@ -114,7 +114,7 @@ describe('DesktopPromptSendService', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(service.writes).toEqual([content]);
+    expect(service.writes).toEqual([content + '\r']);
     expect(result.run_id).toBe('r3');
     expect(result.sentAt).toBe(result.metadata.sent_at);
     expect(result.sendMetadataPath).toBe(path.join(runDir, 'terminal', 'send_metadata.json'));
@@ -149,7 +149,7 @@ describe('DesktopPromptSendService', () => {
     expect(service.active).toBe(before);
   });
 
-  test('Send to Terminal does NOT write terminal_excerpt_after.md', async () => {
+  test('Approve & Send does NOT write terminal_excerpt_after.md', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const content = '# Task\nDo X\n';
     const { runDir } = makeFinalizedRun(tmpRepo, 'r5', content);

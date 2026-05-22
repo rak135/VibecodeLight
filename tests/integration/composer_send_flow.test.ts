@@ -78,10 +78,12 @@ describe('composer preview -> send integration flow', () => {
     expect(send.ok).toBe(true);
     if (!send.ok) return;
 
-    // exactly the saved final_prompt.md content was written
+    // saved final_prompt.md content plus Enter was written to the PTY
     const onDisk = fs.readFileSync(preview.finalPromptPath, 'utf8');
-    expect(service.writes).toEqual([onDisk]);
+    expect(service.writes).toEqual([onDisk + '\r']);
     expect(send.metadata.content_sha256).toBe(sha256(onDisk));
+    expect(send.metadata.sent_payload_sha256).toBe(sha256(onDisk + '\r'));
+    expect(send.metadata.newline_appended).toBe(true);
 
     // metadata + current mirror both exist
     expect(fs.existsSync(send.sendMetadataPath)).toBe(true);
@@ -166,5 +168,65 @@ describe('composer preview -> send integration flow', () => {
     if (!send.ok) return;
     expect(fs.existsSync(send.sendMetadataPath)).toBe(true);
     expect(fs.existsSync(path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
+  });
+
+  test('desktop send appends \\r to PTY payload, file on disk is not mutated', async () => {
+    const preview = await generatePromptPreview({ task: 'integration: approve and send appends enter', repoRoot: tmpRepo });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const service = createFakeService({ sessionId: 'desktop-int-enter', cwd: tmpRepo, pid: 9999, shell: 'pwsh' });
+    const send = await sendFinalPromptForRun({
+      runId: preview.run_id,
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+    });
+
+    expect(send.ok).toBe(true);
+    if (!send.ok) return;
+
+    const onDisk = fs.readFileSync(preview.finalPromptPath, 'utf8');
+
+    // PTY received content + '\\r'
+    expect(service.writes).toHaveLength(1);
+    expect(service.writes[0]).toBe(onDisk + '\r');
+
+    // file on disk is NOT mutated
+    expect(fs.readFileSync(preview.finalPromptPath, 'utf8')).toBe(onDisk);
+
+    // metadata is honest
+    expect(send.metadata.newline_appended).toBe(true);
+    expect(send.metadata.content_sha256).toBe(sha256(onDisk));
+    expect(send.metadata.sent_payload_sha256).toBe(sha256(onDisk + '\r'));
+    expect(send.metadata.content_sha256).not.toBe(send.metadata.sent_payload_sha256);
+
+    // no after/ artifacts
+    expect(fs.existsSync(path.join(preview.runDir, 'after'))).toBe(false);
+    expect(fs.existsSync(path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
+    expect(fs.existsSync(path.join(preview.runDir, 'scan', 'terminal_context.json'))).toBe(false);
+  });
+
+  test('send_metadata.json records newline_appended:true and payload counts', async () => {
+    const preview = await generatePromptPreview({ task: 'integration: metadata newline flag', repoRoot: tmpRepo });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const service = createFakeService({ sessionId: 'desktop-int-meta', cwd: tmpRepo, pid: 1111, shell: 'pwsh' });
+    const send = await sendFinalPromptForRun({
+      runId: preview.run_id,
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+    });
+
+    expect(send.ok).toBe(true);
+    if (!send.ok) return;
+
+    const metaRaw = fs.readFileSync(send.sendMetadataPath, 'utf8');
+    const meta = JSON.parse(metaRaw);
+
+    expect(meta.newline_appended).toBe(true);
+    expect(meta.content_sha256).not.toBe(meta.sent_payload_sha256);
+    expect(meta.byte_count).toBeGreaterThan(0);
+    expect(meta.char_count).toBeGreaterThan(0);
   });
 });

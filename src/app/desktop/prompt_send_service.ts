@@ -92,6 +92,7 @@ export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promi
     writer,
     vibecodePath,
     runId,
+    appendNewline: '\r',
   });
 
   if (!result.ok) {
