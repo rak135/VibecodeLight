@@ -5,10 +5,28 @@ import YAML from 'yaml';
 
 import type { ProviderConfig } from '../../adapters/llm/provider_config.js';
 import { loadEnvFile } from './env_file.js';
+import {
+  isSecretKey,
+  mergeRegistries,
+  parseRegistryObject,
+  safeHost,
+  type MergedRegistry,
+  type ParsedRegistry,
+  type ProviderEntry,
+} from './provider_registry.js';
 import { getGlobalConfigPaths, getLocalConfigPath } from './user_profile.js';
 
-export type FieldSource = 'cli' | 'local' | 'env' | 'global' | 'process-env' | 'default' | 'none';
-export type SelectedConfigSource = 'local' | 'global' | 'env' | 'cli' | 'default' | 'mixed';
+export type FieldSource = 'cli' | 'local' | 'global' | 'env' | 'process-env' | 'default' | 'none';
+export type SelectedConfigSource = 'local' | 'global' | 'cli' | 'mixed' | 'default';
+
+export type ConfigErrorCode =
+  | 'FLASH_PROVIDER_NOT_CONFIGURED'
+  | 'FLASH_MODEL_NOT_CONFIGURED'
+  | 'CONFIG_PROVIDER_NOT_FOUND'
+  | 'CONFIG_MODEL_NOT_FOUND'
+  | 'PROVIDER_API_KEY_ENV_MISSING'
+  | 'FLASH_PROVIDER_AUTH_MISSING'
+  | 'CONFIG_INVALID_PROVIDER_REGISTRY';
 
 export interface ConfigSourceMap {
   provider: FieldSource;
@@ -19,6 +37,28 @@ export interface ConfigSourceMap {
   temperature: FieldSource;
   /** Source of the API key only — the value is never recorded. */
   apiKey: FieldSource;
+}
+
+export interface ProviderModelSummary {
+  id: string;
+  label: string | null;
+  role: string | null;
+}
+
+/** Safe, secret-free summary of one configured provider (no API key values). */
+export interface ProviderSummary {
+  id: string;
+  label: string | null;
+  type: string | null;
+  /** Host only — never a full URL. */
+  baseUrl_host: string | null;
+  /** The NAME of the env variable that would hold the key, never the value. */
+  api_key_env: string | null;
+  /** Whether a value for api_key_env was found in the env. */
+  has_api_key: boolean;
+  /** Which config file defined this provider entry. */
+  origin: 'local' | 'global';
+  models: ProviderModelSummary[];
 }
 
 /** Safe, secret-free description of how a flash run's config was resolved. */
@@ -32,26 +72,33 @@ export interface ConfigResolution {
   local_config_created_from_global: boolean;
   selected_config_source: SelectedConfigSource;
   provider: string | null;
+  provider_label: string | null;
+  provider_type: string | null;
   model: string | null;
+  model_label: string | null;
   /** Host only — never a full URL that could contain credentials. */
   baseUrl_host: string | null;
+  /** The NAME of the selected provider's API key env variable. Never the value. */
+  api_key_env: string | null;
+  /** Where the API key came from, e.g. "global-env:OPENROUTER_API_KEY". Never the value. */
+  api_key_source: string | null;
   timeoutMs: number | null;
   maxTokens: number | null;
   temperature: number | null;
   /** Whether an API key was found — the value is never recorded. */
   has_api_key: boolean;
   source_map: ConfigSourceMap;
+  /** All configured providers (safe; no secret values). */
+  providers: ProviderSummary[];
   warnings: string[];
 }
 
 export interface CliConfigFlags {
   provider?: string;
   model?: string;
-  baseUrl?: string;
   timeoutMs?: number;
   maxTokens?: number;
   temperature?: number;
-  apiKey?: string;
 }
 
 export interface ResolveFlashConfigInput {
@@ -71,7 +118,7 @@ export interface ResolveFlashConfigResult {
   /** Includes the secret apiKey for adapter use. NEVER serialize this object. */
   providerConfig: ProviderConfig | null;
   error?: {
-    code: 'FLASH_PROVIDER_NOT_CONFIGURED' | 'FLASH_PROVIDER_AUTH_MISSING';
+    code: ConfigErrorCode;
     message: string;
     details: string[];
   };
@@ -84,122 +131,68 @@ export interface ConfigPaths {
   localConfig: string;
 }
 
-interface NonSecretYaml {
-  provider?: string;
-  model?: string;
-  baseUrl?: string;
-  timeoutMs?: number;
-  maxTokens?: number;
-  temperature?: number;
+interface RegistryFileRead {
+  exists: boolean;
+  parsed: ParsedRegistry;
 }
 
-interface YamlReadResult {
-  config: NonSecretYaml;
-  secretKeysFound: string[];
-}
-
-function isSecretKey(key: string): boolean {
-  const k = key.toLowerCase();
-  return (
-    k.includes('api_key') ||
-    k.includes('apikey') ||
-    k.includes('secret') ||
-    k.includes('token') ||
-    k.includes('password')
-  );
-}
-
-function safeHost(baseUrl: string | undefined): string | null {
-  if (!baseUrl) return null;
-  try {
-    return new URL(baseUrl).hostname;
-  } catch {
-    const stripped = baseUrl.replace(/^[a-z]+:\/\//i, '').split('/')[0];
-    return stripped || null;
-  }
-}
-
-function readYamlConfig(filePath: string): YamlReadResult {
+function readRegistryFile(filePath: string): RegistryFileRead {
   if (!fs.existsSync(filePath)) {
-    return { config: {}, secretKeysFound: [] };
+    return { exists: false, parsed: parseRegistryObject(null) };
   }
-  let parsed: unknown;
+  let decoded: unknown;
   try {
-    parsed = YAML.parse(fs.readFileSync(filePath, 'utf8'));
+    decoded = YAML.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
-    return { config: {}, secretKeysFound: [] };
+    decoded = null;
   }
-  if (!parsed || typeof parsed !== 'object') {
-    return { config: {}, secretKeysFound: [] };
-  }
-
-  const secretKeysFound: string[] = [];
-  const collectSecrets = (obj: unknown): void => {
-    if (!obj || typeof obj !== 'object') return;
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      if (isSecretKey(key)) secretKeysFound.push(key);
-      if (value && typeof value === 'object') collectSecrets(value);
-    }
-  };
-  collectSecrets(parsed);
-
-  const root = parsed as Record<string, unknown>;
-  const models = (root.models && typeof root.models === 'object' ? root.models : {}) as Record<string, unknown>;
-
-  const str = (v: unknown): string | undefined => {
-    if (typeof v === 'string') {
-      const t = v.trim();
-      return t.length > 0 ? t : undefined;
-    }
-    return undefined;
-  };
-  const num = (v: unknown): number | undefined => {
-    if (typeof v === 'number' && !Number.isNaN(v)) return v;
-    if (typeof v === 'string' && v.trim() !== '') {
-      const n = Number(v);
-      if (!Number.isNaN(n)) return n;
-    }
-    return undefined;
-  };
-
-  const config: NonSecretYaml = {
-    provider: str(models.flash_provider),
-    model: str(models.flash_model),
-    baseUrl: str(models.flash_base_url),
-    timeoutMs: num(models.flash_timeout_ms),
-    maxTokens: num(models.flash_max_tokens),
-    temperature: num(models.flash_temperature),
-  };
-
-  return { config, secretKeysFound };
+  return { exists: true, parsed: parseRegistryObject(decoded) };
 }
 
-interface StringLayer {
-  source: FieldSource;
-  value?: string;
+function readEnvValue(
+  name: string,
+  dotEnv: Record<string, string>,
+  processEnv: Record<string, string | undefined>,
+): { value?: string; source: 'env' | 'process-env' } | null {
+  const fromDotEnv = dotEnv[name]?.trim();
+  if (fromDotEnv) return { value: fromDotEnv, source: 'env' };
+  const fromProcess = processEnv[name]?.trim();
+  if (fromProcess) return { value: fromProcess, source: 'process-env' };
+  return null;
 }
 
-function pickString(layers: StringLayer[]): { value?: string; source: FieldSource } {
-  for (const layer of layers) {
-    const v = layer.value?.trim();
-    if (v) return { value: v, source: layer.source };
+function buildProviderSummaries(
+  merged: MergedRegistry,
+  dotEnv: Record<string, string>,
+  processEnv: Record<string, string | undefined>,
+): ProviderSummary[] {
+  const summaries: ProviderSummary[] = [];
+  for (const { id, entry, origin } of merged.providers.values()) {
+    const apiKeyEnv = entry.api_key_env ?? null;
+    const hasKey = apiKeyEnv ? Boolean(readEnvValue(apiKeyEnv, dotEnv, processEnv)) : false;
+    summaries.push({
+      id,
+      label: entry.label ?? null,
+      type: entry.type ?? null,
+      baseUrl_host: safeHost(entry.base_url),
+      api_key_env: apiKeyEnv,
+      has_api_key: hasKey,
+      origin,
+      models: entry.models.map((m) => ({ id: m.id, label: m.label ?? null, role: m.role ?? null })),
+    });
   }
-  return { source: 'none' };
+  summaries.sort((a, b) => a.id.localeCompare(b.id));
+  return summaries;
 }
 
-interface NumberLayer {
-  source: FieldSource;
-  raw: unknown;
-}
-
-function pickNumber(layers: NumberLayer[], kind: 'int' | 'float'): { value?: number; source: FieldSource } {
-  for (const layer of layers) {
-    const raw = layer.raw;
-    if (raw === undefined || raw === null || raw === '') continue;
-    const n = typeof raw === 'number' ? raw : kind === 'int' ? parseInt(String(raw), 10) : parseFloat(String(raw));
-    if (!Number.isNaN(n)) return { value: n, source: layer.source };
+function aggregateSelectedSource(sources: FieldSource[]): SelectedConfigSource {
+  const used = new Set<FieldSource>();
+  for (const s of sources) {
+    if (s === 'cli' || s === 'local' || s === 'global') used.add(s);
   }
-  return { source: 'none' };
+  if (used.size === 0) return 'default';
+  if (used.size === 1) return [...used][0] as SelectedConfigSource;
+  return 'mixed';
 }
 
 /** Compute the global/local config path bundle for a repository. */
@@ -214,9 +207,11 @@ export function getConfigPaths(repoRoot: string, env: Record<string, string | un
 }
 
 /**
- * Resolve flash provider configuration from CLI flags, local workspace config,
- * AppData .env, and AppData global config — in that priority order for non-secret
- * settings. API keys resolve from CLI flags, AppData .env, then process env.
+ * Resolve the active flash provider/model from CLI flags, the local workspace
+ * provider registry, and the global AppData provider registry — in that priority
+ * order. The available provider/model registry comes only from config.yaml; the
+ * .env file contributes only the secret value for the selected provider's
+ * api_key_env.
  *
  * Returns both a safe ConfigResolution (for artifacts/diagnostics) and a
  * ProviderConfig (carrying the secret) for adapter use. Never serialize
@@ -230,93 +225,32 @@ export function resolveFlashConfig(input: ResolveFlashConfigInput): ResolveFlash
   const globalEnvPath = input.globalEnvPath ?? globalPaths.env;
   const localConfigPath = input.localConfigPath ?? getLocalConfigPath(input.repoRoot);
 
-  const globalConfigExists = fs.existsSync(globalConfigPath);
-  const globalEnvExists = fs.existsSync(globalEnvPath);
-  const localConfigExists = fs.existsSync(localConfigPath);
-
-  const warnings: string[] = [];
-
-  const globalYaml = readYamlConfig(globalConfigPath);
-  const localYaml = readYamlConfig(localConfigPath);
+  const globalRead = readRegistryFile(globalConfigPath);
+  const localRead = readRegistryFile(localConfigPath);
   const dotEnv = loadEnvFile(globalEnvPath);
 
-  for (const key of globalYaml.secretKeysFound) {
+  const globalConfigExists = globalRead.exists;
+  const globalEnvExists = fs.existsSync(globalEnvPath);
+  const localConfigExists = localRead.exists;
+
+  const warnings: string[] = [];
+  for (const key of globalRead.parsed.secretKeysFound) {
     warnings.push(`ignored secret key "${key}" in global config ${globalConfigPath}; secrets must live in the AppData .env file`);
   }
-  for (const key of localYaml.secretKeysFound) {
+  for (const key of localRead.parsed.secretKeysFound) {
     warnings.push(`ignored secret key "${key}" in local config ${localConfigPath}; secrets must live in the AppData .env file`);
   }
-
-  // Non-secret field resolution: cli > local > AppData .env > global.
-  const provider = pickString([
-    { source: 'cli', value: cli.provider },
-    { source: 'local', value: localYaml.config.provider },
-    { source: 'env', value: dotEnv.VIBECODE_FLASH_PROVIDER ?? dotEnv.VIBECODE_PROVIDER },
-    { source: 'global', value: globalYaml.config.provider },
-  ]);
-  const model = pickString([
-    { source: 'cli', value: cli.model },
-    { source: 'local', value: localYaml.config.model },
-    { source: 'env', value: dotEnv.VIBECODE_FLASH_MODEL ?? dotEnv.VIBECODE_MODEL },
-    { source: 'global', value: globalYaml.config.model },
-  ]);
-  const baseUrl = pickString([
-    { source: 'cli', value: cli.baseUrl },
-    { source: 'local', value: localYaml.config.baseUrl },
-    { source: 'env', value: dotEnv.VIBECODE_FLASH_BASE_URL ?? dotEnv.VIBECODE_BASE_URL },
-    { source: 'global', value: globalYaml.config.baseUrl },
-  ]);
-  const timeout = pickNumber(
-    [
-      { source: 'cli', raw: cli.timeoutMs },
-      { source: 'local', raw: localYaml.config.timeoutMs },
-      { source: 'env', raw: dotEnv.VIBECODE_FLASH_TIMEOUT_MS },
-      { source: 'global', raw: globalYaml.config.timeoutMs },
-    ],
-    'int',
-  );
-  const maxTokens = pickNumber(
-    [
-      { source: 'cli', raw: cli.maxTokens },
-      { source: 'local', raw: localYaml.config.maxTokens },
-      { source: 'env', raw: dotEnv.VIBECODE_FLASH_MAX_TOKENS },
-      { source: 'global', raw: globalYaml.config.maxTokens },
-    ],
-    'int',
-  );
-  const temperature = pickNumber(
-    [
-      { source: 'cli', raw: cli.temperature },
-      { source: 'local', raw: localYaml.config.temperature },
-      { source: 'env', raw: dotEnv.VIBECODE_FLASH_TEMPERATURE },
-      { source: 'global', raw: globalYaml.config.temperature },
-    ],
-    'float',
-  );
-
-  // Secret resolution: cli > AppData .env > process env.
-  const apiKey = pickString([
-    { source: 'cli', value: cli.apiKey },
-    { source: 'env', value: dotEnv.VIBECODE_FLASH_API_KEY ?? dotEnv.VIBECODE_API_KEY },
-    { source: 'process-env', value: env.VIBECODE_FLASH_API_KEY ?? env.VIBECODE_API_KEY },
-  ]);
-
-  const usedSources = new Set<FieldSource>();
-  for (const f of [provider.source, model.source, baseUrl.source]) {
-    if (f !== 'none' && f !== 'default') usedSources.add(f);
+  if (globalRead.parsed.legacy) {
+    warnings.push(`global config ${globalConfigPath} uses the deprecated models.flash_* shape; migrate to providers/defaults registry`);
   }
-  let selected: SelectedConfigSource;
-  if (input.mock) {
-    selected = 'default';
-  } else if (usedSources.size === 0) {
-    selected = 'default';
-  } else if (usedSources.size === 1) {
-    selected = [...usedSources][0] as SelectedConfigSource;
-  } else {
-    selected = 'mixed';
+  if (localRead.parsed.legacy) {
+    warnings.push(`local config ${localConfigPath} uses the deprecated models.flash_* shape; migrate to providers/defaults registry`);
   }
 
-  const resolution: ConfigResolution = {
+  const merged = mergeRegistries(globalRead.parsed.registry, localRead.parsed.registry);
+  const providers = buildProviderSummaries(merged, dotEnv, env);
+
+  const baseResolution = (overrides: Partial<ConfigResolution> = {}): ConfigResolution => ({
     global_config_path: globalConfigPath,
     global_env_path: globalEnvPath,
     local_config_path: localConfigPath,
@@ -324,33 +258,98 @@ export function resolveFlashConfig(input: ResolveFlashConfigInput): ResolveFlash
     global_env_exists: globalEnvExists,
     local_config_exists: localConfigExists,
     local_config_created_from_global: input.localCreatedFromGlobal ?? false,
-    selected_config_source: selected,
-    provider: input.mock ? 'mock' : provider.value ?? null,
-    model: input.mock ? null : model.value ?? null,
-    baseUrl_host: input.mock ? null : safeHost(baseUrl.value),
-    timeoutMs: input.mock ? null : timeout.value ?? null,
-    maxTokens: input.mock ? null : maxTokens.value ?? null,
-    temperature: input.mock ? null : temperature.value ?? null,
-    has_api_key: input.mock ? false : Boolean(apiKey.value),
+    selected_config_source: 'default',
+    provider: null,
+    provider_label: null,
+    provider_type: null,
+    model: null,
+    model_label: null,
+    baseUrl_host: null,
+    api_key_env: null,
+    api_key_source: null,
+    timeoutMs: null,
+    maxTokens: null,
+    temperature: null,
+    has_api_key: false,
     source_map: {
-      provider: input.mock ? 'default' : provider.source,
-      model: input.mock ? 'default' : model.source,
-      baseUrl: input.mock ? 'default' : baseUrl.source,
-      timeout: input.mock ? 'default' : timeout.source,
-      maxTokens: input.mock ? 'default' : maxTokens.source,
-      temperature: input.mock ? 'default' : temperature.source,
-      apiKey: input.mock ? 'none' : apiKey.source,
+      provider: 'none',
+      model: 'none',
+      baseUrl: 'none',
+      timeout: 'none',
+      maxTokens: 'none',
+      temperature: 'none',
+      apiKey: 'none',
     },
+    providers,
     warnings,
-  };
+    ...overrides,
+  });
 
-  if (input.mock) {
-    return { resolution, providerConfig: null };
+  // Invalid registry → fail before any selection. Local (priority) reported first.
+  if (localRead.parsed.invalid || globalRead.parsed.invalid) {
+    const offendingPath = localRead.parsed.invalid ? localConfigPath : globalConfigPath;
+    const details = localRead.parsed.invalid ? localRead.parsed.errors : globalRead.parsed.errors;
+    return {
+      resolution: baseResolution(),
+      providerConfig: null,
+      error: {
+        code: 'CONFIG_INVALID_PROVIDER_REGISTRY',
+        message: `invalid provider registry in ${offendingPath}`,
+        details,
+      },
+    };
   }
 
-  if (!provider.value || provider.value === 'mock') {
+  if (input.mock) {
     return {
-      resolution,
+      resolution: baseResolution({
+        selected_config_source: 'default',
+        provider: 'mock',
+        provider_label: 'Mock',
+      }),
+      providerConfig: null,
+    };
+  }
+
+  // Resolve the active provider id: CLI flag > merged defaults.flash.provider.
+  const providerId = cli.provider?.trim() || merged.flash.provider.value;
+  const providerSource: FieldSource = cli.provider?.trim()
+    ? 'cli'
+    : merged.flash.provider.origin === 'none'
+      ? 'none'
+      : merged.flash.provider.origin;
+
+  const modelId = cli.model?.trim() || merged.flash.model.value;
+  const modelSource: FieldSource = cli.model?.trim()
+    ? 'cli'
+    : merged.flash.model.origin === 'none'
+      ? 'none'
+      : merged.flash.model.origin;
+
+  // Numeric tuning: CLI flag > merged defaults.flash.* .
+  const pickNumber = (cliVal: number | undefined, field: MergedRegistry['flash']['timeout_ms']): { value?: number; source: FieldSource } => {
+    if (cliVal !== undefined && !Number.isNaN(cliVal)) return { value: cliVal, source: 'cli' };
+    if (field.value !== undefined) return { value: field.value, source: field.origin === 'none' ? 'none' : field.origin };
+    return { source: 'none' };
+  };
+  const timeout = pickNumber(cli.timeoutMs, merged.flash.timeout_ms);
+  const maxTokens = pickNumber(cli.maxTokens, merged.flash.max_tokens);
+  const temperature = pickNumber(cli.temperature, merged.flash.temperature);
+
+  const partialSourceMap = (extra: Partial<ConfigSourceMap> = {}): ConfigSourceMap => ({
+    provider: providerSource,
+    model: modelSource,
+    baseUrl: 'none',
+    timeout: timeout.source,
+    maxTokens: maxTokens.source,
+    temperature: temperature.source,
+    apiKey: 'none',
+    ...extra,
+  });
+
+  if (!providerId) {
+    return {
+      resolution: baseResolution({ source_map: partialSourceMap() }),
       providerConfig: null,
       error: {
         code: 'FLASH_PROVIDER_NOT_CONFIGURED',
@@ -360,37 +359,139 @@ export function resolveFlashConfig(input: ResolveFlashConfigInput): ResolveFlash
     };
   }
 
-  if (!baseUrl.value) {
+  const selectedProvider = merged.providers.get(providerId);
+  if (!selectedProvider) {
     return {
-      resolution,
+      resolution: baseResolution({ provider: providerId, model: modelId ?? null, source_map: partialSourceMap() }),
       providerConfig: null,
       error: {
-        code: 'FLASH_PROVIDER_NOT_CONFIGURED',
-        message: `flash provider "${provider.value}" is missing a base URL`,
-        details: [`provider: ${provider.value}`],
+        code: 'CONFIG_PROVIDER_NOT_FOUND',
+        message: `flash provider "${providerId}" is not defined in the provider registry`,
+        details: [`available providers: ${[...merged.providers.keys()].join(', ') || '(none)'}`],
       },
     };
   }
 
-  if (!apiKey.value) {
+  const entry: ProviderEntry = selectedProvider.entry;
+  const baseUrlSource: FieldSource = selectedProvider.origin;
+  const providerLabel = entry.label ?? null;
+  const providerType = entry.type ?? null;
+
+  if (!modelId) {
+    return {
+      resolution: baseResolution({
+        provider: providerId,
+        provider_label: providerLabel,
+        provider_type: providerType,
+        baseUrl_host: safeHost(entry.base_url),
+        api_key_env: entry.api_key_env ?? null,
+        source_map: partialSourceMap({ baseUrl: baseUrlSource }),
+      }),
+      providerConfig: null,
+      error: {
+        code: 'FLASH_MODEL_NOT_CONFIGURED',
+        message: `no flash model selected for provider "${providerId}"`,
+        details: [],
+      },
+    };
+  }
+
+  const modelEntry = entry.models.find((m) => m.id === modelId);
+  if (!modelEntry) {
+    return {
+      resolution: baseResolution({
+        provider: providerId,
+        provider_label: providerLabel,
+        provider_type: providerType,
+        model: modelId,
+        baseUrl_host: safeHost(entry.base_url),
+        api_key_env: entry.api_key_env ?? null,
+        source_map: partialSourceMap({ baseUrl: baseUrlSource }),
+      }),
+      providerConfig: null,
+      error: {
+        code: 'CONFIG_MODEL_NOT_FOUND',
+        message: `model "${modelId}" is not defined for provider "${providerId}"`,
+        details: [`available models: ${entry.models.map((m) => m.id).join(', ') || '(none)'}`],
+      },
+    };
+  }
+  const modelLabel = modelEntry.label ?? null;
+
+  const selectedSource = aggregateSelectedSource([providerSource, modelSource, baseUrlSource]);
+
+  // API key resolution for the selected provider.
+  const apiKeyEnv = entry.api_key_env ?? null;
+  if (!apiKeyEnv) {
+    return {
+      resolution: baseResolution({
+        selected_config_source: selectedSource,
+        provider: providerId,
+        provider_label: providerLabel,
+        provider_type: providerType,
+        model: modelId,
+        model_label: modelLabel,
+        baseUrl_host: safeHost(entry.base_url),
+        api_key_env: null,
+        timeoutMs: timeout.value ?? null,
+        maxTokens: maxTokens.value ?? null,
+        temperature: temperature.value ?? null,
+        source_map: partialSourceMap({ baseUrl: baseUrlSource }),
+      }),
+      providerConfig: null,
+      error: {
+        code: 'PROVIDER_API_KEY_ENV_MISSING',
+        message: `flash provider "${providerId}" has no api_key_env; set api_key_env in config.yaml`,
+        details: [`provider: ${providerId}`],
+      },
+    };
+  }
+
+  const apiKeyLookup = readEnvValue(apiKeyEnv, dotEnv, env);
+  const apiKeySource: FieldSource = apiKeyLookup ? apiKeyLookup.source : 'none';
+  const apiKeySourceString = apiKeyLookup
+    ? `${apiKeyLookup.source === 'env' ? 'global-env' : 'process-env'}:${apiKeyEnv}`
+    : null;
+
+  const resolution: ConfigResolution = baseResolution({
+    selected_config_source: selectedSource,
+    provider: providerId,
+    provider_label: providerLabel,
+    provider_type: providerType,
+    model: modelId,
+    model_label: modelLabel,
+    baseUrl_host: safeHost(entry.base_url),
+    api_key_env: apiKeyEnv,
+    api_key_source: apiKeySourceString,
+    timeoutMs: timeout.value ?? null,
+    maxTokens: maxTokens.value ?? null,
+    temperature: temperature.value ?? null,
+    has_api_key: Boolean(apiKeyLookup),
+    source_map: partialSourceMap({ baseUrl: baseUrlSource, apiKey: apiKeySource }),
+  });
+
+  if (!apiKeyLookup) {
     return {
       resolution,
       providerConfig: null,
       error: {
         code: 'FLASH_PROVIDER_AUTH_MISSING',
-        message: `flash provider "${provider.value}" has no API key; set one in the AppData .env file`,
-        details: [`provider: ${provider.value}`],
+        message: `flash provider "${providerId}" has no API key; set ${apiKeyEnv} in the AppData .env file`,
+        details: [`provider: ${providerId}`, `api_key_env: ${apiKeyEnv}`],
       },
     };
   }
 
   const providerConfig: ProviderConfig = {
-    provider: provider.value,
-    apiKey: apiKey.value,
-    baseUrl: baseUrl.value,
+    provider: providerId,
+    apiKey: apiKeyLookup.value as string,
+    apiKeyEnv,
+    baseUrl: entry.base_url,
+    model: modelId,
     live: input.live ?? false,
   };
-  if (model.value) providerConfig.model = model.value;
+  if (providerLabel) providerConfig.providerLabel = providerLabel;
+  if (modelLabel) providerConfig.modelLabel = modelLabel;
   if (timeout.value !== undefined) providerConfig.timeoutMs = timeout.value;
   if (maxTokens.value !== undefined) providerConfig.maxTokens = maxTokens.value;
   if (temperature.value !== undefined) providerConfig.temperature = temperature.value;
@@ -427,11 +528,26 @@ const MINIMAL_LOCAL_CONFIG = [
   '# VibecodeLight local workspace config (.vibecode/config.yaml)',
   '#',
   '# Local workspace config takes priority over the global config at',
-  '# %LOCALAPPDATA%/vibecodelight/config.yaml. Secrets (API keys) must live in',
-  '# %LOCALAPPDATA%/vibecodelight/.env and never in this file.',
-  'models:',
-  '  flash_provider: ""',
-  '  flash_model: ""',
+  '# %LOCALAPPDATA%/vibecodelight/config.yaml. Secrets (API keys) live ONLY in',
+  '# %LOCALAPPDATA%/vibecodelight/.env, referenced here by api_key_env NAME only.',
+  '#',
+  '# Add providers and select an active flash provider/model, e.g.:',
+  '#   providers:',
+  '#     openrouter:',
+  '#       type: openai-compatible',
+  '#       base_url: https://openrouter.ai/api/v1',
+  '#       api_key_env: OPENROUTER_API_KEY',
+  '#       models:',
+  '#         - id: deepseek/deepseek-chat',
+  '#           role: flash',
+  '#   defaults:',
+  '#     flash:',
+  '#       provider: openrouter',
+  '#       model: deepseek/deepseek-chat',
+  'version: 1',
+  'providers: {}',
+  'defaults:',
+  '  flash: {}',
   '',
 ].join('\n');
 
@@ -513,7 +629,7 @@ export interface SyncConfigResult {
 /**
  * Explicitly sync config between global and local. Only ever runs in the
  * direction requested; both directions report the source and destination paths.
- * Secrets are stripped from the copied YAML defensively.
+ * Secrets are stripped from the copied YAML defensively; .env is never copied.
  */
 export function syncConfig(opts: {
   direction: 'from-global' | 'to-global';

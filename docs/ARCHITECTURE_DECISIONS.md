@@ -466,6 +466,22 @@ TypeScript owns `config.yaml`.
 > remains for project/scanner defaults. API keys live only in the AppData `.env`
 > and are never written to committed files, artifacts, or logs. The Python
 > scanner never reads the global or local YAML config directly.
+>
+> Update 2: flash provider configuration is a **provider/model registry**, not
+> single fields. `config.yaml` (global and local) holds `providers.<id>`
+> (`type`, `label`, `base_url`, `api_key_env`, `models[]`) and `defaults.flash`
+> (`provider`, `model`, `timeout_ms`, `max_tokens`, `temperature`). This replaces
+> the old `models.flash_provider` / `flash_model` / `flash_base_url` fields (kept
+> only as a deprecated legacy bridge with a warning). The active flash
+> provider/model resolves as CLI flags (`--flash-provider`/`--flash-model`) →
+> local registry → global registry. `api_key_env` is a non-secret env-variable
+> NAME; the key value lives only in `.env` and is recorded in artifacts as a
+> source string (e.g. `global-env:OPENROUTER_API_KEY`), never the value. Sync
+> copies the `config.yaml` registry shape only; `.env` is never synced into
+> `.vibecode`. Errors: `CONFIG_PROVIDER_NOT_FOUND`, `CONFIG_MODEL_NOT_FOUND`,
+> `PROVIDER_API_KEY_ENV_MISSING`, `FLASH_PROVIDER_AUTH_MISSING`,
+> `FLASH_PROVIDER_NOT_CONFIGURED`, `FLASH_MODEL_NOT_CONFIGURED`,
+> `CONFIG_INVALID_PROVIDER_REGISTRY`.
 
 `config.yaml` is the only human-maintained project config.
 

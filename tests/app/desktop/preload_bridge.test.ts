@@ -43,7 +43,7 @@ describe('desktop preload bridge boundary', () => {
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'sendPreview']);
-    expect(Object.keys(api.config).sort()).toEqual(['getPaths', 'initLocal', 'openDir', 'show', 'syncFromGlobal', 'syncToGlobal']);
+    expect(Object.keys(api.config).sort()).toEqual(['getPaths', 'initLocal', 'models', 'openDir', 'providers', 'show', 'syncFromGlobal', 'syncToGlobal']);
     expect(Object.keys(api.artifacts).sort()).toEqual(['copyToClipboard', 'openPath']);
   });
 

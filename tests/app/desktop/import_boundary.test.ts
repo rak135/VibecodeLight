@@ -58,6 +58,27 @@ describe('desktop import boundaries', () => {
     }
   });
 
+  test('renderer does not parse config files directly', () => {
+    const rendererDir = path.join(desktopRoot, 'renderer');
+    const htmlFiles: string[] = [];
+    if (fs.existsSync(rendererDir)) {
+      for (const entry of fs.readdirSync(rendererDir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith('.html')) {
+          htmlFiles.push(path.join(rendererDir, entry.name));
+        }
+      }
+    }
+    expect(htmlFiles.length).toBeGreaterThan(0);
+    for (const file of htmlFiles) {
+      const source = fs.readFileSync(file, 'utf8');
+      // The renderer must only display config data returned by core via the
+      // preload contextBridge; it must never read or parse config files itself.
+      expect(source, `${path.relative(repoRoot, file)} must not import core/config`).not.toMatch(/core\/config/);
+      expect(source, `${path.relative(repoRoot, file)} must not parse YAML`).not.toMatch(/YAML\.parse|require\(\s*['"]yaml['"]\s*\)|from\s+['"]yaml['"]/);
+      expect(source, `${path.relative(repoRoot, file)} must not read config.yaml`).not.toMatch(/config\.yaml/);
+    }
+  });
+
   test('terminal demo core remains importable', async () => {
     const terminal = await import('../../../src/core/terminal/terminal_demo.js');
     expect(typeof terminal.runTerminalDemo).toBe('function');

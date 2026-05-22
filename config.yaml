@@ -20,6 +20,7 @@ commands:
   preferred_lint: ""
   preferred_build: ""
 
-models:
-  flash_provider: ""
-  flash_model: ""
+# Flash provider/model configuration is NOT stored here. It lives in the global
+# user config (%LOCALAPPDATA%\vibecodelight\config.yaml) and the per-repo local
+# workspace config (.vibecode\config.yaml) as a providers/defaults registry, with
+# API keys only in %LOCALAPPDATA%\vibecodelight\.env. See README "Configuration".

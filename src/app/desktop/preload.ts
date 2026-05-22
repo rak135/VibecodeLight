@@ -37,6 +37,23 @@ export interface ComposerSendIpcResult {
   error?: { code: string; message: string; path?: string; details: string[] };
 }
 
+export interface ProviderModelSummaryIpc {
+  id: string;
+  label: string | null;
+  role: string | null;
+}
+
+export interface ProviderSummaryIpc {
+  id: string;
+  label: string | null;
+  type: string | null;
+  baseUrl_host: string | null;
+  api_key_env: string | null;
+  has_api_key: boolean;
+  origin: string;
+  models: ProviderModelSummaryIpc[];
+}
+
 export interface ConfigResolutionIpc {
   global_config_path: string;
   global_env_path: string;
@@ -47,11 +64,35 @@ export interface ConfigResolutionIpc {
   local_config_created_from_global: boolean;
   selected_config_source: string;
   provider: string | null;
+  provider_label: string | null;
+  provider_type: string | null;
   model: string | null;
+  model_label: string | null;
   baseUrl_host: string | null;
+  api_key_env: string | null;
+  api_key_source: string | null;
   has_api_key: boolean;
   source_map: Record<string, string>;
+  providers: ProviderSummaryIpc[];
   warnings: string[];
+}
+
+export interface ConfigProvidersIpc {
+  ok: boolean;
+  providers: ProviderSummaryIpc[];
+  active_provider: string | null;
+  active_model: string | null;
+  config_source: string;
+  local_config_path: string;
+  global_config_path: string;
+  global_env_path: string;
+}
+
+export interface ConfigModelsIpc {
+  ok: boolean;
+  providers: Array<{ id: string; label: string | null; has_api_key: boolean; api_key_env: string | null; models: ProviderModelSummaryIpc[] }>;
+  active_provider: string | null;
+  active_model: string | null;
 }
 
 export interface ConfigPathsIpc {
@@ -93,6 +134,8 @@ export interface VibecodePreloadApi {
   config: {
     getPaths(): Promise<ConfigPathsIpc>;
     show(): Promise<{ ok: boolean; resolution: ConfigResolutionIpc }>;
+    providers(): Promise<ConfigProvidersIpc>;
+    models(): Promise<ConfigModelsIpc>;
     initLocal(): Promise<{ ok: boolean; localConfigPath: string; created: boolean; createdFromGlobal: boolean; source: string }>;
     syncFromGlobal(): Promise<ConfigSyncIpc>;
     syncToGlobal(): Promise<ConfigSyncIpc>;
@@ -149,6 +192,12 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       show() {
         return ipcRenderer.invoke('config:show') as Promise<{ ok: boolean; resolution: ConfigResolutionIpc }>;
+      },
+      providers() {
+        return ipcRenderer.invoke('config:providers') as Promise<ConfigProvidersIpc>;
+      },
+      models() {
+        return ipcRenderer.invoke('config:models') as Promise<ConfigModelsIpc>;
       },
       initLocal() {
         return ipcRenderer.invoke('config:initLocal') as Promise<{ ok: boolean; localConfigPath: string; created: boolean; createdFromGlobal: boolean; source: string }>;

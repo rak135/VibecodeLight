@@ -512,55 +512,105 @@ Global user directory (Windows):
 Global files:
 
 ```text
-%LOCALAPPDATA%\vibecodelight\config.yaml   # global non-secret defaults
-%LOCALAPPDATA%\vibecodelight\.env          # secrets and env-style provider settings
+%LOCALAPPDATA%\vibecodelight\config.yaml   # global provider/model registry (non-secret)
+%LOCALAPPDATA%\vibecodelight\.env          # secrets/credentials only
 ```
 
 Per-repository local workspace config:
 
 ```text
-<repo>\.vibecode\config.yaml
+<repo>\.vibecode\config.yaml               # local provider/model registry (non-secret)
+```
+
+`config.yaml` holds a **provider/model registry** (which providers exist, which models each provides, and the active flash defaults). It never holds API keys. `.env` holds **credentials only** and is global (never synced into `.vibecode`). Each provider names its key by env-variable NAME via `api_key_env`; the value lives only in `.env`.
+
+Global `config.yaml` shape:
+
+```yaml
+version: 1
+
+providers:
+  openrouter:
+    type: openai-compatible
+    label: OpenRouter
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    models:
+      - id: deepseek/deepseek-chat
+        label: DeepSeek Chat via OpenRouter
+        role: flash
+      - id: deepseek/deepseek-reasoner
+        role: flash
+
+  deepseek:
+    type: openai-compatible
+    label: DeepSeek
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    models:
+      - id: deepseek-chat
+        role: flash
+      - id: deepseek-reasoner
+        role: flash
+
+defaults:
+  flash:
+    provider: openrouter
+    model: deepseek/deepseek-chat
+    timeout_ms: 30000
+    max_tokens: 4096
+    temperature: 0.1
+```
+
+Provider and model ids are editable config values, not hardcoded — add or rename providers/models freely.
+
+`.env` shape (credentials only, referenced by `api_key_env` name):
+
+```text
+OPENROUTER_API_KEY=...
+DEEPSEEK_API_KEY=...
 ```
 
 Rules:
 
-- The local workspace config takes priority over the global config.
-- When a repo has no `.vibecode/config.yaml`, it is created as a snapshot from the global config (or minimal safe defaults) at init/config-use time.
-- Sync between global and local is explicit (never automatic in either direction).
-- `.vibecode/config.yaml` is local working state inside the ignored `.vibecode/` tree; it is not committed and is not the historical run-artifact truth.
-- API keys must live only in the AppData `.env` file. They are never written to committed files, artifacts, diagnostics, logs, or README examples. Secret keys found in any `config.yaml` are ignored with a warning.
+- The local workspace config takes priority over the global config (providers merge by id with local replacing same-id entries; flash defaults merge field-by-field with local winning).
+- When a repo has no `.vibecode/config.yaml`, it is created as a snapshot from the global config (or a minimal registry) at init/config-use time.
+- Sync between global and local is explicit (never automatic) and copies the `config.yaml` registry shape only — the `.env` is never copied into `.vibecode`.
+- `.vibecode/config.yaml` is local working state inside the ignored `.vibecode/` tree; it is not committed.
+- API keys live only in the AppData `.env`. They are never written to committed files, artifacts, diagnostics, logs, or README examples. Secret-looking keys found in any `config.yaml` are ignored with a warning (`api_key_env` is a NON-secret key name and is kept).
 
-Resolution priority for model/provider/baseUrl/timeouts and other non-secret settings:
+Resolution priority for the active flash provider/model and non-secret tuning:
 
 ```text
-1. explicit CLI flags
+1. explicit CLI flags (--flash-provider / --flash-model)
 2. local workspace config (<repo>\.vibecode\config.yaml)
-3. AppData .env values
-4. AppData global config.yaml
-5. safe defaults
-6. otherwise FLASH_PROVIDER_NOT_CONFIGURED
+3. AppData global config.yaml
+4. otherwise FLASH_PROVIDER_NOT_CONFIGURED / FLASH_MODEL_NOT_CONFIGURED
 ```
 
-Resolution priority for API keys/secrets:
+The available provider/model registry comes only from `config.yaml` (local then global). The `.env` contributes only the secret value for the selected provider's `api_key_env`:
 
 ```text
-1. explicit CLI/env input
-2. AppData .env
-3. process environment
-4. otherwise FLASH_PROVIDER_NOT_CONFIGURED / FLASH_PROVIDER_AUTH_MISSING
+1. AppData .env (global-env:<NAME>)
+2. process environment (process-env:<NAME>)
+3. otherwise PROVIDER_API_KEY_ENV_MISSING (no api_key_env) / FLASH_PROVIDER_AUTH_MISSING (no value)
 ```
+
+Structured config diagnostics: `CONFIG_PROVIDER_NOT_FOUND`, `CONFIG_MODEL_NOT_FOUND`, `PROVIDER_API_KEY_ENV_MISSING`, `FLASH_PROVIDER_AUTH_MISSING`, `FLASH_PROVIDER_NOT_CONFIGURED`, `FLASH_MODEL_NOT_CONFIGURED`, `CONFIG_INVALID_PROVIDER_REGISTRY`. Diagnostics report the provider id, model id, config source/path, and the missing env var NAME — never a secret value.
 
 Config CLI commands (debug/automation; all call the same core service):
 
 ```powershell
 pnpm vibecode config paths --json
 pnpm vibecode config show --json
+pnpm vibecode config providers --json
+pnpm vibecode config models --json
 pnpm vibecode config init-local --repo <path> --json
 pnpm vibecode config sync --from-global --repo <path> --json
 pnpm vibecode config sync --to-global --repo <path> --json
 ```
 
-`config paths` shows the global dir, global config, global env, and local config path for a repo. `config show` shows the resolved safe config and per-field source map and never prints API keys. `config sync` requires an explicit direction and reports the source and destination paths.
+`config paths` shows the global dir, global config, global env, and local config path. `config show` shows the resolved active provider/model, per-field source map, config source (local/global/cli/mixed), per-provider API-key status (configured true/false, by `api_key_env` name), and the global/local paths — never API keys. `config providers` lists all configured providers and whether each has a key; `config models` lists models per provider. `config sync` requires an explicit direction and reports the source and destination paths. Provider/model can be selected per run: `pnpm vibecode prompt "task" --flash-provider openrouter --flash-model deepseek/deepseek-chat` and `pnpm vibecode flash run latest --flash-provider deepseek --flash-model deepseek-chat`.
 
 Every prompt/flash run records which config was used in a safe, secret-free artifact:
 
@@ -568,7 +618,7 @@ Every prompt/flash run records which config was used in a safe, secret-free arti
 .vibecode/runs/<run_id>/config_resolution.json
 ```
 
-It records the global/local config and env paths, whether each exists, whether the local config was created from the global one, the selected config source, the provider/model/baseUrl host, and a per-field source map (the API key source only, never its value). The flash run metadata at `flash/flash_output_meta.json` additionally records `provider`, `model`, `live`, `baseUrl_host`, `config_source`, and `config_resolution_path`, so it is always clear which model/provider was used.
+It records the global/local config and env paths, whether each exists, whether the local config was created from the global one, the selected config source, the selected provider id/label, model id/label, provider type, baseUrl host, the API key env-variable NAME and key source (e.g. `global-env:OPENROUTER_API_KEY` — never the value), the configured provider/model registry, and a per-field source map. The flash run metadata at `flash/flash_output_meta.json` additionally records `provider`, `provider_label`, `model`, `model_label`, `live`, `baseUrl_host`, `config_source`, and `config_resolution_path`, so it is always clear which provider/model and config source were used. No API key value is ever written to either artifact.
 
 For each run, TypeScript writes:
 
@@ -694,6 +744,8 @@ vibecode flash run latest
 vibecode terminal demo
 vibecode config paths
 vibecode config show
+vibecode config providers
+vibecode config models
 vibecode config init-local --repo <path>
 vibecode config sync --from-global --repo <path>
 vibecode config sync --to-global --repo <path>

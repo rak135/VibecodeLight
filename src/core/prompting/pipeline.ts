@@ -28,6 +28,8 @@ export interface PromptPipelineOptions {
   mock: boolean;
   live?: boolean;
   adapter?: LlmAdapter;
+  flashProvider?: string;
+  flashModel?: string;
 }
 
 export interface PromptPipelineSuccess {
@@ -77,6 +79,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     live: opts.live,
     mock: opts.mock,
     localCreatedFromGlobal: ensured.createdFromGlobal,
+    cliFlags: { provider: opts.flashProvider, model: opts.flashModel },
   });
 
   // Resolve which adapter to use
@@ -152,7 +155,9 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     const adapterMeta = adapterResult.meta as Record<string, unknown>;
     enrichFlashOutputMeta(flashDir, {
       provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
+      provider_label: resolved.resolution.provider_label,
       model: (typeof adapterMeta.model === 'string' ? adapterMeta.model : resolved.resolution.model) ?? null,
+      model_label: resolved.resolution.model_label,
       live: typeof adapterMeta.live === 'boolean' ? adapterMeta.live : false,
       baseUrl_host: (typeof adapterMeta.baseUrl_host === 'string' ? adapterMeta.baseUrl_host : resolved.resolution.baseUrl_host) ?? null,
       config_source: resolved.resolution.selected_config_source,

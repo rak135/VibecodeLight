@@ -31,6 +31,38 @@ export function registerDesktopConfigIpcHandlers(ipcMain: IpcMainLike, options: 
     return { ok: true, resolution: resolved.resolution };
   });
 
+  ipcMain.handle('config:providers', () => {
+    const repoRoot = options.getRepoPath();
+    const r = resolveFlashConfig({ repoRoot, env: process.env }).resolution;
+    return {
+      ok: true,
+      providers: r.providers,
+      active_provider: r.provider,
+      active_model: r.model,
+      config_source: r.selected_config_source,
+      local_config_path: r.local_config_path,
+      global_config_path: r.global_config_path,
+      global_env_path: r.global_env_path,
+    };
+  });
+
+  ipcMain.handle('config:models', () => {
+    const repoRoot = options.getRepoPath();
+    const r = resolveFlashConfig({ repoRoot, env: process.env }).resolution;
+    return {
+      ok: true,
+      providers: r.providers.map((p) => ({
+        id: p.id,
+        label: p.label,
+        has_api_key: p.has_api_key,
+        api_key_env: p.api_key_env,
+        models: p.models,
+      })),
+      active_provider: r.provider,
+      active_model: r.model,
+    };
+  });
+
   ipcMain.handle('config:initLocal', () => {
     const repoRoot = options.getRepoPath();
     return { ok: true, ...ensureLocalConfig({ repoRoot, env: process.env }) };

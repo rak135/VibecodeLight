@@ -285,6 +285,8 @@ export async function runFlash(opts: {
   repoRoot: string;
   mock?: boolean;
   live?: boolean;
+  flashProvider?: string;
+  flashModel?: string;
 }): Promise<FlashRunResult> {
   let resolvedRun: { runId: string; runDir: string } | undefined;
 
@@ -317,6 +319,7 @@ export async function runFlash(opts: {
       env: process.env,
       live: opts.live,
       mock: opts.mock,
+      cliFlags: { provider: opts.flashProvider, model: opts.flashModel },
     });
 
     let adapterResult;
@@ -346,7 +349,9 @@ export async function runFlash(opts: {
     const adapterMeta = adapterResult.meta as Record<string, unknown>;
     enrichFlashOutputMeta(flashDir, {
       provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
+      provider_label: resolved.resolution.provider_label,
       model: (typeof adapterMeta.model === 'string' ? adapterMeta.model : resolved.resolution.model) ?? null,
+      model_label: resolved.resolution.model_label,
       live: typeof adapterMeta.live === 'boolean' ? adapterMeta.live : false,
       baseUrl_host: (typeof adapterMeta.baseUrl_host === 'string' ? adapterMeta.baseUrl_host : resolved.resolution.baseUrl_host) ?? null,
       config_source: resolved.resolution.selected_config_source,
@@ -506,14 +511,96 @@ export function createCli(): Command {
       const r = resolved.resolution;
       console.log(`selected_config_source: ${r.selected_config_source}`);
       console.log(`provider: ${r.provider ?? '(none)'} [${r.source_map.provider}]`);
+      console.log(`provider_label: ${r.provider_label ?? '(none)'}`);
       console.log(`model: ${r.model ?? '(none)'} [${r.source_map.model}]`);
+      console.log(`model_label: ${r.model_label ?? '(none)'}`);
       console.log(`baseUrl_host: ${r.baseUrl_host ?? '(none)'} [${r.source_map.baseUrl}]`);
-      console.log(`api_key: ${r.has_api_key ? 'present' : 'missing'} [${r.source_map.apiKey}]`);
+      console.log(`api_key_env: ${r.api_key_env ?? '(none)'}`);
+      console.log(`api_key: ${r.has_api_key ? 'configured' : 'missing'} [${r.source_map.apiKey}]`);
       console.log(`global_config: ${r.global_config_path} (${r.global_config_exists ? 'exists' : 'absent'})`);
       console.log(`global_env: ${r.global_env_path} (${r.global_env_exists ? 'exists' : 'absent'})`);
       console.log(`local_config: ${r.local_config_path} (${r.local_config_exists ? 'exists' : 'absent'})`);
+      console.log('providers:');
+      for (const p of r.providers) {
+        console.log(`  ${p.id} [${p.origin}] api_key=${p.has_api_key ? 'configured' : 'missing'} (${p.api_key_env ?? 'no api_key_env'})`);
+      }
+      if (resolved.error) {
+        console.log(`error: ${resolved.error.code} ${resolved.error.message}`);
+      }
       for (const warning of r.warnings) {
         console.log(`warning: ${warning}`);
+      }
+    });
+
+  config
+    .command('providers')
+    .description('List configured providers (and whether each has an API key) — never prints keys')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const resolved = resolveFlashConfig({ repoRoot, env: process.env });
+      const r = resolved.resolution;
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            providers: r.providers,
+            active_provider: r.provider,
+            active_model: r.model,
+            config_source: r.selected_config_source,
+            local_config_path: r.local_config_path,
+            global_config_path: r.global_config_path,
+            global_env_path: r.global_env_path,
+          },
+          artifacts: [],
+          warnings: r.warnings,
+        }));
+        return;
+      }
+      console.log(`active_provider: ${r.provider ?? '(none)'}`);
+      console.log(`active_model: ${r.model ?? '(none)'}`);
+      console.log(`config_source: ${r.selected_config_source}`);
+      console.log('providers:');
+      for (const p of r.providers) {
+        console.log(`  ${p.id}\t${p.label ?? ''}\t[${p.origin}]\tapi_key=${p.has_api_key ? 'configured' : 'missing'} (${p.api_key_env ?? 'no api_key_env'})\tmodels=${p.models.length}`);
+      }
+    });
+
+  config
+    .command('models')
+    .description('List models per configured provider — never prints keys')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--provider <id>', 'Limit to a single provider id')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; provider?: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const resolved = resolveFlashConfig({ repoRoot, env: process.env });
+      const r = resolved.resolution;
+      const filtered = options.provider ? r.providers.filter((p) => p.id === options.provider) : r.providers;
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            providers: filtered.map((p) => ({ id: p.id, label: p.label, has_api_key: p.has_api_key, api_key_env: p.api_key_env, models: p.models })),
+            active_provider: r.provider,
+            active_model: r.model,
+            config_source: r.selected_config_source,
+          },
+          artifacts: [],
+          warnings: r.warnings,
+        }));
+        return;
+      }
+      for (const p of filtered) {
+        console.log(`${p.id} [${p.origin}]:`);
+        if (p.models.length === 0) {
+          console.log('  (no models)');
+        }
+        for (const m of p.models) {
+          const active = r.provider === p.id && r.model === m.id ? ' *active' : '';
+          console.log(`  ${m.id}\t${m.label ?? ''}\t${m.role ?? ''}${active}`);
+        }
       }
     });
 
@@ -836,14 +923,18 @@ export function createCli(): Command {
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--mock', 'Use deterministic mock flash adapter')
     .option('--live', 'Allow live provider calls when configured')
+    .option('--flash-provider <id>', 'Override the active flash provider id')
+    .option('--flash-model <id>', 'Override the active flash model id')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (runId: string, options: { repo: string; mock?: boolean; live?: boolean; json?: boolean }) => {
+    .action(async (runId: string, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
       const result = await runFlash({
         runSelector: runId,
         repoRoot,
         mock: options.mock,
         live: options.live,
+        flashProvider: options.flashProvider,
+        flashModel: options.flashModel,
       });
 
       if (result.status === 'error') {
@@ -1282,8 +1373,10 @@ export function createCli(): Command {
     .argument('[args...]', 'Task prompt, or render <runId>')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--mock', 'Use mock flash adapter (required for this checkpoint)')
+    .option('--flash-provider <id>', 'Override the active flash provider id')
+    .option('--flash-model <id>', 'Override the active flash model id')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; flashProvider?: string; flashModel?: string; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -1304,6 +1397,8 @@ export function createCli(): Command {
         task,
         repoRoot,
         mock: options.mock === true,
+        flashProvider: options.flashProvider,
+        flashModel: options.flashModel,
       });
 
       if (result.ok === false) {

@@ -55,7 +55,9 @@ export function writeFlashOutputMeta(flashDir: string, meta: FlashOutputMeta): s
 
 export interface FlashRunMeta {
   provider: string | null;
+  provider_label: string | null;
   model: string | null;
+  model_label: string | null;
   live: boolean;
   baseUrl_host: string | null;
   config_source: string | null;

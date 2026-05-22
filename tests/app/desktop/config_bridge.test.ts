@@ -47,10 +47,35 @@ describe('desktop config bridge', () => {
     const dir = path.join(appData, 'vibecodelight');
     fs.mkdirSync(dir, { recursive: true });
     if (config) {
-      fs.writeFileSync(path.join(dir, 'config.yaml'), 'models:\n  flash_provider: "bridge-provider"\n  flash_base_url: "https://b.example.com/v1"\n', 'utf8');
+      const registry = [
+        'version: 1',
+        'providers:',
+        '  openrouter:',
+        '    type: openai-compatible',
+        '    label: OpenRouter',
+        '    base_url: https://openrouter.ai/api/v1',
+        '    api_key_env: OPENROUTER_API_KEY',
+        '    models:',
+        '      - id: deepseek/deepseek-chat',
+        '        role: flash',
+        '  deepseek:',
+        '    type: openai-compatible',
+        '    label: DeepSeek',
+        '    base_url: https://api.deepseek.com',
+        '    api_key_env: DEEPSEEK_API_KEY',
+        '    models:',
+        '      - id: deepseek-chat',
+        '        role: flash',
+        'defaults:',
+        '  flash:',
+        '    provider: openrouter',
+        '    model: deepseek/deepseek-chat',
+        '',
+      ].join('\n');
+      fs.writeFileSync(path.join(dir, 'config.yaml'), registry, 'utf8');
     }
     if (env) {
-      fs.writeFileSync(path.join(dir, '.env'), `VIBECODE_FLASH_API_KEY=${SECRET}\n`, 'utf8');
+      fs.writeFileSync(path.join(dir, '.env'), `OPENROUTER_API_KEY=${SECRET}\n`, 'utf8');
     }
   }
 
@@ -66,9 +91,42 @@ describe('desktop config bridge', () => {
     const ipc = register();
     const result = (await ipc.invoke('config:show')) as { ok: boolean; resolution: Record<string, unknown> };
     expect(result.ok).toBe(true);
-    expect(result.resolution.provider).toBe('bridge-provider');
+    expect(result.resolution.provider).toBe('openrouter');
+    expect(result.resolution.model).toBe('deepseek/deepseek-chat');
     expect(result.resolution.has_api_key).toBe(true);
+    expect(result.resolution.api_key_env).toBe('OPENROUTER_API_KEY');
     expect(result.resolution).not.toHaveProperty('apiKey');
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  test('config:providers lists configured providers and per-provider API key status (no keys)', async () => {
+    writeGlobal(true, true);
+    const ipc = register();
+    const result = (await ipc.invoke('config:providers')) as {
+      ok: boolean;
+      providers: Array<{ id: string; has_api_key: boolean; api_key_env: string | null; models: unknown[] }>;
+      active_provider: string | null;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.providers.map((p) => p.id).sort()).toEqual(['deepseek', 'openrouter']);
+    const openrouter = result.providers.find((p) => p.id === 'openrouter');
+    expect(openrouter?.has_api_key).toBe(true);
+    expect(openrouter?.api_key_env).toBe('OPENROUTER_API_KEY');
+    expect(result.providers.find((p) => p.id === 'deepseek')?.has_api_key).toBe(false);
+    expect(result.active_provider).toBe('openrouter');
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  test('config:models lists models per provider through the core service', async () => {
+    writeGlobal(true, true);
+    const ipc = register();
+    const result = (await ipc.invoke('config:models')) as {
+      ok: boolean;
+      providers: Array<{ id: string; models: Array<{ id: string }> }>;
+    };
+    expect(result.ok).toBe(true);
+    const openrouter = result.providers.find((p) => p.id === 'openrouter');
+    expect(openrouter?.models.map((m) => m.id)).toEqual(['deepseek/deepseek-chat']);
     expect(JSON.stringify(result)).not.toContain(SECRET);
   });
 
@@ -89,12 +147,24 @@ describe('desktop config bridge', () => {
     const fromGlobal = (await ipc.invoke('config:syncFromGlobal')) as { ok: boolean; direction: string };
     expect(fromGlobal.ok).toBe(true);
     expect(fromGlobal.direction).toBe('from-global');
-    expect(fs.readFileSync(path.join(repoRoot, '.vibecode', 'config.yaml'), 'utf8')).toContain('bridge-provider');
+    expect(fs.readFileSync(path.join(repoRoot, '.vibecode', 'config.yaml'), 'utf8')).toContain('openrouter');
 
-    fs.writeFileSync(path.join(repoRoot, '.vibecode', 'config.yaml'), 'models:\n  flash_provider: "edited-local"\n', 'utf8');
+    fs.writeFileSync(
+      path.join(repoRoot, '.vibecode', 'config.yaml'),
+      'providers:\n  edited-local:\n    type: openai-compatible\n    base_url: https://edited.invalid\n    api_key_env: EDITED_KEY\n    models: []\ndefaults:\n  flash:\n    provider: edited-local\n',
+      'utf8',
+    );
     const toGlobal = (await ipc.invoke('config:syncToGlobal')) as { ok: boolean; direction: string };
     expect(toGlobal.ok).toBe(true);
     expect(toGlobal.direction).toBe('to-global');
     expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toContain('edited-local');
+  });
+
+  test('config sync never writes a .env into .vibecode', async () => {
+    writeGlobal(true, true);
+    const ipc = register();
+    await ipc.invoke('config:syncFromGlobal');
+    expect(fs.existsSync(path.join(repoRoot, '.vibecode', '.env'))).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, '.vibecode', 'config.yaml'), 'utf8')).not.toContain(SECRET);
   });
 });

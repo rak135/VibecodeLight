@@ -38,11 +38,30 @@ describe('config layout guards', () => {
 
   test('sync never creates a scan/config.json or .vibecode/config.json', () => {
     fs.mkdirSync(path.join(tmpRepo, '.vibecode'), { recursive: true });
-    fs.writeFileSync(path.join(tmpRepo, '.vibecode', 'config.yaml'), 'models:\n  flash_provider: "p"\n', 'utf8');
+    fs.writeFileSync(
+      path.join(tmpRepo, '.vibecode', 'config.yaml'),
+      'providers:\n  p:\n    type: openai-compatible\n    base_url: https://p.invalid\n    api_key_env: P_KEY\n    models: []\ndefaults:\n  flash:\n    provider: p\n',
+      'utf8',
+    );
     const globalConfigPath = path.join(tmpRepo, 'global', 'config.yaml');
     syncConfig({ direction: 'to-global', repoRoot: tmpRepo, globalConfigPath, localConfigPath: path.join(tmpRepo, '.vibecode', 'config.yaml') });
     expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'config.json'))).toBe(false);
     expect(fs.existsSync(path.join(tmpRepo, 'scan', 'config.json'))).toBe(false);
+  });
+
+  test('sync from-global never writes a .env file under .vibecode', () => {
+    const globalConfigPath = path.join(tmpRepo, 'global', 'config.yaml');
+    const globalEnvPath = path.join(tmpRepo, 'global', '.env');
+    fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
+    fs.writeFileSync(
+      globalConfigPath,
+      'providers:\n  p:\n    type: openai-compatible\n    base_url: https://p.invalid\n    api_key_env: P_KEY\n    models: []\ndefaults:\n  flash:\n    provider: p\n',
+      'utf8',
+    );
+    fs.writeFileSync(globalEnvPath, 'P_KEY=sk-should-stay-global\n', 'utf8');
+    syncConfig({ direction: 'from-global', repoRoot: tmpRepo, globalConfigPath, localConfigPath: path.join(tmpRepo, '.vibecode', 'config.yaml') });
+    expect(fs.existsSync(path.join(tmpRepo, '.vibecode', '.env'))).toBe(false);
+    expect(fs.readFileSync(path.join(tmpRepo, '.vibecode', 'config.yaml'), 'utf8')).not.toContain('sk-should-stay-global');
   });
 });
 
