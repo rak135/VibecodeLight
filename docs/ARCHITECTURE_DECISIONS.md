@@ -814,6 +814,19 @@ schemas/flash_output.schema.json
 
 but the first flash implementation uses `flash_output.md` plus optional `flash_output_meta.json`.
 
+## Schema Implementation Debt
+
+**Status (as of commit 32bfb8f / HEAD):** `schemas/` and `src/core/validation/` are canonical placeholder directories. No `.schema.json` files have been written yet.
+
+TypeScript types (`src/core/models/`) and Python Pydantic models (`vibecode_scanner/`) exist and serve as single-language contracts. The cross-language JSON Schema files listed above are **explicitly deferred** — they are not blocking the current implementation phase.
+
+When schemas are implemented:
+- TypeScript validation at `src/core/validation/` reads from `schemas/`.
+- Python scanner validates its output with `pydantic` models that are kept in sync.
+- A future checkpoint will add runtime schema validation and tests.
+
+Do not delete `schemas/.gitkeep` or `src/core/validation/.gitkeep` — they mark canonical directories that will hold real content in a future checkpoint.
+
 ---
 
 # Scan Artifact Layout

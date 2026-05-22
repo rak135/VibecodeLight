@@ -75,29 +75,36 @@ VibecodeLight exists to reduce agent confusion, hidden prompt drift, repeated re
 
 ## Project Status
 
-VibecodeLight is in the design-to-implementation stage.
+VibecodeLight is past the baseline scaffold stage. The CLI/core path, PTY terminal adapter, Electron desktop shell, composer preview, and prompt-send pipeline are implemented and tested.
 
-The architecture contracts are aligned. Implementation is expected to begin checkpoint-by-checkpoint.
-
-Current baseline checkpoint:
+Implemented checkpoints (as of HEAD):
 
 ```text
-documentation/baseline alignment
-README.md
-AGENTS.md
-docs/*
-config.yaml
-.gitignore
+repository baseline / scaffold
+CLI and core debug path
+workspace initialization + run store
+Python scanner CLI skeleton + deterministic scan artifacts
+manifest/dependency/command/environment scan
+docs/instructions scan + code map scan
+skills catalog and project snapshot
+flash input builder + Markdown flash output contract
+flash model adapter (mock) + context pack
+final prompt renderer
+real PTY terminal (node-pty)
+Electron shell + composer preview
+send final prompt into terminal (send_metadata.json)
+per-run git commit
 ```
 
-Next code/scaffold checkpoint:
+Deferred / not yet implemented:
 
 ```text
-repository scaffold
-workspace initialization
-run store
-CLI smoke tests
-Python scanner CLI skeleton
+follow-up terminal context (terminal_excerpt_after.md — explicitly deferred in 32bfb8f)
+schemas/ JSON Schema files (placeholder directory; see JSON Schema Strategy debt below)
+src/core/validation/ (placeholder directory; TypeScript types and Pydantic models exist but JSON Schema cross-language contracts not yet written)
+auto-approve mode
+post-run after/ artifacts
+terminal-mode detection (Hermes/OpenCode/Codex)
 ```
 
 The desktop shell comes after the CLI/core path is testable and reproducible.
