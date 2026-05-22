@@ -4,10 +4,15 @@ import path from 'path';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
-import { loadProviderConfig } from '../../adapters/llm/provider_config.js';
+import {
+  ensureLocalConfig,
+  resolveFlashConfig,
+  writeConfigResolution,
+} from '../config/index.js';
 import { buildFlashInput,
   buildFlashInputManifest,
   contextFinalizeErrorToDiagnostic,
+  enrichFlashOutputMeta,
   finalizeContext,
   formatPreviousRunSummary,
   getPreviousRunSummary,
@@ -63,6 +68,17 @@ function errorResult(code: string, message: string, pathValue = '', details: str
 }
 
 export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<PromptPipelineResult> {
+  // Ensure a local workspace config exists (snapshot from global, or minimal
+  // defaults) so resolution and the config artifact are meaningful per run.
+  const ensured = ensureLocalConfig({ repoRoot: opts.repoRoot, env: process.env });
+  const resolved = resolveFlashConfig({
+    repoRoot: opts.repoRoot,
+    env: process.env,
+    live: opts.live,
+    mock: opts.mock,
+    localCreatedFromGlobal: ensured.createdFromGlobal,
+  });
+
   // Resolve which adapter to use
   let adapter: LlmAdapter;
   if (opts.mock) {
@@ -70,17 +86,15 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
   } else if (opts.adapter) {
     adapter = opts.adapter;
   } else {
-    // Live mode: require provider config
-    const providerConfig = loadProviderConfig(process.env, { live: opts.live ?? false, workspaceRoot: opts.repoRoot });
-    if (!providerConfig) {
-      return errorResult(
-        'FLASH_PROVIDER_NOT_CONFIGURED',
-        'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.',
-        '',
-        [],
-      );
+    // Live mode: require resolved provider config
+    if (!resolved.providerConfig) {
+      const code = resolved.error?.code ?? 'FLASH_PROVIDER_NOT_CONFIGURED';
+      const message = code === 'FLASH_PROVIDER_NOT_CONFIGURED'
+        ? 'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.'
+        : resolved.error?.message ?? 'flash provider configuration is incomplete';
+      return errorResult(code, message, '', resolved.error?.details ?? []);
     }
-    adapter = new OpenAiCompatibleAdapter(providerConfig);
+    adapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
   }
 
   const scan = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
@@ -91,15 +105,19 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
   const flashDir = path.join(scan.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
 
+  // Safe (secret-free) record of how config was resolved for this run.
+  const configResolutionPath = writeConfigResolution(scan.runDir, resolved.resolution);
+
   const artifacts: string[] = [
     path.join(scan.runDir, 'user_prompt.md'),
     scan.runManifestPath,
     path.join(scan.runDir, 'scanner_config.json'),
+    configResolutionPath,
     path.join(scan.scanDir, 'scan_manifest.json'),
     path.join(scan.runDir, 'skills', 'skills_catalog.json'),
     ...Object.values(scan.artifacts),
   ];
-  const warnings = [...scan.warnings];
+  const warnings = [...scan.warnings, ...resolved.resolution.warnings];
 
   try {
     const flashManifest = buildFlashInputManifest({
@@ -130,7 +148,16 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     warnings.push(...flashManifest.warnings);
 
     const adapter2 = adapter;
-    await adapter2.run({ flashInputMd: flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
+    const adapterResult = await adapter2.run({ flashInputMd: flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
+    const adapterMeta = adapterResult.meta as Record<string, unknown>;
+    enrichFlashOutputMeta(flashDir, {
+      provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
+      model: (typeof adapterMeta.model === 'string' ? adapterMeta.model : resolved.resolution.model) ?? null,
+      live: typeof adapterMeta.live === 'boolean' ? adapterMeta.live : false,
+      baseUrl_host: (typeof adapterMeta.baseUrl_host === 'string' ? adapterMeta.baseUrl_host : resolved.resolution.baseUrl_host) ?? null,
+      config_source: resolved.resolution.selected_config_source,
+      config_resolution_path: configResolutionPath,
+    });
     artifacts.push(
       path.join(flashDir, 'flash_output.md'),
       path.join(flashDir, 'flash_output_meta.json'),

@@ -501,19 +501,74 @@ The Python scanner does not produce this file.
 
 ## Configuration
 
-The only human-maintained project config is:
+VibecodeLight resolves configuration from a global user profile and a per-repository local workspace config. A single TypeScript-owned core config service performs this resolution; the CLI and desktop call the same service.
+
+Global user directory (Windows):
 
 ```text
-config.yaml
+%LOCALAPPDATA%\vibecodelight
 ```
 
-It lives in the repository root.
+Global files:
 
-TypeScript owns it.
+```text
+%LOCALAPPDATA%\vibecodelight\config.yaml   # global non-secret defaults
+%LOCALAPPDATA%\vibecodelight\.env          # secrets and env-style provider settings
+```
 
-TypeScript creates, preserves, reads, validates, and resolves `config.yaml`.
+Per-repository local workspace config:
 
-Python scanner does not read `config.yaml` directly.
+```text
+<repo>\.vibecode\config.yaml
+```
+
+Rules:
+
+- The local workspace config takes priority over the global config.
+- When a repo has no `.vibecode/config.yaml`, it is created as a snapshot from the global config (or minimal safe defaults) at init/config-use time.
+- Sync between global and local is explicit (never automatic in either direction).
+- `.vibecode/config.yaml` is local working state inside the ignored `.vibecode/` tree; it is not committed and is not the historical run-artifact truth.
+- API keys must live only in the AppData `.env` file. They are never written to committed files, artifacts, diagnostics, logs, or README examples. Secret keys found in any `config.yaml` are ignored with a warning.
+
+Resolution priority for model/provider/baseUrl/timeouts and other non-secret settings:
+
+```text
+1. explicit CLI flags
+2. local workspace config (<repo>\.vibecode\config.yaml)
+3. AppData .env values
+4. AppData global config.yaml
+5. safe defaults
+6. otherwise FLASH_PROVIDER_NOT_CONFIGURED
+```
+
+Resolution priority for API keys/secrets:
+
+```text
+1. explicit CLI/env input
+2. AppData .env
+3. process environment
+4. otherwise FLASH_PROVIDER_NOT_CONFIGURED / FLASH_PROVIDER_AUTH_MISSING
+```
+
+Config CLI commands (debug/automation; all call the same core service):
+
+```powershell
+pnpm vibecode config paths --json
+pnpm vibecode config show --json
+pnpm vibecode config init-local --repo <path> --json
+pnpm vibecode config sync --from-global --repo <path> --json
+pnpm vibecode config sync --to-global --repo <path> --json
+```
+
+`config paths` shows the global dir, global config, global env, and local config path for a repo. `config show` shows the resolved safe config and per-field source map and never prints API keys. `config sync` requires an explicit direction and reports the source and destination paths.
+
+Every prompt/flash run records which config was used in a safe, secret-free artifact:
+
+```text
+.vibecode/runs/<run_id>/config_resolution.json
+```
+
+It records the global/local config and env paths, whether each exists, whether the local config was created from the global one, the selected config source, the provider/model/baseUrl host, and a per-field source map (the API key source only, never its value). The flash run metadata at `flash/flash_output_meta.json` additionally records `provider`, `model`, `live`, `baseUrl_host`, `config_source`, and `config_resolution_path`, so it is always clear which model/provider was used.
 
 For each run, TypeScript writes:
 
@@ -527,6 +582,8 @@ Python scanner receives this file and writes the scan-side config snapshot to:
 .vibecode/runs/<run_id>/scan/config_snapshot.json
 ```
 
+The Python scanner never reads the global or local YAML config directly.
+
 Do not use:
 
 ```text
@@ -534,9 +591,9 @@ Do not use:
 scan/config.json
 ```
 
-Provider secrets and API keys must not be committed. They should live in user-profile configuration, local environment variables, or other local non-committed configuration.
-
 VibecodeLight is not a secret scanner. It respects ignore rules. Users are responsible for keeping secrets out of non-ignored repository content.
+
+> Note: this supersedes the earlier rule that the repository-root `config.yaml` is the only human-maintained config. The root `config.yaml` still exists for project/scanner defaults, but human-maintained provider configuration now lives in the global user directory and the per-repository `.vibecode/config.yaml`.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -635,6 +692,11 @@ vibecode context-build "task"
 vibecode flash validate <path>
 vibecode flash run latest
 vibecode terminal demo
+vibecode config paths
+vibecode config show
+vibecode config init-local --repo <path>
+vibecode config sync --from-global --repo <path>
+vibecode config sync --to-global --repo <path>
 ```
 
 For local development, invoke the TypeScript CLI through pnpm:

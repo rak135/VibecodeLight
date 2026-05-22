@@ -8,7 +8,13 @@ import YAML from 'yaml';
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
-import { loadProviderConfig } from '../../adapters/llm/provider_config.js';
+import {
+  ensureLocalConfig,
+  getConfigPaths,
+  resolveFlashConfig,
+  syncConfig,
+  writeConfigResolution,
+} from '../../core/config/index.js';
 import { createRun } from '../../core/runs/run_store.js';
 import { updateCurrent } from '../../core/runs/current.js';
 import { getRunInfo, listRuns } from '../../core/runs/run_display.js';
@@ -26,6 +32,7 @@ import {
   buildFlashInputManifest,
   FlashInputManifestError,
   contextFinalizeErrorToDiagnostic,
+  enrichFlashOutputMeta,
   finalizeContext,
   formatPreviousRunSummary,
   getPreviousRunSummary,
@@ -305,12 +312,19 @@ export async function runFlash(opts: {
 
     const flashInputMd = fs.readFileSync(flashInputPath, 'utf8');
 
+    const resolved = resolveFlashConfig({
+      repoRoot: opts.repoRoot,
+      env: process.env,
+      live: opts.live,
+      mock: opts.mock,
+    });
+
+    let adapterResult;
     if (!opts.mock) {
-      const providerConfig = loadProviderConfig(process.env, { live: opts.live ?? false });
-      if (!providerConfig) {
-        throw new ProviderNotConfiguredError('no flash provider configured; set VIBECODE_PROVIDER and VIBECODE_API_KEY or use --mock', {
+      if (!resolved.providerConfig) {
+        throw new ProviderNotConfiguredError('no flash provider configured; set provider config in the local/global config or AppData .env, or use --mock', {
           path: flashInputPath,
-          details: [],
+          details: resolved.error?.details ?? [],
         });
       }
 
@@ -321,12 +335,23 @@ export async function runFlash(opts: {
         );
       }
 
-      const liveAdapter = new OpenAiCompatibleAdapter(providerConfig);
-      await liveAdapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
+      const liveAdapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
+      adapterResult = await liveAdapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
+    } else {
+      const adapter = new MockFlashAdapter();
+      adapterResult = await adapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
     }
 
-    const adapter = new MockFlashAdapter();
-    await adapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
+    const configResolutionPath = writeConfigResolution(runDir, resolved.resolution);
+    const adapterMeta = adapterResult.meta as Record<string, unknown>;
+    enrichFlashOutputMeta(flashDir, {
+      provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
+      model: (typeof adapterMeta.model === 'string' ? adapterMeta.model : resolved.resolution.model) ?? null,
+      live: typeof adapterMeta.live === 'boolean' ? adapterMeta.live : false,
+      baseUrl_host: (typeof adapterMeta.baseUrl_host === 'string' ? adapterMeta.baseUrl_host : resolved.resolution.baseUrl_host) ?? null,
+      config_source: resolved.resolution.selected_config_source,
+      config_resolution_path: configResolutionPath,
+    });
 
     const artifacts = [
       path.join(flashDir, 'flash_output.md'),
@@ -340,7 +365,7 @@ export async function runFlash(opts: {
       runDir,
       flashDir,
       artifacts,
-      warnings: [],
+      warnings: resolved.resolution.warnings,
     };
   } catch (error) {
     return {
@@ -429,6 +454,152 @@ export function createCli(): Command {
     .action(async (options: { repo: string }) => {
       const result = await initWorkspace(path.resolve(options.repo));
       console.log(JSON.stringify(result, null, 2));
+    });
+
+  const config = program.command('config').description('Inspect and sync global/local configuration');
+
+  config
+    .command('paths')
+    .description('Show global and local configuration paths')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const paths = getConfigPaths(repoRoot, process.env);
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            global_dir: paths.globalDir,
+            global_config: paths.globalConfig,
+            global_env: paths.globalEnv,
+            local_config: paths.localConfig,
+          },
+          artifacts: [],
+          warnings: [],
+        }));
+        return;
+      }
+      console.log(`global_dir: ${paths.globalDir}`);
+      console.log(`global_config: ${paths.globalConfig}`);
+      console.log(`global_env: ${paths.globalEnv}`);
+      console.log(`local_config: ${paths.localConfig}`);
+    });
+
+  config
+    .command('show')
+    .description('Show the resolved safe configuration and per-field source map (never prints API keys)')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const resolved = resolveFlashConfig({ repoRoot, env: process.env });
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: resolved.resolution,
+          artifacts: [],
+          warnings: resolved.resolution.warnings,
+        }));
+        return;
+      }
+      const r = resolved.resolution;
+      console.log(`selected_config_source: ${r.selected_config_source}`);
+      console.log(`provider: ${r.provider ?? '(none)'} [${r.source_map.provider}]`);
+      console.log(`model: ${r.model ?? '(none)'} [${r.source_map.model}]`);
+      console.log(`baseUrl_host: ${r.baseUrl_host ?? '(none)'} [${r.source_map.baseUrl}]`);
+      console.log(`api_key: ${r.has_api_key ? 'present' : 'missing'} [${r.source_map.apiKey}]`);
+      console.log(`global_config: ${r.global_config_path} (${r.global_config_exists ? 'exists' : 'absent'})`);
+      console.log(`global_env: ${r.global_env_path} (${r.global_env_exists ? 'exists' : 'absent'})`);
+      console.log(`local_config: ${r.local_config_path} (${r.local_config_exists ? 'exists' : 'absent'})`);
+      for (const warning of r.warnings) {
+        console.log(`warning: ${warning}`);
+      }
+    });
+
+  config
+    .command('init-local')
+    .description('Create the local workspace config from the global config (or safe defaults) if missing')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const result = ensureLocalConfig({ repoRoot, env: process.env });
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            local_config_path: result.localConfigPath,
+            global_config_path: result.globalConfigPath,
+            created: result.created,
+            already_existed: result.alreadyExisted,
+            created_from_global: result.createdFromGlobal,
+            source: result.source,
+          },
+          artifacts: [result.localConfigPath],
+          warnings: [],
+        }));
+        return;
+      }
+      console.log(`local_config: ${result.localConfigPath}`);
+      console.log(`created: ${result.created}`);
+      console.log(`created_from_global: ${result.createdFromGlobal}`);
+      console.log(`source: ${result.source}`);
+    });
+
+  config
+    .command('sync')
+    .description('Explicitly sync config between global and local (requires a direction)')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--from-global', 'Overwrite local config from global config')
+    .option('--to-global', 'Overwrite global config from local config')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; fromGlobal?: boolean; toGlobal?: boolean; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      if (Boolean(options.fromGlobal) === Boolean(options.toGlobal)) {
+        const error = {
+          code: 'SYNC_DIRECTION_REQUIRED',
+          message: 'config sync requires exactly one direction: --from-global or --to-global',
+          path: '',
+          details: [],
+        };
+        if (options.json) console.log(JSON.stringify({ ok: false, error }));
+        else console.error(`config sync failed: ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const direction = options.fromGlobal ? 'from-global' : 'to-global';
+      const result = syncConfig({ direction, repoRoot, env: process.env });
+      if (!result.ok) {
+        const error = {
+          code: result.error?.code ?? 'CONFIG_SYNC_FAILED',
+          message: result.error?.message ?? 'config sync failed',
+          path: result.sourcePath,
+          details: result.error?.details ?? [],
+        };
+        if (options.json) console.log(JSON.stringify({ ok: false, error }));
+        else console.error(`config sync failed: ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            direction: result.direction,
+            source: result.sourcePath,
+            destination: result.destinationPath,
+          },
+          artifacts: [result.destinationPath],
+          warnings: [],
+        }));
+        return;
+      }
+      console.log(`direction: ${result.direction}`);
+      console.log(`source: ${result.sourcePath}`);
+      console.log(`destination: ${result.destinationPath}`);
     });
 
   program

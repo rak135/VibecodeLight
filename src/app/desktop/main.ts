@@ -2,8 +2,10 @@ import * as path from 'path';
 
 import { app, BrowserWindow, clipboard, ipcMain, shell } from 'electron';
 
+import { getConfigPaths } from '../../core/config/index.js';
 import { resolveDesktopRepo, RepoResolveResult } from './repo_resolver.js';
 import { registerDesktopComposerIpcHandlers } from './composer_bridge.js';
+import { registerDesktopConfigIpcHandlers } from './config_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 
 let mainWindow: BrowserWindow | undefined;
@@ -48,6 +50,14 @@ function createWindow(): void {
     registerDesktopComposerIpcHandlers(ipcMain, {
       getRepoPath,
       getTerminalService: () => terminalService,
+    });
+    registerDesktopConfigIpcHandlers(ipcMain, { getRepoPath });
+
+    // Open the global config directory in the OS file explorer (no secrets read).
+    ipcMain.handle('config:openDir', async () => {
+      const { globalDir } = getConfigPaths(getRepoPath(), process.env);
+      const result = await shell.openPath(globalDir);
+      return { ok: result === '', error: result || undefined };
     });
 
     // Expose workspace info including repo root and any resolution error

@@ -52,3 +52,34 @@ export function writeFlashOutputMeta(flashDir: string, meta: FlashOutputMeta): s
   fs.writeFileSync(filePath, `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
   return filePath;
 }
+
+export interface FlashRunMeta {
+  provider: string | null;
+  model: string | null;
+  live: boolean;
+  baseUrl_host: string | null;
+  config_source: string | null;
+  config_resolution_path: string | null;
+}
+
+/**
+ * Merge run-level provenance (provider/model/live/baseUrl_host/config source)
+ * into an existing flash_output_meta.json. Never includes secrets. Called by the
+ * orchestration layer after the adapter writes the base metadata so that the
+ * adapter-owned contract stays unchanged.
+ */
+export function enrichFlashOutputMeta(flashDir: string, runMeta: FlashRunMeta): string {
+  const filePath = path.join(flashDir, 'flash_output_meta.json');
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(filePath)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+    } catch {
+      existing = {};
+    }
+  }
+  const merged = { ...existing, ...runMeta };
+  fs.mkdirSync(flashDir, { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+  return filePath;
+}

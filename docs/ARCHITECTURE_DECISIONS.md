@@ -455,6 +455,18 @@ Generated `.vibecode/` artifacts are not committed.
 
 TypeScript owns `config.yaml`.
 
+> Update: human-maintained provider configuration now uses a global user
+> directory (`%LOCALAPPDATA%\vibecodelight\config.yaml` plus a sibling `.env` for
+> secrets) and a per-repository local workspace config at
+> `<repo>\.vibecode\config.yaml`. The local config takes priority over the
+> global config; sync between them is explicit. A single TypeScript-owned core
+> config service (`src/core/config`) performs resolution for both the CLI and the
+> desktop. This supersedes the earlier rule that the repository-root
+> `config.yaml` is the *only* human-maintained config; the root `config.yaml`
+> remains for project/scanner defaults. API keys live only in the AppData `.env`
+> and are never written to committed files, artifacts, or logs. The Python
+> scanner never reads the global or local YAML config directly.
+
 `config.yaml` is the only human-maintained project config.
 
 TypeScript:

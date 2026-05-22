@@ -2,6 +2,7 @@ import fs from 'fs';
 import YAML from 'yaml';
 
 import { InitResult, WorkspaceConfig } from '../models/index.js';
+import { ensureLocalConfig } from '../config/index.js';
 import { getWorkspacePaths } from './paths.js';
 
 function pushUnique(list: string[], value: string) {
@@ -42,6 +43,16 @@ export async function initWorkspace(root: string): Promise<InitResult> {
     const defaultConfig: WorkspaceConfig = { project: 'vibecode-light' };
     fs.writeFileSync(paths.config, YAML.stringify(defaultConfig), 'utf8');
     pushUnique(created, 'config.yaml');
+  }
+
+  // Local workspace config (.vibecode/config.yaml): snapshot from the global
+  // config when present, otherwise minimal safe defaults. Never overwrites an
+  // existing local config (that requires explicit sync).
+  const localConfig = ensureLocalConfig({ repoRoot: root, env: process.env });
+  if (localConfig.created) {
+    pushUnique(created, '.vibecode/config.yaml');
+  } else {
+    pushUnique(existing, '.vibecode/config.yaml');
   }
 
   let gitignoreContent = '';
