@@ -93,6 +93,13 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(html).not.toMatch(/Token budget/);
   });
 
+  test('derives the terminals count from real session state, not a fixed literal', () => {
+    const html = readHtml();
+    // A helper updates the count and it is driven by terminalReady (real lifecycle).
+    expect(html).toMatch(/function updateTerminalCount/);
+    expect(html).toMatch(/terminalReady \? '1' : '0'/);
+  });
+
   test('marks design-only features with a quiet red-tint marker, not labels', () => {
     const html = readHtml();
     const css = fs.readFileSync(stylesCss, 'utf8');

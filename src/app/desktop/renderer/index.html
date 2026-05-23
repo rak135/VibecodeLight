@@ -260,6 +260,7 @@
       const openOverlayBtn = $('open-overlay');
       const closeTerminalBtn = $('close-terminal');
       const addTerminalBtn = $('add-terminal');
+      const navTerminalsCount = $('nav-terminals-count');
 
       const overlay = $('composer-overlay');
       const closeComposerBtn = $('close-composer');
@@ -346,6 +347,11 @@
           : !terminalReady
             ? 'No active terminal session'
             : 'Send final_prompt.md into this terminal';
+      }
+
+      // Reflect the real single terminal session lifecycle (0 when none is active).
+      function updateTerminalCount() {
+        if (navTerminalsCount) navTerminalsCount.textContent = terminalReady ? '1' : '0';
       }
 
       // ---- Overlay open/close (belongs to the tile) ----
@@ -603,6 +609,7 @@
         terminalReady = false;
         setStatusBadge('exited');
         refreshSendButton();
+        updateTerminalCount();
       }
 
       // ---- Tile controls ----
@@ -875,6 +882,7 @@
           terminalReady = false;
           setStatusBadge('exited');
           refreshSendButton();
+          updateTerminalCount();
         });
         term.onData((data) => window.vibecodeAPI.terminal.write(data));
 
@@ -885,6 +893,7 @@
         terminalReady = true;
         setStatusBadge('running');
         refreshSendButton();
+        updateTerminalCount();
         if (activePanel === 'session') renderPanel('session');
 
         window.addEventListener('resize', () => window.vibecodeAPI.terminal.resize(cols, rows));
