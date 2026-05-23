@@ -138,7 +138,6 @@ export interface VibecodePreloadApi {
     models(): Promise<ConfigModelsIpc>;
     initLocal(): Promise<{ ok: boolean; localConfigPath: string; created: boolean; createdFromGlobal: boolean; source: string }>;
     syncFromGlobal(): Promise<ConfigSyncIpc>;
-    syncToGlobal(): Promise<ConfigSyncIpc>;
     openDir(): Promise<{ ok: boolean; error?: string }>;
   };
   artifacts: {
@@ -204,9 +203,6 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       syncFromGlobal() {
         return ipcRenderer.invoke('config:syncFromGlobal') as Promise<ConfigSyncIpc>;
-      },
-      syncToGlobal() {
-        return ipcRenderer.invoke('config:syncToGlobal') as Promise<ConfigSyncIpc>;
       },
       openDir() {
         return ipcRenderer.invoke('config:openDir') as Promise<{ ok: boolean; error?: string }>;

@@ -627,9 +627,11 @@ export interface SyncConfigResult {
 }
 
 /**
- * Explicitly sync config between global and local. Only ever runs in the
- * direction requested; both directions report the source and destination paths.
- * Secrets are stripped from the copied YAML defensively; .env is never copied.
+ * Explicitly sync config from global AppData to local repo.
+ * Only global → local direction is supported.
+ * Local → global is disabled: local .vibecode/config.yaml is a per-repo override
+ * and must never overwrite global config.
+ * .env is never copied in either direction.
  */
 export function syncConfig(opts: {
   direction: 'from-global' | 'to-global';
@@ -642,41 +644,36 @@ export function syncConfig(opts: {
   const globalConfigPath = opts.globalConfigPath ?? getGlobalConfigPaths(env).config;
   const localConfigPath = opts.localConfigPath ?? getLocalConfigPath(opts.repoRoot);
 
-  if (opts.direction === 'from-global') {
-    if (!fs.existsSync(globalConfigPath)) {
-      return {
-        ok: false,
-        direction: 'from-global',
-        sourcePath: globalConfigPath,
-        destinationPath: localConfigPath,
-        error: {
-          code: 'GLOBAL_CONFIG_NOT_FOUND',
-          message: `global config not found at ${globalConfigPath}`,
-          details: [],
-        },
-      };
-    }
-    fs.mkdirSync(path.dirname(localConfigPath), { recursive: true });
-    fs.writeFileSync(localConfigPath, sanitizeYamlForCopy(fs.readFileSync(globalConfigPath, 'utf8')), 'utf8');
-    return { ok: true, direction: 'from-global', sourcePath: globalConfigPath, destinationPath: localConfigPath };
-  }
-
-  if (!fs.existsSync(localConfigPath)) {
+  if (opts.direction === 'to-global') {
     return {
       ok: false,
       direction: 'to-global',
       sourcePath: localConfigPath,
       destinationPath: globalConfigPath,
       error: {
-        code: 'LOCAL_CONFIG_NOT_FOUND',
-        message: `local config not found at ${localConfigPath}`,
+        code: 'CONFIG_SYNC_TO_GLOBAL_DISABLED',
+        message: 'Local-to-global config sync is disabled. Use global-to-local sync only.',
         details: [],
       },
     };
   }
-  fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
-  fs.writeFileSync(globalConfigPath, sanitizeYamlForCopy(fs.readFileSync(localConfigPath, 'utf8')), 'utf8');
-  return { ok: true, direction: 'to-global', sourcePath: localConfigPath, destinationPath: globalConfigPath };
+
+  if (!fs.existsSync(globalConfigPath)) {
+    return {
+      ok: false,
+      direction: 'from-global',
+      sourcePath: globalConfigPath,
+      destinationPath: localConfigPath,
+      error: {
+        code: 'GLOBAL_CONFIG_NOT_FOUND',
+        message: `global config not found at ${globalConfigPath}`,
+        details: [],
+      },
+    };
+  }
+  fs.mkdirSync(path.dirname(localConfigPath), { recursive: true });
+  fs.writeFileSync(localConfigPath, sanitizeYamlForCopy(fs.readFileSync(globalConfigPath, 'utf8')), 'utf8');
+  return { ok: true, direction: 'from-global', sourcePath: globalConfigPath, destinationPath: localConfigPath };
 }
 
 /** Write the safe config resolution artifact for a run. */

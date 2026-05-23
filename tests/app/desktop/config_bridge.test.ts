@@ -140,7 +140,7 @@ describe('desktop config bridge', () => {
     expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'config.yaml'))).toBe(true);
   });
 
-  test('config:syncFromGlobal and syncToGlobal copy in the requested direction only', async () => {
+  test('config:syncFromGlobal copies global to local; config:syncToGlobal is disabled', async () => {
     writeGlobal(true, false);
     const ipc = register();
 
@@ -149,15 +149,11 @@ describe('desktop config bridge', () => {
     expect(fromGlobal.direction).toBe('from-global');
     expect(fs.readFileSync(path.join(repoRoot, '.vibecode', 'config.yaml'), 'utf8')).toContain('openrouter');
 
-    fs.writeFileSync(
-      path.join(repoRoot, '.vibecode', 'config.yaml'),
-      'providers:\n  edited-local:\n    type: openai-compatible\n    base_url: https://edited.invalid\n    api_key_env: EDITED_KEY\n    models: []\ndefaults:\n  flash:\n    provider: edited-local\n',
-      'utf8',
-    );
-    const toGlobal = (await ipc.invoke('config:syncToGlobal')) as { ok: boolean; direction: string };
-    expect(toGlobal.ok).toBe(true);
-    expect(toGlobal.direction).toBe('to-global');
-    expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toContain('edited-local');
+    const toGlobal = (await ipc.invoke('config:syncToGlobal')) as { ok: boolean; error?: { code: string } };
+    expect(toGlobal.ok).toBe(false);
+    expect(toGlobal.error?.code).toBe('CONFIG_SYNC_TO_GLOBAL_DISABLED');
+    // global config must not have been overwritten by local edits
+    expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toContain('openrouter');
   });
 
   test('config sync never writes a .env into .vibecode', async () => {

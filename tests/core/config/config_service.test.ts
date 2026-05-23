@@ -411,13 +411,14 @@ describe('syncConfig', () => {
     expect(fs.readFileSync(localConfigPath, 'utf8')).toContain('openrouter');
   });
 
-  test('to-global copies the provider registry shape to global and reports paths', () => {
+  test('to-global is disabled and returns CONFIG_SYNC_TO_GLOBAL_DISABLED', () => {
     writeYaml(localConfigPath, REGISTRY);
     const result = syncConfig({ direction: 'to-global', repoRoot: path.join(root, 'repo'), globalConfigPath, localConfigPath });
-    expect(result.ok).toBe(true);
-    expect(result.sourcePath).toBe(localConfigPath);
-    expect(result.destinationPath).toBe(globalConfigPath);
-    expect(fs.readFileSync(globalConfigPath, 'utf8')).toContain('openrouter');
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('CONFIG_SYNC_TO_GLOBAL_DISABLED');
+    expect(result.error?.message).toContain('disabled');
+    // global config must not have been written
+    expect(fs.existsSync(globalConfigPath)).toBe(false);
   });
 
   test('from-global fails clearly when global config is absent', () => {
@@ -426,10 +427,9 @@ describe('syncConfig', () => {
     expect(result.error?.code).toBe('GLOBAL_CONFIG_NOT_FOUND');
   });
 
-  test('to-global only writes the global side (does not touch local)', () => {
+  test('to-global never writes any file (global config is untouched)', () => {
     writeYaml(localConfigPath, REGISTRY);
-    const before = fs.readFileSync(localConfigPath, 'utf8');
     syncConfig({ direction: 'to-global', repoRoot: path.join(root, 'repo'), globalConfigPath, localConfigPath });
-    expect(fs.readFileSync(localConfigPath, 'utf8')).toBe(before);
+    expect(fs.existsSync(globalConfigPath)).toBe(false);
   });
 });

@@ -71,7 +71,6 @@ function makeApi(overrides: Record<string, unknown> = {}): any {
       global_env_path: r.global_env_path,
     }),
     syncFromGlobal: vi.fn().mockResolvedValue({ ok: true, direction: 'from-global', sourcePath: 'g', destinationPath: 'l' }),
-    syncToGlobal: vi.fn().mockResolvedValue({ ok: true, direction: 'to-global', sourcePath: 'l', destinationPath: 'g' }),
     openDir: vi.fn().mockResolvedValue({ ok: true }),
     ...overrides,
   };
@@ -125,17 +124,12 @@ describe('flash settings controller', () => {
     expect(view.statuses.some((s) => s.kind === 'ok')).toBe(true);
   });
 
-  test('sync local -> global calls preload config.syncToGlobal then refreshes the panel', async () => {
+  test('controller does not expose syncToGlobal (local-to-global sync is disabled)', () => {
     const api = makeApi();
     const view = makeView();
     const controller = FlashSettings.createController({ api, view });
 
-    await controller.refresh();
-    await controller.syncToGlobal();
-
-    expect(api.syncToGlobal).toHaveBeenCalledTimes(1);
-    expect(api.show).toHaveBeenCalledTimes(2);
-    expect(view.statuses.some((s) => s.kind === 'ok')).toBe(true);
+    expect(typeof (controller as unknown as Record<string, unknown>)['syncToGlobal']).toBe('undefined');
   });
 
   test('open config folder delegates to preload config.openDir', async () => {

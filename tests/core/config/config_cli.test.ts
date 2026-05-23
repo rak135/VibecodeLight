@@ -174,7 +174,7 @@ describe('config CLI', () => {
     expect(fs.readFileSync(path.join(tmpRepo, '.vibecode', 'config.yaml'), 'utf8')).toContain('openrouter');
   });
 
-  test('config sync --to-global copies the local registry to global', () => {
+  test('config sync --to-global is disabled and returns CONFIG_SYNC_TO_GLOBAL_DISABLED', () => {
     const appData = makeAppData(false, false);
     cleanup.push(appData);
     const localPath = path.join(tmpRepo, '.vibecode', 'config.yaml');
@@ -182,11 +182,13 @@ describe('config CLI', () => {
     fs.writeFileSync(localPath, YAML.stringify({ providers: { localhost: { type: 'openai-compatible', base_url: 'https://local.invalid', api_key_env: 'LOCAL_KEY', models: [] } }, defaults: { flash: { provider: 'localhost' } } }), 'utf8');
 
     const result = runCli(['config', 'sync', '--to-global', '--repo', tmpRepo, '--json'], tmpRepo, appData);
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(1);
     const payload = JSON.parse(result.stdout.trim());
-    expect(payload.ok).toBe(true);
-    expect(payload.data.direction).toBe('to-global');
-    expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toContain('localhost');
+    expect(payload.ok).toBe(false);
+    expect(payload.error.code).toBe('CONFIG_SYNC_TO_GLOBAL_DISABLED');
+    expect(payload.error.message).toContain('disabled');
+    // global config must not have been written
+    expect(fs.existsSync(path.join(appData, 'vibecodelight', 'config.yaml'))).toBe(false);
   });
 
   test('config sync never copies the .env file', () => {
@@ -207,12 +209,12 @@ describe('config CLI', () => {
     expect(payload.error.code).toBe('SYNC_DIRECTION_REQUIRED');
   });
 
-  test('config sync rejects both directions at once', () => {
+  test('config sync rejects --to-global even with --from-global (disabled takes priority)', () => {
     const result = runCli(['config', 'sync', '--from-global', '--to-global', '--repo', tmpRepo, '--json'], tmpRepo);
     expect(result.status).toBe(1);
     const payload = JSON.parse(result.stdout.trim());
     expect(payload.ok).toBe(false);
-    expect(payload.error.code).toBe('SYNC_DIRECTION_REQUIRED');
+    expect(payload.error.code).toBe('CONFIG_SYNC_TO_GLOBAL_DISABLED');
   });
 
   test('prompt --flash-provider/--flash-model with no key fails with auth error and never prints keys', () => {

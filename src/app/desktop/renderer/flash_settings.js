@@ -186,12 +186,6 @@
         }, 'Synced global → local.');
       }
 
-      function syncToGlobal() {
-        return runSync(function () {
-          return api.syncToGlobal();
-        }, 'Synced local → global.');
-      }
-
       async function openConfigFolder() {
         try {
           var res = await api.openDir();
@@ -209,7 +203,6 @@
       return {
         refresh: refresh,
         syncFromGlobal: syncFromGlobal,
-        syncToGlobal: syncToGlobal,
         openConfigFolder: openConfigFolder,
       };
     }

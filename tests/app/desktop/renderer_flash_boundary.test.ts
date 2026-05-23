@@ -52,10 +52,10 @@ describe('renderer index.html wires the flash settings GUI', () => {
     expect(html).toMatch(/id="flash-pill"/);
   });
 
-  test('exposes a settings panel with sync and provider/model areas', () => {
+  test('exposes a settings panel with sync-from-global and provider/model areas; no sync-to-global', () => {
     const html = fs.readFileSync(indexHtml, 'utf8');
     expect(html).toMatch(/id="sync-from-global"/);
-    expect(html).toMatch(/id="sync-to-global"/);
+    expect(html).not.toMatch(/id="sync-to-global"/);
     expect(html).toMatch(/id="flash-providers"/);
     expect(html).toMatch(/id="flash-settings-rows"/);
   });

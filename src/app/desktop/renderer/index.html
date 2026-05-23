@@ -363,7 +363,6 @@
         </div>
         <div class="composer-row">
           <button id="sync-from-global" type="button">Sync global → local</button>
-          <button id="sync-to-global" type="button">Sync local → global</button>
           <button id="open-config-folder" type="button">Open config folder</button>
         </div>
         <span id="flash-settings-status" aria-live="polite"></span>
@@ -403,7 +402,6 @@
       const flashProvidersList = document.getElementById('flash-providers');
       const flashSettingsStatus = document.getElementById('flash-settings-status');
       const syncFromGlobalButton = document.getElementById('sync-from-global');
-      const syncToGlobalButton = document.getElementById('sync-to-global');
       const openConfigFolderButton = document.getElementById('open-config-folder');
       const composerFlashProvider = document.getElementById('composer-flash-provider');
       const composerFlashModel = document.getElementById('composer-flash-model');
@@ -793,9 +791,6 @@
         closeSettingsButton.addEventListener('click', closeSettings);
         syncFromGlobalButton.addEventListener('click', () => {
           void flashController.syncFromGlobal();
-        });
-        syncToGlobalButton.addEventListener('click', () => {
-          void flashController.syncToGlobal();
         });
         openConfigFolderButton.addEventListener('click', () => {
           void flashController.openConfigFolder();

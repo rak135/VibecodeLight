@@ -44,6 +44,7 @@ describe('config layout guards', () => {
       'utf8',
     );
     const globalConfigPath = path.join(tmpRepo, 'global', 'config.yaml');
+    // to-global is disabled; verify it does not produce unexpected files
     syncConfig({ direction: 'to-global', repoRoot: tmpRepo, globalConfigPath, localConfigPath: path.join(tmpRepo, '.vibecode', 'config.yaml') });
     expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'config.json'))).toBe(false);
     expect(fs.existsSync(path.join(tmpRepo, 'scan', 'config.json'))).toBe(false);

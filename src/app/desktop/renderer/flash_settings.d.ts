@@ -48,14 +48,12 @@ export interface FlashSettingsConfigApi {
   show(): Promise<{ ok: boolean; resolution: unknown }>;
   providers(): Promise<{ ok: boolean; providers: unknown[] }>;
   syncFromGlobal(): Promise<{ ok: boolean; error?: { code: string; message: string; details?: string[] } }>;
-  syncToGlobal(): Promise<{ ok: boolean; error?: { code: string; message: string; details?: string[] } }>;
   openDir(): Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface FlashSettingsController {
   refresh(): Promise<void>;
   syncFromGlobal(): Promise<void>;
-  syncToGlobal(): Promise<void>;
   openConfigFolder(): Promise<void>;
 }
 

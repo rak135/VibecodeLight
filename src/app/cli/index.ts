@@ -636,17 +636,18 @@ export function createCli(): Command {
 
   config
     .command('sync')
-    .description('Explicitly sync config between global and local (requires a direction)')
+    .description('Sync global AppData config into this repository (global → local only)')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--from-global', 'Overwrite local config from global config')
-    .option('--to-global', 'Overwrite global config from local config')
+    .option('--to-global', '[disabled] Local-to-global sync is not allowed')
     .option('--json', 'Output canonical JSON envelope')
     .action((options: { repo: string; fromGlobal?: boolean; toGlobal?: boolean; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
-      if (Boolean(options.fromGlobal) === Boolean(options.toGlobal)) {
+
+      if (options.toGlobal) {
         const error = {
-          code: 'SYNC_DIRECTION_REQUIRED',
-          message: 'config sync requires exactly one direction: --from-global or --to-global',
+          code: 'CONFIG_SYNC_TO_GLOBAL_DISABLED',
+          message: 'Local-to-global config sync is disabled. Use global-to-local sync only.',
           path: '',
           details: [],
         };
@@ -656,7 +657,20 @@ export function createCli(): Command {
         return;
       }
 
-      const direction = options.fromGlobal ? 'from-global' : 'to-global';
+      if (!options.fromGlobal) {
+        const error = {
+          code: 'SYNC_DIRECTION_REQUIRED',
+          message: 'config sync requires --from-global',
+          path: '',
+          details: [],
+        };
+        if (options.json) console.log(JSON.stringify({ ok: false, error }));
+        else console.error(`config sync failed: ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const direction = 'from-global' as const;
       const result = syncConfig({ direction, repoRoot, env: process.env });
       if (!result.ok) {
         const error = {
