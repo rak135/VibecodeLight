@@ -82,6 +82,17 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(html).toMatch(/vibecodeAPI\.runs\.show\(/);
   });
 
+  test('wires the Context panel to real run artifacts (no token-budget placeholder)', () => {
+    const html = readHtml();
+    // The context rail panel is now truly backed; no design-only marker.
+    expect(html).not.toMatch(/class="[^"]*design-only[^"]*"\s+data-panel="context"/);
+    // Renders from the real preview context summary, not placeholders.
+    expect(html).toMatch(/function renderContextPanel/);
+    expect(html).toMatch(/run\.context/);
+    // The fake token-budget row is gone (no backend exists for it).
+    expect(html).not.toMatch(/Token budget/);
+  });
+
   test('marks design-only features with a quiet red-tint marker, not labels', () => {
     const html = readHtml();
     const css = fs.readFileSync(stylesCss, 'utf8');

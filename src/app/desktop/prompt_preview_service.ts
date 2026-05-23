@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { runPromptPipeline } from '../../core/prompting/pipeline.js';
+import { readRunContextSummary, RunContextSummary } from '../../core/context/run_context_summary.js';
 
 export interface PromptPreviewRequest {
   task: string;
@@ -26,6 +27,7 @@ export interface PromptPreviewSuccess {
   contextPackPath: string;
   selectedSkillsPath: string;
   finalPrompt: string;
+  context: RunContextSummary;
   terminalSend: 'not_sent';
   warnings: string[];
 }
@@ -95,6 +97,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     contextPackPath: path.join(pipelineResult.runDir, 'output', 'context_pack.md'),
     selectedSkillsPath: path.join(pipelineResult.runDir, 'skills', 'selected_skills.json'),
     finalPrompt,
+    context: readRunContextSummary(pipelineResult.runDir),
     terminalSend: 'not_sent',
     warnings: pipelineResult.warnings ?? [],
   };

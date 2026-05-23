@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+export interface ContextSummaryIpc {
+  relevant_files: string[];
+  files_to_read_with_tools: string[];
+  commands_to_run: string[];
+  cautions: string[];
+  selected_skills: Array<{ id: string; title: string }>;
+}
+
 export interface ComposerPreviewIpcResult {
   ok: boolean;
   run_id?: string;
@@ -8,6 +16,7 @@ export interface ComposerPreviewIpcResult {
   contextPackPath?: string;
   selectedSkillsPath?: string;
   finalPrompt?: string;
+  context?: ContextSummaryIpc;
   terminalSend?: 'not_sent';
   warnings?: string[];
   error?: { code: string; message: string; path?: string; details: string[] };

@@ -57,6 +57,22 @@ describe('DesktopPromptPreviewService', () => {
     expect(result.finalPrompt).toContain(task);
   });
 
+  test('returns a real flash context summary parsed from run artifacts', async () => {
+    const { generatePromptPreview } = await import('../../../src/app/desktop/prompt_preview_service.js');
+
+    const result = await generatePromptPreview({ task: 'context summary regression', repoRoot: tmpRepo });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.context).toBeDefined();
+    // The deterministic mock flash output drives these lists.
+    expect(result.context.relevant_files).toContain('README.md');
+    expect(result.context.commands_to_run).toContain('pnpm test');
+    expect(result.context.cautions.length).toBeGreaterThan(0);
+    expect(Array.isArray(result.context.selected_skills)).toBe(true);
+  });
+
   test('preview text equals contents of saved final_prompt.md (no hidden mutation)', async () => {
     const { generatePromptPreview } = await import('../../../src/app/desktop/prompt_preview_service.js');
 

@@ -204,7 +204,7 @@
         <button class="rail-btn" data-panel="run" type="button" title="run">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M5 3.5l6 4.5-6 4.5V3.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
         </button>
-        <button class="rail-btn design-only" data-panel="context" type="button" title="context">
+        <button class="rail-btn" data-panel="context" type="button" title="context">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="3" width="11" height="2" stroke="currentColor" stroke-width="1.2"/><rect x="2.5" y="7" width="11" height="2" stroke="currentColor" stroke-width="1.2"/><rect x="2.5" y="11" width="7" height="2" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
         <button class="rail-btn" data-panel="artifacts" type="button" title="artifacts">
@@ -431,10 +431,7 @@
           return;
         }
         if (which === 'context') {
-          rpBody.innerHTML =
-            '<div class="rp-section design-only"><h4>Files in scope</h4><div class="rp-empty">—</div></div>' +
-            '<div class="rp-section design-only"><h4>Selected skills</h4><div class="rp-empty">—</div></div>' +
-            '<div class="rp-section design-only"><h4>Token budget</h4>' + rpRow('Used', '—') + '</div>';
+          renderContextPanel();
           return;
         }
         // artifacts (real once a run exists)
@@ -563,6 +560,38 @@
         bindArtifactOpeners(target);
       }
 
+      // ---- Context panel (real flash context via run artifacts) ----
+      function rpListSection(title, items) {
+        if (!items || items.length === 0) {
+          return '<div class="rp-section"><h4>' + escapeHtml(title) + '</h4><div class="rp-empty">—</div></div>';
+        }
+        let html = '<div class="rp-section"><h4>' + escapeHtml(title) + ' · ' + items.length + '</h4><div class="rp-list">';
+        for (const item of items) {
+          html += '<div class="rp-list-item" title="' + escapeHtml(item) + '">' +
+            '<span style="width:10px;height:12px;background:var(--surface-2);border:1px solid var(--border)"></span>' +
+            '<span class="fname">' + escapeHtml(item) + '</span></div>';
+        }
+        html += '</div></div>';
+        return html;
+      }
+
+      function renderContextPanel() {
+        const run = currentPreview;
+        if (!run || !run.ok || !run.context) {
+          rpBody.innerHTML = '<div class="rp-section"><h4>Context</h4><div class="rp-empty">Build a context preview to populate the flash context.</div></div>';
+          return;
+        }
+        const c = run.context;
+        const skillItems = (c.selected_skills || []).map((s) => (s.title ? s.title + ' (' + s.id + ')' : s.id));
+        rpBody.innerHTML =
+          '<div class="rp-section"><h4>From latest run · ' + escapeHtml(run.run_id || '') + '</h4></div>' +
+          rpListSection('Relevant files', c.relevant_files) +
+          rpListSection('Files to read with tools', c.files_to_read_with_tools) +
+          rpListSection('Selected skills', skillItems) +
+          rpListSection('Commands to run', c.commands_to_run) +
+          rpListSection('Cautions', c.cautions);
+      }
+
       // ---- Close terminal (real single-session close path) ----
       async function closeTerminal() {
         if (!window.vibecodeAPI || !window.vibecodeAPI.terminal || !terminalReady) return;
@@ -650,7 +679,7 @@
           finalSection.style.display = '';
           finalWrap.classList.add('open');
           setStep('ready');
-          if (activePanel === 'artifacts') renderPanel('artifacts');
+          if (activePanel === 'artifacts' || activePanel === 'context') renderPanel(activePanel);
         } catch (error) {
           renderErrorSummary({ code: 'EXCEPTION', message: error instanceof Error ? error.message : String(error) });
           setStep('compose');
