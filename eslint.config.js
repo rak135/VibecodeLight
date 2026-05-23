@@ -3,6 +3,10 @@ const tseslint = require('@typescript-eslint/eslint-plugin');
 const tsparser = require('@typescript-eslint/parser');
 
 module.exports = [
+  // Plain browser renderer scripts are dual-target (browser + CommonJS) and are
+  // validated by the renderer boundary tests + a TS declaration, not by this
+  // TypeScript-oriented lint config (mirrors the unlinted inline HTML script).
+  { ignores: ['src/app/desktop/renderer/*.js'] },
   js.configs.recommended,
   {
     files: ['src/**/*.ts', 'tests/**/*.ts'],

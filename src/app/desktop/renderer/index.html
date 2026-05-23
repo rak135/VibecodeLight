@@ -191,6 +191,100 @@
       #send-status { color: #a8b3cf; font-size: 12px; }
       #send-status.error { color: #ff8e8e; }
       #send-status.ok { color: #7ec47e; }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      #flash-pill {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        font-size: 11px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        padding: 4px 10px;
+        border: 1px solid #2a3a55;
+        border-radius: 6px;
+        background: #0f131c;
+        max-width: 360px;
+        text-align: right;
+      }
+
+      #flash-pill .pill-main { color: #cdd6ec; }
+      #flash-pill.not-configured .pill-main { color: #e7b86b; }
+      #flash-pill .pill-source { color: #7a89ad; }
+
+      #settings-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 10, 14, 0.78);
+        z-index: 11;
+        padding: 24px;
+        box-sizing: border-box;
+        overflow: auto;
+      }
+
+      #settings-overlay.open { display: block; }
+
+      #settings-panel {
+        max-width: 760px;
+        margin: 0 auto;
+        background: #161a24;
+        border: 1px solid #2a2f3a;
+        border-radius: 8px;
+        padding: 16px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      #settings-panel h2 { margin: 0; font-size: 16px; }
+
+      #flash-settings-rows,
+      #flash-providers {
+        background: #0f131c;
+        border: 1px solid #2a2f3a;
+        border-radius: 4px;
+        padding: 10px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        margin: 0;
+        list-style: none;
+      }
+
+      #flash-settings-rows li,
+      #flash-providers li { margin: 2px 0; word-break: break-all; }
+      #flash-settings-rows .label,
+      #flash-providers .label { color: #7a89ad; margin-right: 6px; }
+      #flash-providers .provider-id { color: #cdd6ec; }
+      #flash-providers ul { margin: 2px 0 8px 16px; padding: 0; list-style: disc; }
+
+      #flash-settings-status { color: #a8b3cf; font-size: 12px; min-height: 1em; }
+      #flash-settings-status.error { color: #ff8e8e; }
+      #flash-settings-status.ok { color: #7ec47e; }
+
+      .composer-flash {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .composer-flash select {
+        font: inherit;
+        background: #0f131c;
+        color: #f5f7fb;
+        border: 1px solid #2a2f3a;
+        border-radius: 4px;
+        padding: 4px 8px;
+      }
+
+      .composer-flash label { color: #7a89ad; font-size: 12px; }
+      #composer-flash-meta { color: #7a89ad; font-size: 12px; }
     </style>
   </head>
   <body>
@@ -199,7 +293,12 @@
         <h1>VibecodeLight Desktop</h1>
         <div>Repository: <span id="repo">loading…</span></div>
       </div>
-      <div>
+      <div class="header-actions">
+        <div id="flash-pill" class="not-configured" title="Active flash provider/model and config source">
+          <span class="pill-main">Flash: loading…</span>
+          <span class="pill-source"></span>
+        </div>
+        <button id="open-settings" type="button">Flash Settings</button>
         <button id="open-composer" type="button">Open composer</button>
       </div>
     </header>
@@ -216,6 +315,16 @@
           <h3>Task prompt</h3>
         </label>
         <textarea id="composer-task" placeholder="Describe the task. The mock flash pipeline will render final_prompt.md and preview it here."></textarea>
+        <div class="composer-section">
+          <h3>Flash provider / model</h3>
+          <div class="composer-flash">
+            <label for="composer-flash-provider">Provider</label>
+            <select id="composer-flash-provider"></select>
+            <label for="composer-flash-model">Model</label>
+            <select id="composer-flash-model"></select>
+          </div>
+          <div id="composer-flash-meta"></div>
+        </div>
         <div class="composer-row">
           <button id="generate-preview" type="button">Generate preview</button>
           <button id="send-to-terminal" type="button" disabled title="Generate a preview first">Approve &amp; Send</button>
@@ -238,8 +347,32 @@
       </div>
     </section>
 
+    <section id="settings-overlay" aria-hidden="true">
+      <div id="settings-panel" role="dialog" aria-labelledby="settings-title">
+        <div class="composer-row" style="justify-content: space-between;">
+          <h2 id="settings-title">Flash Settings</h2>
+          <button id="close-settings" type="button">Close</button>
+        </div>
+        <div class="composer-section">
+          <h3>Active flash configuration</h3>
+          <ul id="flash-settings-rows"><li>Loading…</li></ul>
+        </div>
+        <div class="composer-section">
+          <h3>Providers &amp; models</h3>
+          <ul id="flash-providers"><li>Loading…</li></ul>
+        </div>
+        <div class="composer-row">
+          <button id="sync-from-global" type="button">Sync global → local</button>
+          <button id="sync-to-global" type="button">Sync local → global</button>
+          <button id="open-config-folder" type="button">Open config folder</button>
+        </div>
+        <span id="flash-settings-status" aria-live="polite"></span>
+      </div>
+    </section>
+
     <!-- Local xterm assets are copied from node_modules/@xterm/xterm by scripts/launch_desktop.js. -->
     <script src="vendor/xterm/xterm.js"></script>
+    <script src="flash_settings.js"></script>
     <script>
       const terminalElement = document.getElementById('terminal');
       const repoElement = document.getElementById('repo');
@@ -258,6 +391,24 @@
       const copyRunDirButton = document.getElementById('copy-run-dir');
       const copyPromptPathButton = document.getElementById('copy-prompt-path');
       const openRunDirButton = document.getElementById('open-run-dir');
+
+      // Flash settings GUI elements (header pill, settings panel, composer selection).
+      const flashPill = document.getElementById('flash-pill');
+      const flashPillMain = flashPill ? flashPill.querySelector('.pill-main') : null;
+      const flashPillSource = flashPill ? flashPill.querySelector('.pill-source') : null;
+      const openSettingsButton = document.getElementById('open-settings');
+      const closeSettingsButton = document.getElementById('close-settings');
+      const settingsOverlay = document.getElementById('settings-overlay');
+      const flashSettingsRows = document.getElementById('flash-settings-rows');
+      const flashProvidersList = document.getElementById('flash-providers');
+      const flashSettingsStatus = document.getElementById('flash-settings-status');
+      const syncFromGlobalButton = document.getElementById('sync-from-global');
+      const syncToGlobalButton = document.getElementById('sync-to-global');
+      const openConfigFolderButton = document.getElementById('open-config-folder');
+      const composerFlashProvider = document.getElementById('composer-flash-provider');
+      const composerFlashModel = document.getElementById('composer-flash-model');
+      const composerFlashMeta = document.getElementById('composer-flash-meta');
+
       const cols = 120;
       const rows = 32;
 
@@ -494,10 +645,166 @@
         void openArtifactPath(currentPreview && currentPreview.runDir, 'run dir');
       });
       window.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && overlay.classList.contains('open')) {
+        if (event.key !== 'Escape') return;
+        if (settingsOverlay && settingsOverlay.classList.contains('open')) {
+          closeSettings();
+        } else if (overlay.classList.contains('open')) {
           closeComposer();
         }
       });
+
+      // ---- Flash settings: thin DOM view over the preload config bridge ----
+      let flashController = null;
+      let composerProviderList = [];
+      let composerDefaultModel = null;
+
+      function clearChildren(el) {
+        while (el && el.firstChild) el.removeChild(el.firstChild);
+      }
+
+      function renderSettingsRows(rows) {
+        clearChildren(flashSettingsRows);
+        for (const row of rows) {
+          const li = document.createElement('li');
+          const labelSpan = document.createElement('span');
+          labelSpan.className = 'label';
+          labelSpan.textContent = `${row.label}:`;
+          li.appendChild(labelSpan);
+          li.appendChild(document.createTextNode(` ${row.value}`));
+          flashSettingsRows.appendChild(li);
+        }
+      }
+
+      function renderProviders(list) {
+        clearChildren(flashProvidersList);
+        if (!list || list.length === 0) {
+          const li = document.createElement('li');
+          li.textContent = 'No providers configured.';
+          flashProvidersList.appendChild(li);
+          return;
+        }
+        for (const p of list) {
+          const li = document.createElement('li');
+          const head = document.createElement('span');
+          head.className = 'provider-id';
+          head.textContent = p.label ? `${p.label} (${p.id})` : p.id;
+          li.appendChild(head);
+          li.appendChild(
+            document.createTextNode(
+              `  · api_key_env: ${p.apiKeyEnv || '(none)'} · has_api_key: ${p.hasApiKey ? 'yes' : 'no'}`,
+            ),
+          );
+          const modelsUl = document.createElement('ul');
+          for (const m of p.models) {
+            const mLi = document.createElement('li');
+            const mName = m.label ? `${m.label} (${m.id})` : m.id;
+            mLi.textContent = `${mName}${m.role ? ` [${m.role}]` : ''}`;
+            modelsUl.appendChild(mLi);
+          }
+          li.appendChild(modelsUl);
+          flashProvidersList.appendChild(li);
+        }
+      }
+
+      function fillSelect(selectEl, options, selectedValue) {
+        clearChildren(selectEl);
+        for (const opt of options) {
+          const o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.text;
+          if (opt.value === selectedValue) o.selected = true;
+          selectEl.appendChild(o);
+        }
+      }
+
+      function updateComposerModels(providerId) {
+        if (!window.VibecodeFlashSettings) return;
+        const models = window.VibecodeFlashSettings.modelsForProvider(composerProviderList, providerId);
+        const opts = models.map((m) => ({ value: m.id, text: m.label ? `${m.label} (${m.id})` : m.id }));
+        const selected = models.some((m) => m.id === composerDefaultModel)
+          ? composerDefaultModel
+          : models[0]
+            ? models[0].id
+            : '';
+        fillSelect(composerFlashModel, opts, selected);
+      }
+
+      function renderComposerSelection(selection) {
+        const providerOpts = selection.providers.map((p) => ({
+          value: p.id,
+          text: p.label ? `${p.label} (${p.id})` : p.id,
+        }));
+        fillSelect(composerFlashProvider, providerOpts, selection.defaultProvider);
+        composerDefaultModel = selection.defaultModel;
+        const activeProvider = selection.defaultProvider || (selection.providers[0] && selection.providers[0].id) || '';
+        updateComposerModels(activeProvider);
+        composerFlashMeta.textContent = `${selection.sourceText} · ${selection.note}`;
+      }
+
+      function setFlashSettingsStatus(text, kind) {
+        if (!flashSettingsStatus) return;
+        flashSettingsStatus.textContent = text;
+        flashSettingsStatus.classList.toggle('error', kind === 'error');
+        flashSettingsStatus.classList.toggle('ok', kind === 'ok');
+      }
+
+      const flashView = {
+        setPill(pill) {
+          if (flashPillMain) flashPillMain.textContent = pill.text;
+          if (flashPillSource) flashPillSource.textContent = pill.sourceText;
+          if (flashPill) flashPill.classList.toggle('not-configured', !pill.available);
+        },
+        setSettings(rows) {
+          renderSettingsRows(rows);
+        },
+        setProviders(list) {
+          composerProviderList = list;
+          renderProviders(list);
+        },
+        setComposer(selection) {
+          renderComposerSelection(selection);
+        },
+        setStatus(text, kind) {
+          setFlashSettingsStatus(text, kind);
+        },
+      };
+
+      function openSettings() {
+        settingsOverlay.classList.add('open');
+        settingsOverlay.setAttribute('aria-hidden', 'false');
+        if (flashController) void flashController.refresh();
+      }
+
+      function closeSettings() {
+        settingsOverlay.classList.remove('open');
+        settingsOverlay.setAttribute('aria-hidden', 'true');
+      }
+
+      function setupFlashSettings() {
+        if (!window.VibecodeFlashSettings || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+          if (flashPillMain) flashPillMain.textContent = 'Flash: unavailable';
+          return;
+        }
+        flashController = window.VibecodeFlashSettings.createController({
+          api: window.vibecodeAPI.config,
+          view: flashView,
+        });
+        openSettingsButton.addEventListener('click', openSettings);
+        closeSettingsButton.addEventListener('click', closeSettings);
+        syncFromGlobalButton.addEventListener('click', () => {
+          void flashController.syncFromGlobal();
+        });
+        syncToGlobalButton.addEventListener('click', () => {
+          void flashController.syncToGlobal();
+        });
+        openConfigFolderButton.addEventListener('click', () => {
+          void flashController.openConfigFolder();
+        });
+        composerFlashProvider.addEventListener('change', () => {
+          updateComposerModels(composerFlashProvider.value);
+        });
+        void flashController.refresh();
+      }
 
       async function main() {
         if (!window.vibecodeAPI) {
@@ -549,6 +856,10 @@
       main().catch((error) => {
         statusElement.textContent = error instanceof Error ? error.message : String(error);
       });
+
+      // Initialize the flash settings GUI after all view declarations are ready
+      // (independent of terminal/composer startup so the pill always loads).
+      setupFlashSettings();
     </script>
   </body>
 </html>

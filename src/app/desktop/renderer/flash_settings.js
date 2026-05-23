@@ -1,0 +1,227 @@
+/*
+ * Flash settings presenter + controller (renderer-side, plain browser JS).
+ *
+ * This module owns NO config logic. It is a thin view/controller layer over the
+ * preload `config` bridge, which is itself backed by the shared core config
+ * service. It never reads files, never parses YAML or .env, and never receives
+ * or renders an API key value — only the safe, secret-free data returned by the
+ * core config service (provider/model ids and labels, config source, paths, the
+ * api_key_env NAME, and a boolean has_api_key).
+ *
+ * It is loadable directly in the browser via a <script src> tag (CSP 'self') and
+ * is also importable in Node tests (CommonJS export) so the view-model mapping
+ * and controller orchestration can be unit tested without a DOM.
+ */
+(function (root, factory) {
+  'use strict';
+  var api = factory();
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = api;
+  }
+  if (root) {
+    root.VibecodeFlashSettings = api;
+  }
+})(
+  typeof globalThis !== 'undefined' ? globalThis : typeof self !== 'undefined' ? self : this,
+  function () {
+    'use strict';
+
+    var MOCK_NOTE = 'Desktop preview currently uses mock flash';
+
+    function display(value) {
+      return value === null || value === undefined || value === '' ? '(none)' : String(value);
+    }
+
+    function nullableString(value) {
+      return value === null || value === undefined ? null : String(value);
+    }
+
+    // Defense in depth: even though core never emits API keys, never echo a
+    // key-shaped token if one somehow reaches a diagnostic string.
+    function redactSecrets(text) {
+      if (typeof text !== 'string') return '';
+      return text
+        .replace(/sk-[A-Za-z0-9_-]{6,}/g, '[redacted]')
+        .replace(/\b[A-Za-z0-9]{32,}\b/g, '[redacted]');
+    }
+
+    function isConfigured(resolution) {
+      var provider = resolution && resolution.provider;
+      var model = resolution && resolution.model;
+      return Boolean(provider) && provider !== 'mock' && Boolean(model);
+    }
+
+    function buildPill(resolution) {
+      if (!isConfigured(resolution)) {
+        return { available: false, text: 'Flash: not configured', sourceText: '' };
+      }
+      var label =
+        (resolution.provider_label && String(resolution.provider_label)) || String(resolution.provider);
+      return {
+        available: true,
+        text: 'Flash: ' + label + ' / ' + String(resolution.model),
+        sourceText: 'Source: ' + (resolution.selected_config_source || 'unknown'),
+      };
+    }
+
+    function buildSettings(resolution) {
+      var r = resolution || {};
+      return [
+        { label: 'Provider label', value: display(r.provider_label) },
+        { label: 'Provider id', value: display(r.provider) },
+        { label: 'Model label', value: display(r.model_label) },
+        { label: 'Model id', value: display(r.model) },
+        { label: 'Config source', value: display(r.selected_config_source) },
+        { label: 'Local config', value: display(r.local_config_path) },
+        { label: 'Global config', value: display(r.global_config_path) },
+        { label: 'Global env', value: display(r.global_env_path) },
+        { label: 'API key env', value: display(r.api_key_env) },
+        { label: 'API key configured', value: r.has_api_key ? 'yes' : 'no' },
+      ];
+    }
+
+    function mapModels(models) {
+      if (!Array.isArray(models)) return [];
+      return models.map(function (m) {
+        return { id: m.id, label: nullableString(m.label), role: nullableString(m.role) };
+      });
+    }
+
+    function buildProviderList(providers) {
+      if (!Array.isArray(providers)) return [];
+      return providers.map(function (p) {
+        return {
+          id: p.id,
+          label: nullableString(p.label),
+          hasApiKey: Boolean(p.has_api_key),
+          apiKeyEnv: nullableString(p.api_key_env),
+          models: mapModels(p.models),
+        };
+      });
+    }
+
+    function modelsForProvider(providers, providerId) {
+      if (!Array.isArray(providers)) return [];
+      var found = null;
+      for (var i = 0; i < providers.length; i += 1) {
+        if (providers[i] && providers[i].id === providerId) {
+          found = providers[i];
+          break;
+        }
+      }
+      return found ? mapModels(found.models) : [];
+    }
+
+    function buildComposerSelection(resolution) {
+      var r = resolution || {};
+      var providers = Array.isArray(r.providers)
+        ? r.providers.map(function (p) {
+            return { id: p.id, label: nullableString(p.label) };
+          })
+        : [];
+      return {
+        providers: providers,
+        defaultProvider: r.provider || null,
+        defaultModel: r.model || null,
+        note: MOCK_NOTE,
+        sourceText: 'Source: ' + (r.selected_config_source || 'unknown'),
+      };
+    }
+
+    function safeDiagnostic(errLike) {
+      var code = 'UNKNOWN';
+      var message = 'unknown error';
+      if (typeof errLike === 'string') {
+        message = errLike;
+      } else if (errLike) {
+        if (errLike.code) code = String(errLike.code);
+        if (errLike.message) message = String(errLike.message);
+      }
+      return redactSecrets(code + ' — ' + message);
+    }
+
+    function createController(opts) {
+      var api = opts.api;
+      var view = opts.view;
+
+      async function refresh() {
+        try {
+          var showResp = await api.show();
+          var resolution = showResp && showResp.resolution ? showResp.resolution : null;
+          if (!resolution) {
+            view.setStatus('Flash configuration is unavailable.', 'error');
+            return;
+          }
+          var provResp = await api.providers();
+          var providers =
+            provResp && Array.isArray(provResp.providers) ? provResp.providers : resolution.providers || [];
+
+          view.setPill(buildPill(resolution));
+          view.setSettings(buildSettings(resolution));
+          view.setProviders(buildProviderList(providers));
+          view.setComposer(buildComposerSelection(resolution));
+        } catch (err) {
+          view.setStatus(safeDiagnostic(err), 'error');
+        }
+      }
+
+      async function runSync(invoke, okMessage) {
+        try {
+          var res = await invoke();
+          if (!res || res.ok !== true) {
+            var error = res && res.error ? res.error : { code: 'CONFIG_SYNC_FAILED', message: 'config sync failed' };
+            view.setStatus(safeDiagnostic(error), 'error');
+            return;
+          }
+          view.setStatus(okMessage, 'ok');
+          await refresh();
+        } catch (err) {
+          view.setStatus(safeDiagnostic(err), 'error');
+        }
+      }
+
+      function syncFromGlobal() {
+        return runSync(function () {
+          return api.syncFromGlobal();
+        }, 'Synced global → local.');
+      }
+
+      function syncToGlobal() {
+        return runSync(function () {
+          return api.syncToGlobal();
+        }, 'Synced local → global.');
+      }
+
+      async function openConfigFolder() {
+        try {
+          var res = await api.openDir();
+          if (!res || res.ok !== true) {
+            var detail = res && res.error ? res.error : 'could not open the config folder';
+            view.setStatus(safeDiagnostic({ code: 'OPEN_CONFIG_DIR_FAILED', message: String(detail) }), 'error');
+            return;
+          }
+          view.setStatus('Opened config folder.', 'ok');
+        } catch (err) {
+          view.setStatus(safeDiagnostic(err), 'error');
+        }
+      }
+
+      return {
+        refresh: refresh,
+        syncFromGlobal: syncFromGlobal,
+        syncToGlobal: syncToGlobal,
+        openConfigFolder: openConfigFolder,
+      };
+    }
+
+    return {
+      buildPill: buildPill,
+      buildSettings: buildSettings,
+      buildProviderList: buildProviderList,
+      buildComposerSelection: buildComposerSelection,
+      modelsForProvider: modelsForProvider,
+      safeDiagnostic: safeDiagnostic,
+      createController: createController,
+    };
+  },
+);
