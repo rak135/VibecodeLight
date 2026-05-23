@@ -96,7 +96,7 @@
                   <button id="tile-options" class="icon-btn design-only" type="button" title="Tile options">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="12" cy="8" r="1" fill="currentColor"/></svg>
                   </button>
-                  <button id="close-terminal" class="icon-btn design-only" type="button" title="Close terminal">
+                  <button id="close-terminal" class="icon-btn" type="button" title="Close terminal">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
                   </button>
                 </div>
@@ -471,10 +471,24 @@
         });
       }
 
+      // ---- Close terminal (real single-session close path) ----
+      async function closeTerminal() {
+        if (!window.vibecodeAPI || !window.vibecodeAPI.terminal || !terminalReady) return;
+        try {
+          await window.vibecodeAPI.terminal.close();
+        } catch (_error) {
+          // Best-effort; the terminal exit handler reconciles state if close throws.
+        }
+        terminalReady = false;
+        setStatusBadge('exited');
+        refreshSendButton();
+      }
+
       // ---- Tile controls ----
       openOverlayBtn.addEventListener('click', openOverlay);
       closeComposerBtn.addEventListener('click', closeOverlay);
       cancelComposerBtn.addEventListener('click', closeOverlay);
+      closeTerminalBtn.addEventListener('click', () => { void closeTerminal(); });
       autoApprove.addEventListener('click', () => autoApprove.classList.toggle('on'));
       finalHead.addEventListener('click', () => finalWrap.classList.toggle('open'));
 

@@ -63,6 +63,15 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(html).toMatch(/id="terminal"/);
   });
 
+  test('wires the single-session Close terminal button to the real close path', () => {
+    const html = readHtml();
+    // The Close button is now truly backed, so it must not carry the design-only marker.
+    expect(html).not.toMatch(/id="close-terminal"[^>]*class="[^"]*design-only/);
+    // It is wired to the real preload terminal close path (no renderer-side business logic).
+    expect(html).toMatch(/closeTerminalBtn\.addEventListener/);
+    expect(html).toMatch(/vibecodeAPI\.terminal\.close\(\)/);
+  });
+
   test('marks design-only features with a quiet red-tint marker, not labels', () => {
     const html = readHtml();
     const css = fs.readFileSync(stylesCss, 'utf8');
