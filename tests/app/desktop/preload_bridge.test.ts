@@ -2,6 +2,7 @@ type ExposedApi = {
   terminal: Record<string, unknown>;
   workspace: Record<string, unknown>;
   composer: Record<string, unknown>;
+  runs: Record<string, unknown>;
   config: Record<string, unknown>;
   artifacts: Record<string, unknown>;
 };
@@ -39,10 +40,11 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['artifacts', 'composer', 'config', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'composer', 'config', 'runs', 'terminal', 'workspace']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'sendPreview']);
+    expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
     expect(Object.keys(api.config).sort()).toEqual(['getPaths', 'initLocal', 'models', 'openDir', 'providers', 'show', 'syncFromGlobal']);
     expect(Object.keys(api.artifacts).sort()).toEqual(['copyToClipboard', 'openPath']);
   });
@@ -104,5 +106,45 @@ describe('desktop preload bridge boundary', () => {
     await composer.sendPreview('2026-05-20_001');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001');
+  });
+
+  test('runs.list invokes runs:list IPC channel only', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true, runs: [] }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const runs = api.runs as { list: () => Promise<unknown> };
+    await runs.list();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('runs:list');
+  });
+
+  test('runs.show invokes runs:show IPC channel with the run id', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const runs = api.runs as { show: (runId: string) => Promise<unknown> };
+    await runs.show('2026-05-20_001');
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('runs:show', '2026-05-20_001');
   });
 });

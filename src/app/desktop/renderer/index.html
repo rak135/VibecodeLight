@@ -27,7 +27,7 @@
             <span class="nav-label">Terminals</span>
             <span class="nav-count" id="nav-terminals-count">1</span>
           </div>
-          <div class="nav-item design-only" data-nav="runs" title="Runs">
+          <div class="nav-item" data-nav="runs" title="Runs">
             <span class="nav-ico"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M5 3.5l6 4.5-6 4.5V3.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span>
             <span class="nav-label">Runs</span>
           </div>
@@ -201,7 +201,7 @@
         <button class="rail-btn" data-panel="session" type="button" title="session">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3" width="13" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 7l2 1.5-2 1.5M8 10h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button class="rail-btn design-only" data-panel="run" type="button" title="run">
+        <button class="rail-btn" data-panel="run" type="button" title="run">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M5 3.5l6 4.5-6 4.5V3.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
         </button>
         <button class="rail-btn design-only" data-panel="context" type="button" title="context">
@@ -375,6 +375,7 @@
           const nav = item.getAttribute('data-nav');
           if (nav === 'settings') { openSettings(); return; }
           sidebar.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n === item));
+          if (nav === 'runs') openPanel('run');
         });
       });
 
@@ -426,12 +427,7 @@
           return;
         }
         if (which === 'run') {
-          rpBody.innerHTML =
-            '<div class="rp-section design-only"><h4>Current run</h4>' +
-            rpRow('Run ID', '—') + rpRow('Task', '—') + rpRow('Started', '—') + rpRow('Progress', '—') +
-            '</div>' +
-            '<div class="rp-section design-only"><h4>Previous in session</h4>' +
-            '<div class="rp-empty">—</div></div>';
+          void renderRunPanel();
           return;
         }
         if (which === 'context') {
@@ -469,6 +465,102 @@
             if (window.vibecodeAPI && window.vibecodeAPI.artifacts) void window.vibecodeAPI.artifacts.openPath(p);
           });
         });
+      }
+
+      // ---- Run browser (real historical runs via core run-display) ----
+      function runArtifactItems(run) {
+        const a = (run && run.artifacts) || {};
+        return [
+          ['user_prompt.md', a.user_prompt],
+          ['run_manifest.json', a.run_manifest],
+          ['scanner_config.json', a.scanner_config],
+          ['flash/flash_input.md', a.flash_input],
+          ['flash/flash_output.md', a.flash_output],
+          ['output/context_pack.md', a.context_pack],
+          ['skills/selected_skills.json', a.selected_skills],
+          ['output/final_prompt.md', a.final_prompt],
+          ['terminal/send_metadata.json', a.send_metadata],
+        ];
+      }
+
+      function bindArtifactOpeners(scope) {
+        scope.querySelectorAll('.rp-list-item').forEach((el) => {
+          el.addEventListener('click', () => {
+            const p = el.getAttribute('data-path');
+            if (p && window.vibecodeAPI && window.vibecodeAPI.artifacts) void window.vibecodeAPI.artifacts.openPath(p);
+          });
+        });
+      }
+
+      async function renderRunPanel() {
+        rpBody.innerHTML = '<div class="rp-section"><h4>Runs</h4><div class="rp-empty">Loading…</div></div>';
+        if (!window.vibecodeAPI || !window.vibecodeAPI.runs) {
+          rpBody.innerHTML = '<div class="rp-section"><h4>Runs</h4><div class="rp-empty">Runs are unavailable.</div></div>';
+          return;
+        }
+        let result;
+        try {
+          result = await window.vibecodeAPI.runs.list();
+        } catch (error) {
+          if (activePanel !== 'run') return;
+          rpBody.innerHTML = '<div class="rp-section"><h4>Runs</h4><div class="rp-empty">' +
+            escapeHtml(error instanceof Error ? error.message : String(error)) + '</div></div>';
+          return;
+        }
+        if (activePanel !== 'run') return;
+        const runs = result && result.ok && Array.isArray(result.runs) ? result.runs : [];
+        if (runs.length === 0) {
+          rpBody.innerHTML = '<div class="rp-section"><h4>Runs</h4><div class="rp-empty">No runs yet. Build a context preview to create one.</div></div>';
+          return;
+        }
+        let html = '<div class="rp-section"><h4>Runs · ' + runs.length + '</h4><div class="rp-list">';
+        for (const run of runs) {
+          html += '<div class="rp-list-item run-item" data-run-id="' + escapeHtml(run.run_id) + '" title="' + escapeHtml(run.task || run.run_id) + '">' +
+            '<span style="width:10px;height:12px;background:var(--surface-2);border:1px solid var(--border)"></span>' +
+            '<span class="fname">' + escapeHtml(run.run_id) + '</span>' +
+            '<span class="meta">' + (run.has_final_prompt ? 'final' : '—') + '</span></div>';
+        }
+        html += '</div></div>';
+        html += '<div class="rp-section"><h4>Artifacts</h4><div id="run-artifacts"><div class="rp-empty">Select a run to list its artifacts.</div></div></div>';
+        rpBody.innerHTML = html;
+        rpBody.querySelectorAll('.run-item').forEach((el) => {
+          el.addEventListener('click', () => { void showRunArtifacts(el.getAttribute('data-run-id')); });
+        });
+      }
+
+      async function showRunArtifacts(runId) {
+        const target = $('run-artifacts');
+        if (!target || !runId || !window.vibecodeAPI || !window.vibecodeAPI.runs) return;
+        target.innerHTML = '<div class="rp-empty">Loading…</div>';
+        let result;
+        try {
+          result = await window.vibecodeAPI.runs.show(runId);
+        } catch (error) {
+          target.innerHTML = '<div class="rp-empty">' + escapeHtml(error instanceof Error ? error.message : String(error)) + '</div>';
+          return;
+        }
+        if (!result || result.ok !== true || !result.run) {
+          const err = (result && result.error) || { message: 'run not found' };
+          target.innerHTML = '<div class="rp-empty">' + escapeHtml(err.message || 'run not found') + '</div>';
+          return;
+        }
+        const items = runArtifactItems(result.run).filter((entry) => Boolean(entry[1]));
+        if (items.length === 0) {
+          target.innerHTML = '<div class="rp-empty">No artifacts on disk for this run.</div>';
+          return;
+        }
+        let html = '<div class="rp-list">';
+        for (const entry of items) {
+          const name = entry[0];
+          const p = entry[1];
+          html += '<div class="rp-list-item" data-path="' + escapeHtml(p) + '" title="' + escapeHtml(p) + '">' +
+            '<span style="width:10px;height:12px;background:var(--surface-2);border:1px solid var(--border)"></span>' +
+            '<span class="fname">' + escapeHtml(name) + '</span>' +
+            '<span class="meta">open</span></div>';
+        }
+        html += '</div>';
+        target.innerHTML = html;
+        bindArtifactOpeners(target);
       }
 
       // ---- Close terminal (real single-session close path) ----

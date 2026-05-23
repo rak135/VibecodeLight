@@ -111,6 +111,39 @@ export interface ConfigSyncIpc {
   error?: { code: string; message: string; details: string[] };
 }
 
+export interface RunInfoIpc {
+  run_id: string;
+  task: string;
+  repo_root: string;
+  created_at: string;
+  runDir: string;
+  artifacts: {
+    user_prompt?: string;
+    run_manifest?: string;
+    scanner_config?: string;
+    flash_input?: string;
+    flash_output?: string;
+    context_pack?: string;
+    selected_skills?: string;
+    final_prompt?: string;
+    send_metadata?: string;
+  };
+  has_final_prompt: boolean;
+  has_send_metadata: boolean;
+}
+
+export interface RunsListIpc {
+  ok: boolean;
+  runs: RunInfoIpc[];
+  error?: { code: string; message: string; details: string[] };
+}
+
+export interface RunsShowIpc {
+  ok: boolean;
+  run?: RunInfoIpc;
+  error?: { code: string; message: string; path?: string; details: string[] };
+}
+
 export interface VibecodePreloadApi {
   terminal: {
     start(repoPath: string, cols: number, rows: number): Promise<{ pid: number; cwd: string; shell: string; sessionId: string }>;
@@ -130,6 +163,10 @@ export interface VibecodePreloadApi {
   composer: {
     generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
     sendPreview(runId: string): Promise<ComposerSendIpcResult>;
+  };
+  runs: {
+    list(): Promise<RunsListIpc>;
+    show(runId: string): Promise<RunsShowIpc>;
   };
   config: {
     getPaths(): Promise<ConfigPathsIpc>;
@@ -183,6 +220,14 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       sendPreview(runId: string) {
         return ipcRenderer.invoke('composer:sendPreview', runId) as Promise<ComposerSendIpcResult>;
+      },
+    },
+    runs: {
+      list() {
+        return ipcRenderer.invoke('runs:list') as Promise<RunsListIpc>;
+      },
+      show(runId: string) {
+        return ipcRenderer.invoke('runs:show', runId) as Promise<RunsShowIpc>;
       },
     },
     config: {

@@ -72,6 +72,16 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(html).toMatch(/vibecodeAPI\.terminal\.close\(\)/);
   });
 
+  test('wires the Runs browser to the real run-display bridge', () => {
+    const html = readHtml();
+    // Runs nav and the run rail panel are now truly backed; no design-only marker.
+    expect(html).not.toMatch(/class="[^"]*design-only[^"]*"\s+data-nav="runs"/);
+    expect(html).not.toMatch(/class="[^"]*design-only[^"]*"\s+data-panel="run"/);
+    // Wired to the real preload runs bridge (no renderer-side run discovery logic).
+    expect(html).toMatch(/vibecodeAPI\.runs\.list\(\)/);
+    expect(html).toMatch(/vibecodeAPI\.runs\.show\(/);
+  });
+
   test('marks design-only features with a quiet red-tint marker, not labels', () => {
     const html = readHtml();
     const css = fs.readFileSync(stylesCss, 'utf8');

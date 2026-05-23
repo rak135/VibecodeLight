@@ -6,6 +6,7 @@ import { getConfigPaths } from '../../core/config/index.js';
 import { resolveDesktopRepo, RepoResolveResult } from './repo_resolver.js';
 import { registerDesktopComposerIpcHandlers } from './composer_bridge.js';
 import { registerDesktopConfigIpcHandlers } from './config_bridge.js';
+import { registerDesktopRunsIpcHandlers } from './runs_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 
 let mainWindow: BrowserWindow | undefined;
@@ -52,6 +53,7 @@ function createWindow(): void {
       getTerminalService: () => terminalService,
     });
     registerDesktopConfigIpcHandlers(ipcMain, { getRepoPath });
+    registerDesktopRunsIpcHandlers(ipcMain, { getRepoPath });
 
     // Open the global config directory in the OS file explorer (no secrets read).
     ipcMain.handle('config:openDir', async () => {
