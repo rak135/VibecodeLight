@@ -73,6 +73,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .app {
   display: grid;
   grid-template-columns: auto 1fr auto;
+  /* Pin the single content row to the viewport. Without this the implicit
+     `auto` row grows to the tiles' max-content height, pushing the column
+     past 100vh so the workspace scroll container never engages. */
+  grid-template-rows: 100vh;
   height: 100vh;
   background: var(--bg);
   position: relative;
@@ -168,7 +172,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .collapse-btn svg { transition: transform var(--tx-base); }
 
 /* ------------- Center / topbar ------------- */
-.center { position: relative; z-index: 1; display: flex; flex-direction: column; min-width: 0; }
+/* min-height:0 lets this grid item shrink to the pinned row instead of its
+   min-content height; otherwise it overflows the viewport and the inner
+   .workspace (flex:1) never becomes shorter than its content, so it can't scroll. */
+.center { position: relative; z-index: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .topbar {
   height: var(--top-h);
   border-bottom: 1px solid var(--border);

@@ -135,4 +135,32 @@ describe('desktop renderer Elegant Dark shell', () => {
     const html = readHtml();
     expect(html).not.toMatch(/theme-switch/);
   });
+
+  test('keeps the scroll chain intact so stacked tiles stay reachable', () => {
+    const css = fs.readFileSync(stylesCss, 'utf8');
+
+    // The app grid must pin its single content row to the viewport. Without an
+    // explicit row, the implicit `auto` row grows to the tiles' max-content
+    // height, pushing the column past 100vh so the workspace never scrolls.
+    const appRule = css.match(/\.app\s*\{[^}]*\}/);
+    expect(appRule).not.toBeNull();
+    expect(appRule![0]).toMatch(/grid-template-rows:\s*100vh/);
+
+    // The center column must be allowed to shrink to the pinned row; a grid item
+    // defaults to min-height:auto (min-content), which would otherwise overflow
+    // the viewport and starve the workspace scroll container.
+    const centerRule = css.match(/\.center\s*\{[^}]*\}/);
+    expect(centerRule).not.toBeNull();
+    expect(centerRule![0]).toMatch(/min-height:\s*0/);
+
+    // The workspace is the real scroll container and the grid grows past it.
+    const workspaceRule = css.match(/\.workspace\s*\{[^}]*\}/);
+    expect(workspaceRule).not.toBeNull();
+    expect(workspaceRule![0]).toMatch(/overflow:\s*auto/);
+    expect(workspaceRule![0]).toMatch(/min-height:\s*0/);
+
+    const gridRule = css.match(/\.grid\s*\{[^}]*\}/);
+    expect(gridRule).not.toBeNull();
+    expect(gridRule![0]).toMatch(/min-height:\s*100%/);
+  });
 });
