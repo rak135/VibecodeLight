@@ -177,4 +177,20 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(gridRule).not.toBeNull();
     expect(gridRule![0]).toMatch(/min-height:\s*100%/);
   });
+
+  test('applies fill-height class to stretch tiles to viewport when they fit in one row', () => {
+    const css = fs.readFileSync(stylesCss, 'utf8');
+    const html = readHtml();
+
+    // .grid.fill-height must set an explicit height so 1fr resolves against a
+    // definite height and tiles stretch to fill the viewport instead of
+    // collapsing to the 340px minimum and leaving a black gap.
+    expect(css).toMatch(/\.grid\.fill-height\s*\{[^}]*height:\s*100%/);
+
+    // JS must expose a helper and call it whenever the count or density changes.
+    expect(html).toMatch(/function updateGridFit/);
+    expect(html).toMatch(/updateGridFit\(\)/);
+    // The helper must toggle the fill-height class based on count vs density.
+    expect(html).toMatch(/fill-height/);
+  });
 });
