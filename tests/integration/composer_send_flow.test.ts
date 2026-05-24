@@ -5,6 +5,11 @@ import path from 'path';
 import { registerDesktopComposerIpcHandlers } from '../../src/app/desktop/composer_bridge.js';
 import { generatePromptPreview } from '../../src/app/desktop/prompt_preview_service.js';
 import { sendFinalPromptForRun, type DesktopTerminalServiceLike } from '../../src/app/desktop/prompt_send_service.js';
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+  DEFAULT_TERMINAL_PASTE_CHUNK_SIZE,
+} from '../../src/core/terminal/send_prompt.js';
 import { sha256 } from '../../src/core/terminal/hash.js';
 
 interface FakeTerminalService {
@@ -78,12 +83,15 @@ describe('composer preview -> send integration flow', () => {
     expect(send.ok).toBe(true);
     if (!send.ok) return;
 
-    // saved final_prompt.md content plus Enter was written to the PTY
     const onDisk = fs.readFileSync(preview.finalPromptPath, 'utf8');
-    expect(service.writes).toEqual([onDisk + '\r']);
+    const pasteWrites = service.writes.slice(0, -1);
+    expect(service.writes.at(-1)).toBe('\r');
+    expect(pasteWrites.join('')).toBe(BRACKETED_PASTE_START + onDisk + BRACKETED_PASTE_END);
     expect(send.metadata.content_sha256).toBe(sha256(onDisk));
-    expect(send.metadata.sent_payload_sha256).toBe(sha256(onDisk + '\r'));
+    expect(send.metadata.sent_payload_sha256).toBe(sha256(BRACKETED_PASTE_START + onDisk + BRACKETED_PASTE_END + '\r'));
     expect(send.metadata.newline_appended).toBe(true);
+    expect(send.metadata.bracketed_paste).toBe(true);
+    expect(send.metadata.enter_sent_after_paste).toBe(true);
 
     // metadata + current mirror both exist
     expect(fs.existsSync(send.sendMetadataPath)).toBe(true);
@@ -170,7 +178,7 @@ describe('composer preview -> send integration flow', () => {
     expect(fs.existsSync(path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
   });
 
-  test('desktop send appends \\r to PTY payload, file on disk is not mutated', async () => {
+  test('desktop send appends \r after bracketed paste payload and file on disk is not mutated', async () => {
     const preview = await generatePromptPreview({ task: 'integration: approve and send appends enter', repoRoot: tmpRepo });
     expect(preview.ok).toBe(true);
     if (!preview.ok) return;
@@ -186,10 +194,11 @@ describe('composer preview -> send integration flow', () => {
     if (!send.ok) return;
 
     const onDisk = fs.readFileSync(preview.finalPromptPath, 'utf8');
+    const pasteWrites = service.writes.slice(0, -1);
 
-    // PTY received content + '\\r'
-    expect(service.writes).toHaveLength(1);
-    expect(service.writes[0]).toBe(onDisk + '\r');
+    expect(service.writes).toHaveLength(2);
+    expect(pasteWrites.join('')).toBe(BRACKETED_PASTE_START + onDisk + BRACKETED_PASTE_END);
+    expect(service.writes[1]).toBe('\r');
 
     // file on disk is NOT mutated
     expect(fs.readFileSync(preview.finalPromptPath, 'utf8')).toBe(onDisk);
@@ -197,8 +206,9 @@ describe('composer preview -> send integration flow', () => {
     // metadata is honest
     expect(send.metadata.newline_appended).toBe(true);
     expect(send.metadata.content_sha256).toBe(sha256(onDisk));
-    expect(send.metadata.sent_payload_sha256).toBe(sha256(onDisk + '\r'));
+    expect(send.metadata.sent_payload_sha256).toBe(sha256(BRACKETED_PASTE_START + onDisk + BRACKETED_PASTE_END + '\r'));
     expect(send.metadata.content_sha256).not.toBe(send.metadata.sent_payload_sha256);
+    expect(send.metadata.enter_sent_after_paste).toBe(true);
 
     // no after/ artifacts
     expect(fs.existsSync(path.join(preview.runDir, 'after'))).toBe(false);
@@ -206,7 +216,36 @@ describe('composer preview -> send integration flow', () => {
     expect(fs.existsSync(path.join(preview.runDir, 'scan', 'terminal_context.json'))).toBe(false);
   });
 
-  test('send_metadata.json records newline_appended:true and payload counts', async () => {
+  test('large prompt send uses chunked bracketed paste and preserves exact content when reconstructed', async () => {
+    const preview = await generatePromptPreview({ task: 'integration: large chunked send', repoRoot: tmpRepo });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const largePrompt = `${Array.from({ length: 900 }, (_v, index) => `line ${index.toString().padStart(4, '0')} ${'x'.repeat(18)}`).join('\n')}\n`;
+    fs.writeFileSync(preview.finalPromptPath, largePrompt, 'utf8');
+
+    const service = createFakeService({ sessionId: 'desktop-int-large', cwd: tmpRepo, pid: 2024, shell: 'pwsh' });
+    const send = await sendFinalPromptForRun({
+      runId: preview.run_id,
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+    });
+
+    expect(send.ok).toBe(true);
+    if (!send.ok) return;
+
+    const pasteWrites = service.writes.slice(0, -1);
+    expect(pasteWrites.length).toBeGreaterThan(1);
+    expect(send.metadata.chunk_count).toBe(pasteWrites.length);
+    expect(send.metadata.chunk_size).toBe(DEFAULT_TERMINAL_PASTE_CHUNK_SIZE);
+    const reconstructed = pasteWrites.join('');
+    expect(reconstructed.startsWith(BRACKETED_PASTE_START)).toBe(true);
+    expect(reconstructed.endsWith(BRACKETED_PASTE_END)).toBe(true);
+    expect(reconstructed.slice(BRACKETED_PASTE_START.length, -BRACKETED_PASTE_END.length)).toBe(largePrompt);
+    expect(service.writes.at(-1)).toBe('\r');
+  });
+
+  test('send_metadata.json records transfer mode and chunked transport fields', async () => {
     const preview = await generatePromptPreview({ task: 'integration: metadata newline flag', repoRoot: tmpRepo });
     expect(preview.ok).toBe(true);
     if (!preview.ok) return;
@@ -228,5 +267,12 @@ describe('composer preview -> send integration flow', () => {
     expect(meta.content_sha256).not.toBe(meta.sent_payload_sha256);
     expect(meta.byte_count).toBeGreaterThan(0);
     expect(meta.char_count).toBeGreaterThan(0);
+    expect(meta.transfer_mode).toBe('bracketed_paste_chunked');
+    expect(meta.bytes).toBe(meta.byte_count);
+    expect(meta.lines).toBeGreaterThan(0);
+    expect(meta.chunk_count).toBeGreaterThan(0);
+    expect(meta.chunk_size).toBeGreaterThan(0);
+    expect(meta.bracketed_paste).toBe(true);
+    expect(meta.enter_sent_after_paste).toBe(true);
   });
 });

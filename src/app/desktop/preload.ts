@@ -55,9 +55,16 @@ export interface ComposerSendIpcResult {
     auto_approve: false;
     byte_count: number;
     char_count: number;
+    bytes: number;
+    lines: number;
     content_sha256: string;
     sent_payload_sha256: string;
     newline_appended: boolean;
+    transfer_mode: 'bracketed_paste_chunked';
+    chunk_count: number;
+    chunk_size: number;
+    enter_sent_after_paste: boolean;
+    bracketed_paste: true;
     terminal_cwd?: string;
   };
   error?: { code: string; message: string; path?: string; details: string[] };

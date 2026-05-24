@@ -29,8 +29,13 @@ describe('send_metadata module', () => {
       run_id: '2026-05-20_001',
       terminal_session_id: 'desktop-42-abc',
       content: '# Task\nhello\n',
-      payload: '# Task\nhello\n\r',
+      payload: '\u001b[200~# Task\nhello\n\u001b[201~\r',
       sentAt: '2026-05-20T12:00:00.000Z',
+      newline_appended: true,
+      lines: 3,
+      chunk_count: 2,
+      chunk_size: 2048,
+      enter_sent_after_paste: true,
       terminal_cwd: 'C:/repo',
     });
 
@@ -45,20 +50,32 @@ describe('send_metadata module', () => {
     expect(meta.sent_payload_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(meta.content_sha256).not.toBe(meta.sent_payload_sha256);
     expect(meta.newline_appended).toBe(true);
+    expect(meta.transfer_mode).toBe('bracketed_paste_chunked');
+    expect(meta.bytes).toBe(Buffer.byteLength('# Task\nhello\n', 'utf8'));
+    expect(meta.lines).toBe(3);
+    expect(meta.chunk_count).toBe(2);
+    expect(meta.chunk_size).toBe(2048);
+    expect(meta.enter_sent_after_paste).toBe(true);
+    expect(meta.bracketed_paste).toBe(true);
     expect(meta.terminal_cwd).toBe('C:/repo');
   });
 
-  test('buildSendMetadata reports newline_appended=false when payload equals content', () => {
+  test('buildSendMetadata reports newline_appended=false when payload has no trailing Enter', () => {
     const text = 'identical bytes';
     const meta = buildSendMetadata({
       run_id: 'r',
       terminal_session_id: 's',
       content: text,
-      payload: text,
+      payload: '\u001b[200~identical bytes\u001b[201~',
       sentAt: '2026-05-20T12:00:00.000Z',
+      newline_appended: false,
+      lines: 1,
+      chunk_count: 1,
+      chunk_size: 2048,
+      enter_sent_after_paste: false,
     });
     expect(meta.newline_appended).toBe(false);
-    expect(meta.content_sha256).toBe(meta.sent_payload_sha256);
+    expect(meta.content_sha256).not.toBe(meta.sent_payload_sha256);
     expect(meta.terminal_cwd).toBeUndefined();
   });
 
@@ -70,8 +87,13 @@ describe('send_metadata module', () => {
       run_id: 'r1',
       terminal_session_id: 's',
       content: 'abc',
-      payload: 'abc',
+      payload: '\u001b[200~abc\u001b[201~',
       sentAt: '2026-05-20T12:00:00.000Z',
+      newline_appended: false,
+      lines: 1,
+      chunk_count: 1,
+      chunk_size: 2048,
+      enter_sent_after_paste: false,
     });
 
     const written = writeSendMetadata(runDir, meta);
@@ -93,8 +115,13 @@ describe('send_metadata module', () => {
       run_id: 'r1',
       terminal_session_id: 's',
       content: 'abc',
-      payload: 'abc',
+      payload: '\u001b[200~abc\u001b[201~',
       sentAt: '2026-05-20T12:00:00.000Z',
+      newline_appended: false,
+      lines: 1,
+      chunk_count: 1,
+      chunk_size: 2048,
+      enter_sent_after_paste: false,
     });
 
     const mirroredPath = mirrorSendMetadataToCurrent(vibecodePath, meta);

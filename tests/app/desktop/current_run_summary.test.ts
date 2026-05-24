@@ -74,6 +74,8 @@ describe('current run summary', () => {
     expect(send.terminalSend).toBe('sent');
     expect(send.sendMetadataPath).toContain('send_metadata.json');
     expect(fs.existsSync(send.sendMetadataPath)).toBe(true);
+    expect(send.metadata.transfer_mode).toBe('bracketed_paste_chunked');
+    expect(send.metadata.bracketed_paste).toBe(true);
   });
 
   test('send reads saved final_prompt.md not UI text', async () => {
@@ -99,6 +101,8 @@ describe('current run summary', () => {
     const allWritten = writes.join('');
     // The sent content should include the saved file content
     expect(allWritten).toContain(savedContent.trim());
+    expect(allWritten).toContain('\u001b[200~');
+    expect(allWritten).toContain('\u001b[201~');
   });
 
   test('no terminal_context.json created after preview and send', async () => {

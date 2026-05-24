@@ -15,9 +15,16 @@ export interface SendMetadata {
   auto_approve: false;
   byte_count: number;
   char_count: number;
+  bytes: number;
+  lines: number;
   content_sha256: string;
   sent_payload_sha256: string;
   newline_appended: boolean;
+  transfer_mode: 'bracketed_paste_chunked';
+  chunk_count: number;
+  chunk_size: number;
+  enter_sent_after_paste: boolean;
+  bracketed_paste: true;
   terminal_cwd?: string;
 }
 
@@ -27,6 +34,11 @@ export interface BuildSendMetadataInput {
   content: string;
   payload: string;
   sentAt: string;
+  newline_appended: boolean;
+  lines: number;
+  chunk_count: number;
+  chunk_size: number;
+  enter_sent_after_paste: boolean;
   terminal_cwd?: string;
 }
 
@@ -42,9 +54,16 @@ export function buildSendMetadata(input: BuildSendMetadataInput): SendMetadata {
     auto_approve: false,
     byte_count: Buffer.byteLength(input.content, 'utf8'),
     char_count: input.content.length,
+    bytes: Buffer.byteLength(input.content, 'utf8'),
+    lines: input.lines,
     content_sha256: contentHash,
     sent_payload_sha256: payloadHash,
-    newline_appended: input.payload !== input.content,
+    newline_appended: input.newline_appended,
+    transfer_mode: 'bracketed_paste_chunked',
+    chunk_count: input.chunk_count,
+    chunk_size: input.chunk_size,
+    enter_sent_after_paste: input.enter_sent_after_paste,
+    bracketed_paste: true,
   };
 
   if (input.terminal_cwd !== undefined) {

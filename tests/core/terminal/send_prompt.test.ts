@@ -2,7 +2,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { sendFinalPrompt } from '../../../src/core/terminal/send_prompt.js';
+import { planTerminalPromptSend, sendFinalPrompt } from '../../../src/core/terminal/send_prompt.js';
+import { sha256 } from '../../../src/core/terminal/hash.js';
+
+const BRACKETED_PASTE_START = '\u001b[200~';
+const BRACKETED_PASTE_END = '\u001b[201~';
 
 interface FakeWriter {
   sessionId: string;
@@ -46,7 +50,7 @@ describe('sendFinalPrompt', () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  test('reads output/final_prompt.md from the run folder and writes exact content to the writer', async () => {
+  test('reads output/final_prompt.md from the run folder and sends it as one bracketed paste payload', async () => {
     const content = '# Task\n\nDo the thing.\n';
     const { runDir, finalPromptPath } = makeRun(tmpRoot, 'r1', content);
     const writer = createWriter();
@@ -56,7 +60,7 @@ describe('sendFinalPrompt', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(writer.writes).toEqual([content]);
+    expect(writer.writes).toEqual([BRACKETED_PASTE_START + content + BRACKETED_PASTE_END]);
 
     // file must still be untouched on disk
     expect(fs.readFileSync(finalPromptPath, 'utf8')).toBe(content);
@@ -87,6 +91,13 @@ describe('sendFinalPrompt', () => {
     expect(meta.content_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(meta.sent_payload_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(meta.terminal_cwd).toBe('C:/repo');
+    expect(meta.transfer_mode).toBe('bracketed_paste_chunked');
+    expect(meta.bytes).toBe(Buffer.byteLength(content, 'utf8'));
+    expect(meta.lines).toBe(1);
+    expect(meta.chunk_count).toBe(1);
+    expect(meta.chunk_size).toBeGreaterThan(0);
+    expect(meta.bracketed_paste).toBe(true);
+    expect(meta.enter_sent_after_paste).toBe(false);
   });
 
   test('mirrors metadata to .vibecode/current/send_metadata.json only when vibecodePath provided and only after success', async () => {
@@ -145,15 +156,67 @@ describe('sendFinalPrompt', () => {
     const { runDir } = makeRun(tmpRoot, 'r6', content);
     const writer = createWriter();
 
-    const result = await sendFinalPrompt({ runDir, writer, appendNewline: '\r' });
+    const result = await sendFinalPrompt({ runDir, writer, appendNewline: '\r', enterDelayMs: 0 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(writer.writes).toEqual([content + '\r']);
+    expect(writer.writes).toEqual([
+      BRACKETED_PASTE_START + content + BRACKETED_PASTE_END,
+      '\r',
+    ]);
 
     const meta = JSON.parse(fs.readFileSync(result.metadataPath, 'utf8'));
     expect(meta.newline_appended).toBe(true);
     expect(meta.content_sha256).not.toBe(meta.sent_payload_sha256);
+    expect(meta.sent_payload_sha256).toBe(sha256(BRACKETED_PASTE_START + content + BRACKETED_PASTE_END + '\r'));
+    expect(meta.enter_sent_after_paste).toBe(true);
+  });
+
+  test('large multiline prompts are sent in multiple chunks and Enter is written only after the bracketed paste end marker', async () => {
+    const lines = Array.from({ length: 80 }, (_value, index) => `line-${index.toString().padStart(3, '0')}: ${'x'.repeat(24)}`);
+    const content = `${lines.join('\n')}\n`;
+    const { runDir } = makeRun(tmpRoot, 'r6b', content);
+    const writer = createWriter();
+
+    const result = await sendFinalPrompt({
+      runDir,
+      writer,
+      appendNewline: '\r',
+      chunkSize: 64,
+      chunkDelayMs: 0,
+      enterDelayMs: 0,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(writer.writes.length).toBeGreaterThan(2);
+    expect(writer.writes.at(-1)).toBe('\r');
+
+    const pasteWrites = writer.writes.slice(0, -1);
+    expect(pasteWrites[0].startsWith(BRACKETED_PASTE_START)).toBe(true);
+    expect(pasteWrites.at(-1)?.endsWith(BRACKETED_PASTE_END)).toBe(true);
+
+    const reconstructedPaste = pasteWrites.join('');
+    expect(reconstructedPaste.startsWith(BRACKETED_PASTE_START)).toBe(true);
+    expect(reconstructedPaste.endsWith(BRACKETED_PASTE_END)).toBe(true);
+    expect(reconstructedPaste.slice(BRACKETED_PASTE_START.length, -BRACKETED_PASTE_END.length)).toBe(content);
+
+    expect(result.metadata.chunk_count).toBe(pasteWrites.length);
+    expect(result.metadata.lines).toBe(lines.length);
+    expect(result.metadata.bracketed_paste).toBe(true);
+    expect(result.metadata.enter_sent_after_paste).toBe(true);
+  });
+
+  test('planTerminalPromptSend makes first chunk start with bracketed paste start, last paste chunk end with bracketed paste end, and final action be Enter', () => {
+    const content = `${Array.from({ length: 20 }, (_value, index) => `line ${index}`).join('\n')}\n`;
+    const plan = planTerminalPromptSend(content, { chunkSize: 32, appendNewline: '\r' });
+
+    expect(plan.pasteWrites.length).toBeGreaterThan(1);
+    expect(plan.pasteWrites[0].startsWith(BRACKETED_PASTE_START)).toBe(true);
+    expect(plan.pasteWrites.at(-1)?.endsWith(BRACKETED_PASTE_END)).toBe(true);
+    expect(plan.enterWrite).toBe('\r');
+    expect(plan.payload).toBe(BRACKETED_PASTE_START + content + BRACKETED_PASTE_END + '\r');
+    expect(plan.pasteWrites.join('').slice(BRACKETED_PASTE_START.length, -BRACKETED_PASTE_END.length)).toBe(content);
   });
 
   test('does not create any after/ artifacts and does not mutate final_prompt.md', async () => {
@@ -182,7 +245,7 @@ describe('sendFinalPrompt', () => {
     const result = await sendFinalPrompt({ runDir, writer });
     expect(result.ok).toBe(true);
 
-    expect(writer.writes[0]).toBe(finalPromptContent);
+    expect(writer.writes[0]).toBe(BRACKETED_PASTE_START + finalPromptContent + BRACKETED_PASTE_END);
   });
 });
 
