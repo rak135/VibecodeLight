@@ -755,6 +755,12 @@
           ['run dir', result.runDir || '—'],
           ['context_pack.md', result.contextPackPath || '—'],
           ['selected_skills.json', result.selectedSkillsPath || '—'],
+          ['estimated tokens', result.estimatedTokens == null ? '—' : String(result.estimatedTokens)],
+          ['budget status', result.budgetStatus || '—'],
+          ['flash_input.md', result.flashInputPath || '—'],
+          ['repo atlas', result.repoAtlasPath || '—'],
+          ['task_slice.md', result.taskSlicePath || '—'],
+          ['flash_input_budget.json', result.flashInputBudgetPath || '—'],
         ];
         summaryElement.innerHTML = rowsHtml
           .map(([k, v]) => '<div class="k">' + k + '</div><div class="v">' + escapeHtml(v) + '</div>')
@@ -766,7 +772,8 @@
         const e = error || {};
         summaryElement.innerHTML =
           '<div class="k">error</div><div class="v err">' + escapeHtml(e.code || 'UNKNOWN') + '</div>' +
-          '<div class="k">message</div><div class="v err">' + escapeHtml(e.message || 'unknown error') + '</div>';
+          '<div class="k">message</div><div class="v err">' + escapeHtml(e.message || 'unknown error') + '</div>' +
+          '<div class="k">budget status</div><div class="v err">' + escapeHtml((e.code === 'FLASH_INPUT_BUDGET_EXCEEDED' ? 'FLASH_INPUT_BUDGET_EXCEEDED' : '—')) + '</div>';
         summarySection.style.display = '';
         populateErrorDiagnostics(e, result);
       }

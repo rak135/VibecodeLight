@@ -10,13 +10,14 @@ import {
   resolveFlashConfig,
   writeConfigResolution,
 } from '../config/index.js';
-import { buildFlashInput,
+import { buildCompactFlashContext,
   buildFlashInputManifest,
   contextFinalizeErrorToDiagnostic,
   enrichFlashOutputMeta,
   finalizeContext,
   formatPreviousRunSummary,
   getPreviousRunSummary,
+  markFlashInputProviderCalled,
 } from '../context/index.js';
 import { renderFinalPrompt } from './renderer.js';
 import type { PipelineEvent } from './pipeline_events.js';
@@ -41,6 +42,14 @@ export interface PromptPipelineSuccess {
   run_id: string;
   runDir: string;
   finalPromptPath: string;
+  flashInputPath?: string;
+  repoAtlasPath?: string;
+  taskSlicePath?: string;
+  relevanceSelectionPath?: string;
+  flashInputBudgetPath?: string;
+  estimatedTokens?: number;
+  hardMaxTokens?: number;
+  providerCalled?: boolean;
   artifacts: string[];
   warnings: string[];
 }
@@ -187,19 +196,34 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
         currentRunId: scan.run_id,
       }),
     );
-    const flashInput = buildFlashInput({
+    const compactResult = buildCompactFlashContext({
       run_id: scan.run_id,
       task: opts.task,
       repo_root: opts.repoRoot,
       runDir: scan.runDir,
       previousRunSummary,
-      manifest: flashManifest,
     });
+    const { paths: compactPaths, budget: compactBudget } = compactResult;
     const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
     const flashInputPath = path.join(flashDir, 'flash_input.md');
+    const repoAtlasPath = compactPaths.repo_atlas_path ?? compactPaths.run_repo_atlas_path;
+    const taskSlicePath = compactPaths.task_slice_path;
+    const relevanceSelectionPath = compactPaths.relevance_selection_path;
+    const flashInputBudgetPath = compactPaths.flash_input_budget_path;
+
     fs.writeFileSync(flashManifestPath, `${JSON.stringify(flashManifest, null, 2)}\n`, 'utf8');
-    fs.writeFileSync(flashInputPath, flashInput, 'utf8');
-    artifacts.push(flashManifestPath, flashInputPath);
+    fs.writeFileSync(flashInputPath, compactResult.flashInput, 'utf8');
+    artifacts.push(
+      flashManifestPath,
+      flashInputPath,
+      repoAtlasPath,
+      taskSlicePath,
+      relevanceSelectionPath,
+      flashInputBudgetPath,
+    );
+    if (compactPaths.repo_atlas_path) {
+      artifacts.push(compactPaths.repo_atlas_path);
+    }
     warnings.push(...flashManifest.warnings);
     emitProgress({
       phase: 'flash_input_built',
@@ -221,7 +245,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       message: 'Flash request started.',
       run_id: scan.run_id,
     });
-    const adapterResult = await adapter2.run({ flashInputMd: flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
+    const adapterResult = await adapter2.run({ flashInputMd: compactResult.flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
+    markFlashInputProviderCalled(scan.runDir, true);
     emitProgress({
       phase: 'flash_response_received',
       message: 'Flash response received.',
@@ -297,6 +322,14 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       run_id: scan.run_id,
       runDir: scan.runDir,
       finalPromptPath,
+      flashInputPath,
+      repoAtlasPath,
+      taskSlicePath,
+      relevanceSelectionPath,
+      flashInputBudgetPath,
+      estimatedTokens: compactBudget.estimated_tokens,
+      hardMaxTokens: compactBudget.hard_max_tokens,
+      providerCalled: true,
       artifacts: unique(artifacts),
       warnings,
     };

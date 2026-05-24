@@ -29,6 +29,10 @@ describe('composer preview integration flow', () => {
 
     const expected = [
       'flash/flash_input.md',
+      'flash/repo_atlas.md',
+      'flash/task_slice.md',
+      'flash/relevance_selection.json',
+      'flash/flash_input_budget.json',
       'flash/flash_output.md',
       'output/context_pack.md',
       'skills/selected_skills.json',

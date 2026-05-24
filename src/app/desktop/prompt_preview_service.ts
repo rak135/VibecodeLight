@@ -32,6 +32,15 @@ export interface PromptPreviewSuccess {
   run_id: string;
   runDir: string;
   finalPromptPath: string;
+  flashInputPath?: string;
+  repoAtlasPath?: string;
+  taskSlicePath?: string;
+  relevanceSelectionPath?: string;
+  flashInputBudgetPath?: string;
+  estimatedTokens?: number;
+  hardMaxTokens?: number;
+  providerCalled?: boolean;
+  budgetStatus?: 'ok' | 'FLASH_INPUT_BUDGET_EXCEEDED';
   contextPackPath: string;
   selectedSkillsPath: string;
   finalPrompt: string;
@@ -138,12 +147,32 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
   const providerErrorPath = fs.existsSync(path.join(pipelineResult.runDir, 'flash', 'provider_error.json'))
     ? path.join(pipelineResult.runDir, 'flash', 'provider_error.json')
     : undefined;
+  let budgetStatus: 'ok' | 'FLASH_INPUT_BUDGET_EXCEEDED' | undefined;
+  if (pipelineResult.flashInputBudgetPath && fs.existsSync(pipelineResult.flashInputBudgetPath)) {
+    try {
+      const budget = JSON.parse(fs.readFileSync(pipelineResult.flashInputBudgetPath, 'utf8')) as { budget_status?: unknown };
+      if (budget.budget_status === 'ok' || budget.budget_status === 'FLASH_INPUT_BUDGET_EXCEEDED') {
+        budgetStatus = budget.budget_status;
+      }
+    } catch {
+      // Best-effort diagnostics only.
+    }
+  }
 
   return {
     ok: true,
     run_id: pipelineResult.run_id,
     runDir: pipelineResult.runDir,
     finalPromptPath,
+    ...(pipelineResult.flashInputPath ? { flashInputPath: pipelineResult.flashInputPath } : {}),
+    ...(pipelineResult.repoAtlasPath ? { repoAtlasPath: pipelineResult.repoAtlasPath } : {}),
+    ...(pipelineResult.taskSlicePath ? { taskSlicePath: pipelineResult.taskSlicePath } : {}),
+    ...(pipelineResult.relevanceSelectionPath ? { relevanceSelectionPath: pipelineResult.relevanceSelectionPath } : {}),
+    ...(pipelineResult.flashInputBudgetPath ? { flashInputBudgetPath: pipelineResult.flashInputBudgetPath } : {}),
+    ...(typeof pipelineResult.estimatedTokens === 'number' ? { estimatedTokens: pipelineResult.estimatedTokens } : {}),
+    ...(typeof pipelineResult.hardMaxTokens === 'number' ? { hardMaxTokens: pipelineResult.hardMaxTokens } : {}),
+    ...(typeof pipelineResult.providerCalled === 'boolean' ? { providerCalled: pipelineResult.providerCalled } : {}),
+    ...(budgetStatus ? { budgetStatus } : {}),
     contextPackPath: path.join(pipelineResult.runDir, 'output', 'context_pack.md'),
     selectedSkillsPath: path.join(pipelineResult.runDir, 'skills', 'selected_skills.json'),
     finalPrompt,

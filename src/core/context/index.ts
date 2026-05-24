@@ -3,6 +3,7 @@ export * from './context_finalize.js';
 export * from './context_pack_store.js';
 export * from './flash_input_builder.js';
 export * from './flash_input_manifest.js';
+export * from './flash_compaction.js';
 export * from './flash_output_contract.js';
 export * from './flash_output_meta.js';
 export * from './markdown_flash_output_parser.js';

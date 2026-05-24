@@ -66,6 +66,25 @@ describe('DesktopPromptPreviewService', () => {
     const savedFinal = fs.readFileSync(result.finalPromptPath, 'utf8');
     expect(result.finalPrompt).toBe(savedFinal);
     expect(result.finalPrompt).toContain(task);
+    expect(result.flashInputPath).toBe(
+      path.join(tmpRepo, '.vibecode', 'runs', result.run_id, 'flash', 'flash_input.md'),
+    );
+    expect(result.repoAtlasPath).toBe(
+      path.join(tmpRepo, '.vibecode', 'index', 'repo_atlas.generated.md'),
+    );
+    expect(result.taskSlicePath).toBe(
+      path.join(tmpRepo, '.vibecode', 'runs', result.run_id, 'flash', 'task_slice.md'),
+    );
+    expect(result.relevanceSelectionPath).toBe(
+      path.join(tmpRepo, '.vibecode', 'runs', result.run_id, 'flash', 'relevance_selection.json'),
+    );
+    expect(result.flashInputBudgetPath).toBe(
+      path.join(tmpRepo, '.vibecode', 'runs', result.run_id, 'flash', 'flash_input_budget.json'),
+    );
+    expect(result.estimatedTokens).toBeGreaterThan(0);
+    expect(result.hardMaxTokens).toBe(32000);
+    expect(result.providerCalled).toBe(true);
+    expect(result.budgetStatus).toBe('ok');
   });
 
   test('returns a real flash context summary parsed from run artifacts', async () => {

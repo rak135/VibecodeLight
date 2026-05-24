@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 
+import type { LlmAdapter } from '../../../src/adapters/llm/base.js';
 import { runPromptPipeline } from '../../../src/core/prompting/pipeline.js';
 
 const repoRoot = path.resolve(__dirname, '../../..');
@@ -44,6 +45,10 @@ const requiredArtifacts = [
   'scan/scan_manifest.json',
   'skills/skills_catalog.json',
   'flash/flash_input_manifest.json',
+  'flash/repo_atlas.md',
+  'flash/task_slice.md',
+  'flash/relevance_selection.json',
+  'flash/flash_input_budget.json',
   'flash/flash_input.md',
   'flash/flash_output.md',
   'flash/flash_output_meta.json',
@@ -177,6 +182,14 @@ describe('full prompt pipeline', () => {
     expect(envelope.data.run_id).toBeTruthy();
     expect(envelope.data.runDir).toBeTruthy();
     expect(envelope.data.finalPromptPath).toBeTruthy();
+    expect(envelope.data.flash_input_path).toContain('flash_input.md');
+    expect(envelope.data.repo_atlas_path).toContain('repo_atlas.generated.md');
+    expect(envelope.data.task_slice_path).toContain('task_slice.md');
+    expect(envelope.data.relevance_selection_path).toContain('relevance_selection.json');
+    expect(envelope.data.flash_input_budget_path).toContain('flash_input_budget.json');
+    expect(envelope.data.estimated_tokens).toBeGreaterThan(0);
+    expect(envelope.data.hard_max_tokens).toBe(32000);
+    expect(envelope.data.provider_called).toBe(true);
     expect(Array.isArray(envelope.artifacts)).toBe(true);
     expect(Array.isArray(envelope.warnings)).toBe(true);
   });
@@ -187,6 +200,68 @@ describe('full prompt pipeline', () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('unknown option');
     expect(result.stderr).toContain('--include-terminal-context');
+  });
+
+  test('FLASH_INPUT_BUDGET_EXCEEDED fails before adapter call and keeps provider_called false in budget artifact', async () => {
+    vi.resetModules();
+    const adapterRun = vi.fn();
+    vi.doMock('../../../src/core/context/index.js', async () => {
+      const actual = await vi.importActual<typeof import('../../../src/core/context/index.js')>('../../../src/core/context/index.js');
+      const fsModule = await import('fs');
+      const pathModule = await import('path');
+      return {
+        ...actual,
+        buildCompactFlashContext: (opts: { runDir: string }) => {
+          const budgetPath = pathModule.join(opts.runDir, 'flash', 'flash_input_budget.json');
+          fsModule.mkdirSync(pathModule.dirname(budgetPath), { recursive: true });
+          fsModule.writeFileSync(
+            budgetPath,
+            `${JSON.stringify({
+              target_tokens: 24000,
+              hard_max_tokens: 32000,
+              estimated_tokens: 64001,
+              estimated_chars: 256004,
+              section_breakdown: [],
+              included_sections: ['Task', 'Repo Atlas', 'Task Slice', 'Available Full Artifacts', 'Flash Instructions'],
+              summarized_sections: ['Repo Atlas', 'Task Slice'],
+              excluded_sections: ['full Symbols dump'],
+              full_artifacts_referenced: ['scan/symbols.json'],
+              provider_called: false,
+              budget_status: 'FLASH_INPUT_BUDGET_EXCEEDED',
+            }, null, 2)}\n`,
+            'utf8',
+          );
+          throw new actual.FlashInputBudgetError(
+            'flash_input.md estimated 64001 tokens exceeds hard max 32000',
+            budgetPath,
+            ['estimated_tokens=64001', 'hard_max_tokens=32000'],
+          );
+        },
+      };
+    });
+
+    const { runPromptPipeline: runBudgetPipeline } = await import('../../../src/core/prompting/pipeline.js');
+    const adapter: LlmAdapter = {
+      run: adapterRun,
+    };
+
+    const result = await runBudgetPipeline({
+      task: 'budget exceeded test',
+      repoRoot: tmpRepo,
+      mock: false,
+      adapter,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('FLASH_INPUT_BUDGET_EXCEEDED');
+    expect(result.error.path).toContain('flash_input_budget.json');
+    expect(adapterRun).not.toHaveBeenCalled();
+    expect(fs.existsSync(result.error.path ?? '')).toBe(true);
+    const budget = JSON.parse(fs.readFileSync(result.error.path!, 'utf8'));
+    expect(budget.provider_called).toBe(false);
+
+    vi.doUnmock('../../../src/core/context/index.js');
   });
 
   test('failure returns canonical error envelope', () => {

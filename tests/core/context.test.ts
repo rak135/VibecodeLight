@@ -155,26 +155,9 @@ describe('buildFlashInput', () => {
 
     const sections = [
       '# Task',
-      '# Run Metadata',
-      '# Git State',
-      '# Repository Tree',
-      '# File Inventory Summary',
-      '# Manifests and Dependencies',
-      '# Environment',
-      '# Commands',
-      '# Tooling',
-      '# Repository Instructions',
-      '# Documentation',
-      '# Architecture Documents',
-      '# Symbols',
-      '# Imports',
-      '# Entrypoints',
-      '# Tests',
-      '# Schemas',
-      '# Keyword Hits',
-      '# Recent History',
-      '# Skills Catalog',
-      '# Previous Run Summary',
+      '# Repo Atlas',
+      '# Task Slice',
+      '# Available Full Artifacts',
       '# Flash Instructions',
     ];
 
@@ -202,7 +185,8 @@ describe('buildFlashInput', () => {
       previousRunSummary: undefined,
     });
 
-    expect(content).toContain('my-unique-repo-tree-content');
+    expect(content).toContain('scan/repo_tree.txt');
+    expect(content).not.toContain('my-unique-repo-tree-content');
 
     fs.rmSync(runDir, { recursive: true, force: true });
   });
@@ -219,7 +203,7 @@ describe('buildFlashInput', () => {
       previousRunSummary: undefined,
     });
 
-    expect(content).toContain('# Previous Run Summary');
+    expect(content).toContain('## Previous Run Summary');
     expect(content).toContain('none available');
 
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -282,7 +266,7 @@ describe('buildFlashInput', () => {
     });
 
     expect(content).toContain('scanner_config.json');
-    expect(content).toContain('"scan_out": "scan"');
+    expect(content).not.toContain('"scan_out": "scan"');
 
     fs.rmSync(runDir, { recursive: true, force: true });
   });

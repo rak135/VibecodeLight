@@ -31,6 +31,11 @@ describe('desktop preview smoke command', () => {
     const finalPromptPath = path.join(runDir, 'output', 'final_prompt.md');
     expect(fs.existsSync(finalPromptPath)).toBe(true);
     expect(fs.readFileSync(finalPromptPath, 'utf8').length).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'index', 'repo_atlas.generated.md'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'repo_atlas.md'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'task_slice.md'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'relevance_selection.json'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'flash', 'flash_input_budget.json'))).toBe(true);
     expect(fs.existsSync(path.join(runDir, 'terminal', 'send_metadata.json'))).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'after'))).toBe(false);
     expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'current', 'send_metadata.json'))).toBe(false);

@@ -109,7 +109,7 @@ describe('context-build command', () => {
       path.join(secondPayload.data.runDir, 'flash', 'flash_input.md'),
       'utf8',
     );
-    expect(flashInput).toContain('# Previous Run Summary');
+    expect(flashInput).toContain('## Previous Run Summary');
     expect(flashInput).toContain(firstPayload.data.run_id);
     expect(flashInput).toContain('previous summary first task');
   });
