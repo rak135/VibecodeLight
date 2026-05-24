@@ -80,6 +80,7 @@ export interface FlashSettingsView {
 export interface FlashSettingsConfigApi {
   show(): Promise<{ ok: boolean; resolution: unknown }>;
   providers(): Promise<{ ok: boolean; providers: unknown[] }>;
+  rememberLiveSelection(provider: string, model: string): Promise<{ ok: boolean; provider: string; model: string; error?: { code: string; message: string; details?: string[] } }>;
   syncFromGlobal(): Promise<{ ok: boolean; error?: { code: string; message: string; details?: string[] } }>;
   openDir(): Promise<{ ok: boolean; error?: string }>;
 }
@@ -87,6 +88,7 @@ export interface FlashSettingsConfigApi {
 export interface FlashSettingsController {
   refresh(): Promise<void>;
   setMode(mode: FlashMode | string | undefined): FlashMode;
+  rememberLiveSelection(provider: string, model: string): Promise<void>;
   syncFromGlobal(): Promise<void>;
   openConfigFolder(): Promise<void>;
 }

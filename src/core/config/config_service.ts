@@ -153,6 +153,10 @@ function readRegistryFile(filePath: string): RegistryFileRead {
   return { exists: true, parsed: parseRegistryObject(decoded) };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 function readEnvValue(
   name: string,
   dotEnv: Record<string, string>,
@@ -646,6 +650,14 @@ export interface SyncConfigResult {
   error?: { code: string; message: string; details: string[] };
 }
 
+export interface RememberLiveSelectionResult {
+  ok: boolean;
+  provider: string;
+  model: string;
+  localConfigPath: string;
+  error?: { code: ConfigErrorCode; message: string; details: string[] };
+}
+
 /**
  * Explicitly sync config from global AppData to local repo.
  * Only global → local direction is supported.
@@ -694,6 +706,137 @@ export function syncConfig(opts: {
   fs.mkdirSync(path.dirname(localConfigPath), { recursive: true });
   fs.writeFileSync(localConfigPath, sanitizeYamlForCopy(fs.readFileSync(globalConfigPath, 'utf8')), 'utf8');
   return { ok: true, direction: 'from-global', sourcePath: globalConfigPath, destinationPath: localConfigPath };
+}
+
+/**
+ * Persist the last live provider/model selection into the local workspace config
+ * so the GUI reopens with the same default live selection.
+ */
+export function rememberLiveSelection(opts: {
+  repoRoot: string;
+  provider: string;
+  model: string;
+  env?: Record<string, string | undefined>;
+  globalConfigPath?: string;
+  localConfigPath?: string;
+}): RememberLiveSelectionResult {
+  const env = opts.env ?? process.env;
+  const provider = opts.provider.trim();
+  const model = opts.model.trim();
+
+  const ensured = ensureLocalConfig({
+    repoRoot: opts.repoRoot,
+    env,
+    globalConfigPath: opts.globalConfigPath,
+    localConfigPath: opts.localConfigPath,
+  });
+  const globalConfigPath = opts.globalConfigPath ?? ensured.globalConfigPath;
+  const localConfigPath = opts.localConfigPath ?? ensured.localConfigPath;
+
+  if (!provider) {
+    return {
+      ok: false,
+      provider,
+      model,
+      localConfigPath,
+      error: {
+        code: 'FLASH_PROVIDER_NOT_CONFIGURED',
+        message: 'no flash provider configured',
+        details: [],
+      },
+    };
+  }
+
+  if (!model) {
+    return {
+      ok: false,
+      provider,
+      model,
+      localConfigPath,
+      error: {
+        code: 'FLASH_MODEL_NOT_CONFIGURED',
+        message: `no flash model selected for provider "${provider}"`,
+        details: [],
+      },
+    };
+  }
+
+  const globalRead = readRegistryFile(globalConfigPath);
+  const localRead = readRegistryFile(localConfigPath);
+  if (localRead.parsed.invalid || globalRead.parsed.invalid) {
+    const offendingPath = localRead.parsed.invalid ? localConfigPath : globalConfigPath;
+    const details = localRead.parsed.invalid ? localRead.parsed.errors : globalRead.parsed.errors;
+    return {
+      ok: false,
+      provider,
+      model,
+      localConfigPath,
+      error: {
+        code: 'CONFIG_INVALID_PROVIDER_REGISTRY',
+        message: `invalid provider registry in ${offendingPath}`,
+        details,
+      },
+    };
+  }
+
+  const merged = mergeRegistries(globalRead.parsed.registry, localRead.parsed.registry);
+  const selectedProvider = merged.providers.get(provider);
+  if (!selectedProvider) {
+    return {
+      ok: false,
+      provider,
+      model,
+      localConfigPath,
+      error: {
+        code: 'CONFIG_PROVIDER_NOT_FOUND',
+        message: `flash provider "${provider}" is not defined in the provider registry`,
+        details: [`available providers: ${Array.from(merged.providers.keys()).join(', ') || '(none)'}`],
+      },
+    };
+  }
+
+  const modelEntry = selectedProvider.entry.models.find((entry) => entry.id === model);
+  if (!modelEntry) {
+    return {
+      ok: false,
+      provider,
+      model,
+      localConfigPath,
+      error: {
+        code: 'CONFIG_MODEL_NOT_FOUND',
+        message: `model "${model}" is not defined for provider "${provider}"`,
+        details: [`available models: ${selectedProvider.entry.models.map((entry) => entry.id).join(', ') || '(none)'}`],
+      },
+    };
+  }
+
+  let parsed: unknown = {};
+  try {
+    parsed = YAML.parse(fs.readFileSync(localConfigPath, 'utf8'));
+  } catch {
+    parsed = {};
+  }
+
+  if (!isRecord(parsed)) parsed = {};
+
+  const root = parsed as Record<string, unknown>;
+  if (!isRecord(root.defaults)) root.defaults = {};
+  const defaults = root.defaults as Record<string, unknown>;
+  if (!isRecord(defaults.flash)) defaults.flash = {};
+  const flash = defaults.flash as Record<string, unknown>;
+  if (typeof root.version !== 'number') root.version = 1;
+  flash.provider = provider;
+  flash.model = model;
+
+  fs.mkdirSync(path.dirname(localConfigPath), { recursive: true });
+  fs.writeFileSync(localConfigPath, YAML.stringify(root), 'utf8');
+
+  return {
+    ok: true,
+    provider,
+    model,
+    localConfigPath,
+  };
 }
 
 /** Write the safe config resolution artifact for a run. */

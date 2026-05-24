@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import {
   resolveFlashConfig,
   ensureLocalConfig,
+  rememberLiveSelection,
   syncConfig,
   writeConfigResolution,
 } from '../../../src/core/config/config_service.js';
@@ -416,6 +417,50 @@ describe('resolveFlashConfig (provider registry)', () => {
     expect(resolution.has_api_key).toBe(true);
     expect(resolution.warnings.join(' ')).toMatch(/deprecat/i);
     expect(providerConfig?.apiKey).toBe(SECRET);
+  });
+
+  test('rememberLiveSelection writes the last selected live provider/model to local config for the next GUI open', () => {
+    writeYaml(globalConfigPath, REGISTRY);
+
+    const remembered = rememberLiveSelection({
+      repoRoot: path.join(root, 'repo'),
+      provider: 'deepseek',
+      model: 'deepseek-reasoner',
+      env: {},
+      globalConfigPath,
+      localConfigPath,
+    });
+
+    expect(remembered.ok).toBe(true);
+    expect(remembered.provider).toBe('deepseek');
+    expect(remembered.model).toBe('deepseek-reasoner');
+
+    const written = YAML.parse(fs.readFileSync(localConfigPath, 'utf8')) as {
+      defaults?: { flash?: { provider?: string; model?: string } };
+    };
+    expect(written.defaults?.flash?.provider).toBe('deepseek');
+    expect(written.defaults?.flash?.model).toBe('deepseek-reasoner');
+
+    const { resolution } = resolve();
+    expect(resolution.provider).toBe('deepseek');
+    expect(resolution.model).toBe('deepseek-reasoner');
+    expect(resolution.selected_config_source).toBe('local');
+  });
+
+  test('rememberLiveSelection rejects a provider that is not in the merged registry', () => {
+    writeYaml(globalConfigPath, REGISTRY);
+
+    const remembered = rememberLiveSelection({
+      repoRoot: path.join(root, 'repo'),
+      provider: 'ghost',
+      model: 'ghost-model',
+      env: {},
+      globalConfigPath,
+      localConfigPath,
+    });
+
+    expect(remembered.ok).toBe(false);
+    expect(remembered.error?.code).toBe('CONFIG_PROVIDER_NOT_FOUND');
   });
 });
 

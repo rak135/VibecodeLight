@@ -29,6 +29,7 @@ export type {
 export {
   resolveFlashConfig,
   ensureLocalConfig,
+  rememberLiveSelection,
   syncConfig,
   writeConfigResolution,
   getConfigPaths,

@@ -144,6 +144,14 @@ export interface ConfigSyncIpc {
   error?: { code: string; message: string; details: string[] };
 }
 
+export interface ConfigRememberLiveSelectionIpc {
+  ok: boolean;
+  provider: string;
+  model: string;
+  localConfigPath?: string;
+  error?: { code: string; message: string; details?: string[] };
+}
+
 export interface RunInfoIpc {
   run_id: string;
   task: string;
@@ -209,6 +217,7 @@ export interface VibecodePreloadApi {
     providers(): Promise<ConfigProvidersIpc>;
     models(): Promise<ConfigModelsIpc>;
     initLocal(): Promise<{ ok: boolean; localConfigPath: string; created: boolean; createdFromGlobal: boolean; source: string }>;
+    rememberLiveSelection(provider: string, model: string): Promise<ConfigRememberLiveSelectionIpc>;
     syncFromGlobal(): Promise<ConfigSyncIpc>;
     openDir(): Promise<{ ok: boolean; error?: string }>;
   };
@@ -289,6 +298,9 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       initLocal() {
         return ipcRenderer.invoke('config:initLocal') as Promise<{ ok: boolean; localConfigPath: string; created: boolean; createdFromGlobal: boolean; source: string }>;
+      },
+      rememberLiveSelection(provider: string, model: string) {
+        return ipcRenderer.invoke('config:rememberLiveSelection', provider, model) as Promise<ConfigRememberLiveSelectionIpc>;
       },
       syncFromGlobal() {
         return ipcRenderer.invoke('config:syncFromGlobal') as Promise<ConfigSyncIpc>;

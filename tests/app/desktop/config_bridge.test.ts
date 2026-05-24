@@ -156,6 +156,24 @@ describe('desktop config bridge', () => {
     expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toContain('openrouter');
   });
 
+  test('config:rememberLiveSelection stores the last GUI live provider/model in local config', async () => {
+    writeGlobal(true, true);
+    const ipc = register();
+
+    const result = (await ipc.invoke('config:rememberLiveSelection', 'deepseek', 'deepseek-chat')) as {
+      ok: boolean;
+      provider: string;
+      model: string;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.provider).toBe('deepseek');
+    expect(result.model).toBe('deepseek-chat');
+    const localYaml = fs.readFileSync(path.join(repoRoot, '.vibecode', 'config.yaml'), 'utf8');
+    expect(localYaml).toContain('provider: deepseek');
+    expect(localYaml).toContain('model: deepseek-chat');
+  });
+
   test('config sync never writes a .env into .vibecode', async () => {
     writeGlobal(true, true);
     const ipc = register();

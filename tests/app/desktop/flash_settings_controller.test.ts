@@ -70,6 +70,7 @@ function makeApi(overrides: Record<string, unknown> = {}): any {
       global_config_path: r.global_config_path,
       global_env_path: r.global_env_path,
     }),
+    rememberLiveSelection: vi.fn().mockResolvedValue({ ok: true, provider: 'openrouter', model: 'deepseek/deepseek-chat' }),
     syncFromGlobal: vi.fn().mockResolvedValue({ ok: true, direction: 'from-global', sourcePath: 'g', destinationPath: 'l' }),
     openDir: vi.fn().mockResolvedValue({ ok: true }),
     ...overrides,
@@ -150,6 +151,17 @@ describe('flash settings controller', () => {
     const controller = FlashSettings.createController({ api, view });
 
     expect(typeof (controller as unknown as Record<string, unknown>)['syncToGlobal']).toBe('undefined');
+  });
+
+  test('rememberLiveSelection persists the newly selected provider/model through preload config API', async () => {
+    const api = makeApi();
+    const view = makeView();
+    const controller = FlashSettings.createController({ api, view });
+
+    await controller.rememberLiveSelection('deepseek', 'deepseek-chat');
+
+    expect(api.rememberLiveSelection).toHaveBeenCalledTimes(1);
+    expect(api.rememberLiveSelection).toHaveBeenCalledWith('deepseek', 'deepseek-chat');
   });
 
   test('open config folder delegates to preload config.openDir', async () => {

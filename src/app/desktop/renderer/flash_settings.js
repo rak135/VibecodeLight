@@ -287,6 +287,23 @@
         }, 'Synced global → local.');
       }
 
+      async function rememberLiveSelection(provider, model) {
+        try {
+          var res = await api.rememberLiveSelection(provider, model);
+          if (!res || res.ok !== true) {
+            var error =
+              res && res.error
+                ? res.error
+                : { code: 'CONFIG_REMEMBER_SELECTION_FAILED', message: 'could not remember flash selection' };
+            view.setStatus(safeDiagnostic(error), 'error');
+            return;
+          }
+          await refresh();
+        } catch (err) {
+          view.setStatus(safeDiagnostic(err), 'error');
+        }
+      }
+
       async function openConfigFolder() {
         try {
           var res = await api.openDir();
@@ -304,6 +321,7 @@
       return {
         refresh: refresh,
         setMode: setMode,
+        rememberLiveSelection: rememberLiveSelection,
         syncFromGlobal: syncFromGlobal,
         openConfigFolder: openConfigFolder,
       };

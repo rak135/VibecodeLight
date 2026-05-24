@@ -956,6 +956,14 @@
         applyComposerMode();
       }
 
+      async function rememberComposerSelection() {
+        if (!flashController) return;
+        const provider = composerFlashProvider && composerFlashProvider.value ? composerFlashProvider.value : '';
+        const model = composerFlashModel && composerFlashModel.value ? composerFlashModel.value : '';
+        if (!provider || !model) return;
+        await flashController.rememberLiveSelection(provider, model);
+      }
+
       // ---- Composer flash mode (Mock / Live) ----
       function currentComposerMode() {
         const checked = overlay.querySelector('input[name="composer-flash-mode"]:checked');
@@ -1023,7 +1031,9 @@
         composerFlashProvider.addEventListener('change', () => {
           updateComposerModels(composerFlashProvider.value);
           updateComposerKeyStatus();
+          void rememberComposerSelection();
         });
+        composerFlashModel.addEventListener('change', () => { void rememberComposerSelection(); });
         composerModeRadios.forEach((radio) => radio.addEventListener('change', applyComposerMode));
         void flashController.refresh();
       }

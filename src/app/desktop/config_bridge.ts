@@ -1,6 +1,7 @@
 import {
   ensureLocalConfig,
   getConfigPaths,
+  rememberLiveSelection,
   resolveFlashConfig,
   syncConfig,
 } from '../../core/config/index.js';
@@ -66,6 +67,16 @@ export function registerDesktopConfigIpcHandlers(ipcMain: IpcMainLike, options: 
   ipcMain.handle('config:initLocal', () => {
     const repoRoot = options.getRepoPath();
     return { ok: true, ...ensureLocalConfig({ repoRoot, env: process.env }) };
+  });
+
+  ipcMain.handle('config:rememberLiveSelection', (_event, provider: unknown, model: unknown) => {
+    const repoRoot = options.getRepoPath();
+    return rememberLiveSelection({
+      repoRoot,
+      provider: typeof provider === 'string' ? provider : '',
+      model: typeof model === 'string' ? model : '',
+      env: process.env,
+    });
   });
 
   ipcMain.handle('config:syncFromGlobal', () => {
