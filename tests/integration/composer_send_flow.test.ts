@@ -16,8 +16,9 @@ interface FakeTerminalService {
   active: { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
   writes: string[];
   failOnWrite?: boolean;
-  writeInput(data: string): void;
+  writeInput(sessionId: string, data: string): void;
   getActiveSessionInfo(): { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
+  getSession(sessionId: string): { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
 }
 
 function createFakeService(active: FakeTerminalService['active'], failOnWrite = false): FakeTerminalService {
@@ -26,12 +27,16 @@ function createFakeService(active: FakeTerminalService['active'], failOnWrite = 
     active,
     writes,
     failOnWrite,
-    writeInput(data: string) {
+    writeInput(_sessionId: string, data: string) {
       if (this.failOnWrite) throw new Error('simulated PTY failure');
       writes.push(data);
     },
     getActiveSessionInfo() {
       return this.active;
+    },
+    getSession(sessionId: string) {
+      if (this.active && this.active.sessionId === sessionId) return this.active;
+      return undefined;
     },
   };
 }

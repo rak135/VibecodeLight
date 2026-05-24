@@ -188,11 +188,12 @@ export interface RunsShowIpc {
 export interface VibecodePreloadApi {
   terminal: {
     start(repoPath: string, cols: number, rows: number): Promise<{ pid: number; cwd: string; shell: string; sessionId: string }>;
-    write(data: string): void;
-    resize(cols: number, rows: number): void;
-    close(): Promise<void>;
-    onData(callback: (data: string) => void): void;
-    onExit(callback: (code: number | undefined) => void): void;
+    write(sessionId: string, data: string): void;
+    resize(sessionId: string, cols: number, rows: number): void;
+    close(sessionId?: string): Promise<void>;
+    list(): Promise<Array<{ sessionId: string; pid: number; cwd: string; shell: string }>>;
+    onData(callback: (sessionId: string, data: string) => void): void;
+    onExit(callback: (sessionId: string, code: number | undefined) => void): void;
   };
   workspace: {
     getInfo(): Promise<{
@@ -204,7 +205,7 @@ export interface VibecodePreloadApi {
   composer: {
     generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
     generatePreviewLive(task: string, flashProvider?: string, flashModel?: string): Promise<ComposerPreviewIpcResult>;
-    sendPreview(runId: string): Promise<ComposerSendIpcResult>;
+    sendPreview(runId: string, targetSessionId?: string): Promise<ComposerSendIpcResult>;
     onProgress(callback: (event: PipelineProgressEvent) => void): () => void;
   };
   runs: {
@@ -234,20 +235,23 @@ export function createVibecodeApi(): VibecodePreloadApi {
       start(repoPath: string, cols: number, rows: number) {
         return ipcRenderer.invoke('terminal:start', repoPath, cols, rows) as Promise<{ pid: number; cwd: string; shell: string; sessionId: string }>;
       },
-      write(data: string) {
-        ipcRenderer.send('terminal:input', data);
+      write(sessionId: string, data: string) {
+        ipcRenderer.send('terminal:input', sessionId, data);
       },
-      resize(cols: number, rows: number) {
-        ipcRenderer.send('terminal:resize', cols, rows);
+      resize(sessionId: string, cols: number, rows: number) {
+        ipcRenderer.send('terminal:resize', sessionId, cols, rows);
       },
-      close() {
-        return ipcRenderer.invoke('terminal:close') as Promise<void>;
+      close(sessionId?: string) {
+        return ipcRenderer.invoke('terminal:close', sessionId) as Promise<void>;
       },
-      onData(callback: (data: string) => void) {
-        ipcRenderer.on('terminal:data', (_event, data: string) => callback(data));
+      list() {
+        return ipcRenderer.invoke('terminal:list') as Promise<Array<{ sessionId: string; pid: number; cwd: string; shell: string }>>;
       },
-      onExit(callback: (code: number | undefined) => void) {
-        ipcRenderer.on('terminal:exit', (_event, code: number | undefined) => callback(code));
+      onData(callback: (sessionId: string, data: string) => void) {
+        ipcRenderer.on('terminal:data', (_event, sessionId: string, data: string) => callback(sessionId, data));
+      },
+      onExit(callback: (sessionId: string, code: number | undefined) => void) {
+        ipcRenderer.on('terminal:exit', (_event, sessionId: string, code: number | undefined) => callback(sessionId, code));
       },
     },
     workspace: {
@@ -266,8 +270,8 @@ export function createVibecodeApi(): VibecodePreloadApi {
       generatePreviewLive(task: string, flashProvider?: string, flashModel?: string) {
         return ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel) as Promise<ComposerPreviewIpcResult>;
       },
-      sendPreview(runId: string) {
-        return ipcRenderer.invoke('composer:sendPreview', runId) as Promise<ComposerSendIpcResult>;
+      sendPreview(runId: string, targetSessionId?: string) {
+        return ipcRenderer.invoke('composer:sendPreview', runId, targetSessionId) as Promise<ComposerSendIpcResult>;
       },
       onProgress(callback: (event: PipelineProgressEvent) => void) {
         const listener = (_event: unknown, progressEvent: PipelineProgressEvent) => callback(progressEvent);

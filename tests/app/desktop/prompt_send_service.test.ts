@@ -10,26 +10,36 @@ function makeFinalizedRun(repoRoot: string, runId: string, finalPromptContent: s
   return { runDir, finalPromptPath };
 }
 
+type ActiveSession = { sessionId: string; cwd: string; pid: number; shell: string };
+
 interface FakeTerminalService {
-  active: { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
-  writes: string[];
+  active: ActiveSession | undefined;
+  sessions: Map<string, ActiveSession>;
+  writes: Array<{ sessionId: string; data: string }>;
   failOnWrite?: boolean;
-  writeInput(data: string): void;
-  getActiveSessionInfo(): { sessionId: string; cwd: string; pid: number; shell: string } | undefined;
+  writeInput(sessionId: string, data: string): void;
+  getActiveSessionInfo(): ActiveSession | undefined;
+  getSession(sessionId: string): ActiveSession | undefined;
 }
 
-function createFakeService(active: FakeTerminalService['active'], failOnWrite = false): FakeTerminalService {
-  const writes: string[] = [];
+function createFakeService(active: ActiveSession | undefined, failOnWrite = false): FakeTerminalService {
+  const writes: Array<{ sessionId: string; data: string }> = [];
+  const sessions = new Map<string, ActiveSession>();
+  if (active) sessions.set(active.sessionId, active);
   return {
     active,
+    sessions,
     writes,
     failOnWrite,
-    writeInput(data: string) {
+    writeInput(sessionId: string, data: string) {
       if (this.failOnWrite) throw new Error('simulated PTY failure');
-      writes.push(data);
+      writes.push({ sessionId, data });
     },
     getActiveSessionInfo() {
       return this.active;
+    },
+    getSession(sessionId: string) {
+      return this.sessions.get(sessionId);
     },
   };
 }
@@ -45,7 +55,7 @@ describe('DesktopPromptSendService', () => {
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   });
 
-  test('fails with NO_ACTIVE_TERMINAL when there is no active session', async () => {
+  test('fails with NO_ACTIVE_TERMINAL when there is no active session and no target', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const { runDir } = makeFinalizedRun(tmpRepo, 'r1', '# task\n');
     const service = createFakeService(undefined);
@@ -62,6 +72,26 @@ describe('DesktopPromptSendService', () => {
 
     expect(fs.existsSync(path.join(runDir, 'terminal', 'send_metadata.json'))).toBe(false);
     expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'current', 'send_metadata.json'))).toBe(false);
+    expect(service.writes).toEqual([]);
+  });
+
+  test('fails with ORIGIN_TERMINAL_CLOSED when targetSessionId no longer exists', async () => {
+    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
+    makeFinalizedRun(tmpRepo, 'r-origin', '# task\n');
+    // Active session exists but a different one was the composer origin.
+    const service = createFakeService({ sessionId: 'live-1', cwd: tmpRepo, pid: 1, shell: 'pwsh' });
+
+    const result = await sendFinalPromptForRun({
+      runId: 'r-origin',
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+      targetSessionId: 'origin-gone',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('ORIGIN_TERMINAL_CLOSED');
+    // The still-live unrelated session must NOT receive a stray write.
     expect(service.writes).toEqual([]);
   });
 
@@ -115,7 +145,10 @@ describe('DesktopPromptSendService', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(service.writes).toEqual([BRACKETED_PASTE_START + content + BRACKETED_PASTE_END, '\r']);
+    expect(service.writes).toEqual([
+      { sessionId: 'desktop-77-xyz', data: BRACKETED_PASTE_START + content + BRACKETED_PASTE_END },
+      { sessionId: 'desktop-77-xyz', data: '\r' },
+    ]);
     expect(result.run_id).toBe('r3');
     expect(result.sentAt).toBe(result.metadata.sent_at);
     expect(result.sendMetadataPath).toBe(path.join(runDir, 'terminal', 'send_metadata.json'));
@@ -130,6 +163,29 @@ describe('DesktopPromptSendService', () => {
     // No after/ artifacts must be created by send
     expect(fs.existsSync(path.join(runDir, 'after'))).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
+  });
+
+  test('targetSessionId routes the paste to the named session, not the active one', async () => {
+    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
+    const content = '# Task\n';
+    makeFinalizedRun(tmpRepo, 'r-target', content);
+    const liveActive: ActiveSession = { sessionId: 'live-active', cwd: tmpRepo, pid: 100, shell: 'pwsh' };
+    const origin: ActiveSession = { sessionId: 'origin-tile', cwd: tmpRepo, pid: 200, shell: 'pwsh' };
+    const service = createFakeService(liveActive);
+    service.sessions.set(origin.sessionId, origin);
+
+    const result = await sendFinalPromptForRun({
+      runId: 'r-target',
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+      targetSessionId: origin.sessionId,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(service.writes.every((w) => w.sessionId === origin.sessionId)).toBe(true);
+    expect(service.writes.some((w) => w.sessionId === liveActive.sessionId)).toBe(false);
+    expect(result.metadata.terminal_session_id).toBe(origin.sessionId);
   });
 
   test('uses the existing active terminal session and never spawns a new process', async () => {

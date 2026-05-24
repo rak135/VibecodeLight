@@ -20,16 +20,22 @@ describe('terminal copy renderer module stays a thin, secret-free view helper', 
   });
 });
 
-describe('renderer index.html wires selection-aware terminal copy', () => {
-  test('loads the terminal_keys.js view module', () => {
+describe('renderer wires selection-aware terminal copy', () => {
+  const terminalsJs = path.join(rendererDir, 'terminals.js');
+
+  test('index.html loads the terminal_keys.js view module', () => {
     const html = fs.readFileSync(indexHtml, 'utf8');
     expect(html).toMatch(/terminal_keys\.js/);
     expect(html).toMatch(/VibecodeTerminalKeys/);
   });
 
-  test('attaches the custom key handler to the real xterm terminal', () => {
+  test('attaches the custom key handler to each tile xterm terminal', () => {
+    // The per-tile controller owns key handler attachment.
     const html = fs.readFileSync(indexHtml, 'utf8');
-    expect(html).toMatch(/attachCustomKeyEventHandler/);
+    const tilesJs = fs.readFileSync(terminalsJs, 'utf8');
+    expect(tilesJs).toMatch(/attachCustomKeyEventHandler/);
+    // The createTerminalKeyHandler factory is passed in via the controller
+    // boot wiring in index.html so renderer code stays the only owner.
     expect(html).toMatch(/createTerminalKeyHandler/);
   });
 

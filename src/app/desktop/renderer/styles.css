@@ -267,6 +267,13 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .tile.focus { border-color: var(--border-strong); }
 .tile.overlay-on { border-color: var(--border-strong); }
+.tile.placeholder-tile .placeholder-body {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  background: transparent;
+}
+.tile.placeholder-tile .placeholder-start { min-width: 160px; }
 .tile-head {
   height: var(--tile-head-h);
   padding: 0 8px 0 12px;

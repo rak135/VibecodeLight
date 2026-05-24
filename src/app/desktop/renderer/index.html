@@ -67,7 +67,7 @@
                 <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><rect x="1" y="1.5" width="2.7" height="9" rx="0.8" stroke="currentColor" stroke-width="1.2"/><rect x="4.65" y="1.5" width="2.7" height="9" rx="0.8" stroke="currentColor" stroke-width="1.2"/><rect x="8.3" y="1.5" width="2.7" height="9" rx="0.8" stroke="currentColor" stroke-width="1.2"/></svg>
               </button>
             </div>
-            <button id="add-terminal" class="btn primary design-only" type="button" title="New terminal">
+            <button id="add-terminal" class="btn primary" type="button" title="New terminal">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
               New terminal
               <span class="kbd">Ctrl T</span>
@@ -76,37 +76,14 @@
         </div>
 
         <div class="workspace" id="workspace">
-          <div class="grid cols-1" id="terminal-grid">
-            <!-- Single real PTY-backed terminal tile. -->
-            <div class="tile focus overlay-off" id="tile-main" data-screen-label="Terminal main">
-              <div class="tile-head">
-                <div class="tile-session">
-                  <span class="tile-name"><span class="at">~/</span><span id="tile-name-text">main</span></span>
-                  <span class="status idle" id="tile-status" title="Status"><span class="dot"></span><span id="tile-status-text">idle</span></span>
-                </div>
-                <div class="tile-actions">
-                  <button id="auto-approve" class="toggle design-only" type="button" title="Auto-approve sending">
-                    <span class="sw"></span>
-                    auto-approve
-                  </button>
-                  <button id="open-overlay" class="btn-prompt" type="button" title="Compose prompt">
-                    <span class="glyph">›_</span>
-                    Prompt
-                  </button>
-                  <button id="tile-options" class="icon-btn design-only" type="button" title="Tile options">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="12" cy="8" r="1" fill="currentColor"/></svg>
-                  </button>
-                  <button id="close-terminal" class="icon-btn" type="button" title="Close terminal">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-                  </button>
-                </div>
-              </div>
+          <div class="grid cols-1" id="terminal-grid" data-screen-label="Terminal grid">
+            <!-- Tiles are created dynamically by terminals.js; each tile owns
+                 a PTY session. The composer overlay below is parked here and
+                 reparented into the focused tile when opened from its
+                 "Prompt" button. -->
 
-              <!-- Real terminal surface (xterm) -->
-              <div class="term" id="terminal"></div>
-
-              <!-- Per-tile translucent prompt overlay: the terminal stays visible beneath. -->
-              <div class="overlay-layer" id="composer-overlay">
+            <!-- Per-tile translucent prompt overlay: the terminal stays visible beneath. -->
+            <div class="overlay-layer" id="composer-overlay">
                 <div class="ov-head">
                   <span class="title">prompt composer</span>
                   <span class="scope" id="ov-scope">~/main</span>
@@ -195,6 +172,10 @@
 
                 <div class="ov-foot">
                   <div class="hint" id="ov-hint">review, then send into <span style="color:var(--text-2)" id="ov-hint-scope">~/main</span></div>
+                  <button id="auto-approve" class="toggle design-only" type="button" title="Auto-approve sending">
+                    <span class="sw"></span>
+                    auto-approve
+                  </button>
                   <span class="spacer"></span>
                   <span class="send-status" id="send-status" aria-live="polite"></span>
                   <button id="cancel-composer" class="btn ghost" type="button">Cancel</button>
@@ -204,7 +185,6 @@
                   </button>
                 </div>
               </div>
-            </div>
           </div>
 
           <div class="toast" id="toast"><span class="dot"></span><span id="toast-msg"></span></div>
@@ -267,6 +247,7 @@
     <script src="vendor/xterm/xterm.js"></script>
     <script src="flash_settings.js"></script>
     <script src="terminal_keys.js"></script>
+    <script src="terminals.js"></script>
     <script>
       'use strict';
 
@@ -277,16 +258,10 @@
       const toggleSidebar = $('toggle-sidebar');
       const densitySeg = $('density-seg');
       const grid = $('terminal-grid');
-      const tile = $('tile-main');
       const repoElement = $('repo');
       const crumbSession = $('crumb-session');
-      const terminalElement = $('terminal');
 
-      const tileStatus = $('tile-status');
-      const tileStatusText = $('tile-status-text');
       const autoApprove = $('auto-approve');
-      const openOverlayBtn = $('open-overlay');
-      const closeTerminalBtn = $('close-terminal');
       const addTerminalBtn = $('add-terminal');
       const navTerminalsCount = $('nav-terminals-count');
 
@@ -343,15 +318,21 @@
 
       let currentPreview = null;
       let lastSend = null;
-      let terminalReady = false;
       let activePanel = null;
+      // The tile the composer is currently attached to. We capture this at
+      // open time so the final_prompt.md is sent back to that exact session
+      // even if the user later focuses a different tile.
+      let composerOriginSessionId = null;
+      let composerHostTile = null;
+      let terminals = null; // VibecodeTerminals controller, initialised in main()
       const sessionState = { name: 'main', shell: '—', cwd: '—', pid: null, status: 'idle' };
 
       // ---- Small helpers ----
       function setStatusBadge(status) {
         sessionState.status = status;
-        tileStatus.className = 'status ' + status;
-        tileStatusText.textContent = status;
+        if (terminals && composerOriginSessionId) {
+          terminals.setStatus(composerOriginSessionId, status);
+        }
         if (activePanel === 'session') renderPanel('session');
       }
 
@@ -376,30 +357,66 @@
         if (progressSection) progressSection.style.display = stage === 'building' ? '' : 'none';
       }
 
+      // Composer can only send when (1) a preview is built, AND (2) the
+      // origin terminal session is still alive. We do not silently retarget
+      // a stale composer onto a different session.
+      function composerOriginAlive() {
+        if (!terminals || !composerOriginSessionId) return false;
+        return terminals.list().some((s) => s.sessionId === composerOriginSessionId);
+      }
+      function terminalReady() {
+        if (!terminals) return false;
+        if (composerOriginSessionId) return composerOriginAlive();
+        return terminals.count() > 0;
+      }
+
       function refreshSendButton() {
-        const canSend = Boolean(currentPreview && currentPreview.ok && terminalReady);
+        const ready = terminalReady();
+        const canSend = Boolean(currentPreview && currentPreview.ok && ready);
         sendButton.disabled = !canSend;
         sendButton.title = !currentPreview
           ? 'Build a context preview first'
-          : !terminalReady
-            ? 'No active terminal session'
+          : !ready
+            ? (composerOriginSessionId ? 'Origin terminal session closed' : 'No active terminal session')
             : 'Send final_prompt.md into this terminal';
       }
 
-      // Reflect the real single terminal session lifecycle (0 when none is active).
+      // Reflect the real terminal session lifecycle: count comes from the
+      // live multi-session controller, not from a fixed literal.
       function updateTerminalCount() {
-        if (navTerminalsCount) navTerminalsCount.textContent = terminalReady ? '1' : '0';
+        if (!navTerminalsCount) return;
+        const n = terminals ? terminals.count() : 0;
+        navTerminalsCount.textContent = String(n);
       }
 
-      // ---- Overlay open/close (belongs to the tile) ----
-      function openOverlay() {
-        tile.classList.add('overlay-on');
-        tile.classList.remove('overlay-off');
-        setTimeout(() => taskInput.focus(), 120);
+      // ---- Overlay open/close (composer is a singleton attached to a tile) ----
+      const overlayHome = overlay.parentNode; // park the overlay back here on close
+      function openOverlay(sessionInfo, tileEl) {
+        if (!sessionInfo || !tileEl) return;
+        composerOriginSessionId = sessionInfo.sessionId;
+        composerHostTile = tileEl;
+        tileEl.appendChild(overlay);
+        tileEl.classList.add('overlay-on');
+        tileEl.classList.remove('overlay-off');
+        const scopeLabel = '~/' + (sessionInfo.name || 'terminal');
+        const scopeEl = $('ov-scope');
+        const hintScope = $('ov-hint-scope');
+        if (scopeEl) scopeEl.textContent = scopeLabel;
+        if (hintScope) hintScope.textContent = scopeLabel;
+        setTimeout(() => { try { taskInput.focus(); } catch (_e) {} }, 120);
+        refreshSendButton();
       }
       function closeOverlay() {
-        tile.classList.remove('overlay-on');
-        tile.classList.add('overlay-off');
+        if (composerHostTile) {
+          composerHostTile.classList.remove('overlay-on');
+          composerHostTile.classList.add('overlay-off');
+        }
+        if (overlayHome && overlay.parentNode !== overlayHome) {
+          overlayHome.appendChild(overlay);
+        }
+        composerHostTile = null;
+        composerOriginSessionId = null;
+        refreshSendButton();
       }
 
       // ---- Density ----
@@ -636,32 +653,16 @@
           rpListSection('Cautions', c.cautions);
       }
 
-      // ---- Close terminal (real single-session close path) ----
-      async function closeTerminal() {
-        if (!window.vibecodeAPI || !window.vibecodeAPI.terminal || !terminalReady) return;
-        try {
-          await window.vibecodeAPI.terminal.close();
-        } catch (_error) {
-          // Best-effort; the terminal exit handler reconciles state if close throws.
-        }
-        terminalReady = false;
-        setStatusBadge('exited');
-        refreshSendButton();
-        updateTerminalCount();
-      }
-
-      // ---- Tile controls ----
-      openOverlayBtn.addEventListener('click', openOverlay);
+      // ---- Composer controls ----
       closeComposerBtn.addEventListener('click', closeOverlay);
       cancelComposerBtn.addEventListener('click', closeOverlay);
-      closeTerminalBtn.addEventListener('click', () => { void closeTerminal(); });
       autoApprove.addEventListener('click', () => autoApprove.classList.toggle('on'));
       finalHead.addEventListener('click', () => finalWrap.classList.toggle('open'));
 
       window.addEventListener('keydown', (event) => {
         if (event.key !== 'Escape') return;
         if (settingsOverlay.classList.contains('open')) closeSettings();
-        else if (tile.classList.contains('overlay-on')) closeOverlay();
+        else if (composerHostTile && composerHostTile.classList.contains('overlay-on')) closeOverlay();
         else if (rightPanel.classList.contains('open')) closePanel();
       });
 
@@ -852,14 +853,18 @@
           setSendStatus('Build a context preview first.', 'error');
           return;
         }
-        if (!terminalReady) {
-          setSendStatus('No active terminal session.', 'error');
+        if (!composerOriginSessionId) {
+          setSendStatus('Open the composer from a terminal tile first.', 'error');
+          return;
+        }
+        if (!composerOriginAlive()) {
+          setSendStatus('Origin terminal session closed — reopen the composer from a live terminal.', 'error');
           return;
         }
         sendButton.disabled = true;
         setSendStatus('Sending final_prompt.md…');
         try {
-          const send = await window.vibecodeAPI.composer.sendPreview(currentPreview.run_id);
+          const send = await window.vibecodeAPI.composer.sendPreview(currentPreview.run_id, composerOriginSessionId);
           if (!send || send.ok !== true) {
             const err = (send && send.error) || { code: 'UNKNOWN', message: 'unknown error' };
             setSendStatus(err.code + ' — ' + err.message, 'error');
@@ -1038,34 +1043,14 @@
         void flashController.refresh();
       }
 
-      // ---- Boot: terminal + workspace ----
+      // ---- Boot: terminals + workspace ----
+      // Wire the multi-terminal controller. Each tile owns its own xterm
+      // surface and a backend PTY session; the controller dispatches
+      // backend events by sessionId. attachCustomKeyEventHandler and
+      // createTerminalKeyHandler are wired per-tile inside terminals.js via
+      // the buildKeyHandler hook below.
       async function main() {
-        if (!window.vibecodeAPI) return;
-
-        const term = new Terminal({
-          cols,
-          rows,
-          cursorBlink: true,
-          convertEol: true,
-          fontFamily: 'Cascadia Code, Consolas, ui-monospace, monospace',
-          fontSize: 12.5,
-          theme: { background: '#0c0c0e', foreground: '#d8d8de' },
-        });
-        term.open(terminalElement);
-        term.focus();
-
-        // Selection-aware copy: Ctrl+C copies the terminal selection when one
-        // exists (otherwise it stays the interrupt), and Ctrl+Shift+C always
-        // copies a selection. The clipboard write reuses the existing Electron
-        // clipboard preload path so no new renderer privileges are introduced.
-        if (window.VibecodeTerminalKeys && window.vibecodeAPI.artifacts) {
-          term.attachCustomKeyEventHandler(
-            window.VibecodeTerminalKeys.createTerminalKeyHandler({
-              terminal: term,
-              writeClipboard: (text) => window.vibecodeAPI.artifacts.copyToClipboard(text),
-            }),
-          );
-        }
+        if (!window.vibecodeAPI || !window.VibecodeTerminals) return;
 
         const workspace = await window.vibecodeAPI.workspace.getInfo();
         if (workspace.error) {
@@ -1080,26 +1065,66 @@
         sessionState.cwd = workspace.repoPath;
         crumbSession.textContent = sessionState.name;
 
-        window.vibecodeAPI.terminal.onData((data) => term.write(data));
-        window.vibecodeAPI.terminal.onExit((code) => {
-          terminalReady = false;
-          setStatusBadge('exited');
-          refreshSendButton();
-          updateTerminalCount();
+        terminals = window.VibecodeTerminals.createMultiTerminalController({
+          grid,
+          api: window.vibecodeAPI.terminal,
+          cols,
+          rows,
+          repoPath: workspace.repoPath,
+          buildKeyHandler: window.VibecodeTerminalKeys
+            ? window.VibecodeTerminalKeys.createTerminalKeyHandler
+            : null,
+          writeClipboard: window.vibecodeAPI.artifacts
+            ? (text) => window.vibecodeAPI.artifacts.copyToClipboard(text)
+            : null,
+          onTileFocus: (info) => {
+            sessionState.name = info.name;
+            sessionState.shell = info.shell;
+            sessionState.cwd = info.cwd;
+            sessionState.pid = info.pid;
+            sessionState.status = info.status;
+            crumbSession.textContent = info.name;
+            if (activePanel === 'session') renderPanel('session');
+          },
+          onCountChange: () => {
+            updateTerminalCount();
+            refreshSendButton();
+          },
+          onSessionExit: (sessionId) => {
+            if (composerOriginSessionId === sessionId) {
+              // Origin terminal died; leave the composer open so the user can
+              // see why send is disabled, but refresh the disabled state.
+              refreshSendButton();
+            }
+          },
+          onOpenComposer: (info, tileEl) => openOverlay(info, tileEl),
         });
-        term.onData((data) => window.vibecodeAPI.terminal.write(data));
 
-        const session = await window.vibecodeAPI.terminal.start(workspace.repoPath, cols, rows);
-        sessionState.shell = session.shell;
-        sessionState.cwd = session.cwd;
-        sessionState.pid = session.pid;
-        terminalReady = true;
-        setStatusBadge('running');
-        refreshSendButton();
+        try {
+          const first = await terminals.addTerminal();
+          if (first) {
+            sessionState.name = first.name;
+            sessionState.shell = first.shell;
+            sessionState.cwd = first.cwd;
+            sessionState.pid = first.pid;
+          }
+        } catch (error) {
+          const banner = document.createElement('div');
+          banner.className = 'error-banner';
+          banner.textContent = 'Failed to start initial terminal: ' + (error instanceof Error ? error.message : String(error));
+          $('workspace').insertBefore(banner, $('workspace').firstChild);
+        }
         updateTerminalCount();
+        refreshSendButton();
         if (activePanel === 'session') renderPanel('session');
 
-        window.addEventListener('resize', () => window.vibecodeAPI.terminal.resize(cols, rows));
+        if (addTerminalBtn) {
+          addTerminalBtn.addEventListener('click', () => {
+            void terminals.addTerminal().catch(() => {});
+          });
+        }
+
+        window.addEventListener('resize', () => terminals && terminals.resizeAll());
       }
 
       main().catch(() => {});

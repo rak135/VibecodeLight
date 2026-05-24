@@ -35,8 +35,10 @@ describe('desktop renderer Elegant Dark shell', () => {
     const html = readHtml();
     expect(html).toMatch(/id="terminal-grid"/);
     expect(html).toMatch(/class="grid /);
-    expect(html).toMatch(/class="tile/);
     expect(html).toMatch(/id="density-seg"/);
+    // Tiles are created at runtime by the multi-terminal controller.
+    expect(html).toMatch(/terminals\.js/);
+    expect(html).toMatch(/VibecodeTerminals/);
   });
 
   test('renders the right rail contextual inspector', () => {
@@ -45,31 +47,34 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(html).toMatch(/class="right-panel/);
   });
 
-  test('renders a per-terminal translucent prompt overlay', () => {
+  test('renders a translucent prompt overlay that is re-parented into the focused tile', () => {
     const html = readHtml();
+    // The composer overlay element exists in the static markup; the
+    // controller reparents it into whichever tile opens the composer.
     expect(html).toMatch(/class="overlay-layer"/);
-    // The overlay must live inside a terminal tile, not be a full-app modal.
-    const tileIdx = html.indexOf('class="tile');
-    const overlayIdx = html.indexOf('class="overlay-layer"');
-    expect(tileIdx).toBeGreaterThanOrEqual(0);
-    expect(overlayIdx).toBeGreaterThan(tileIdx);
+    expect(html).toMatch(/id="composer-overlay"/);
+    // CSS still scopes overlay visibility to the tile that owns it.
+    const css = fs.readFileSync(stylesCss, 'utf8');
+    expect(css).toMatch(/\.tile\.overlay-on \.overlay-layer/);
   });
 
   test('keeps the real composer wiring (task, build, send, terminal)', () => {
     const html = readHtml();
+    const terminalsJs = fs.readFileSync(path.join(rendererDir, 'terminals.js'), 'utf8');
     expect(html).toMatch(/id="composer-task"/);
     expect(html).toMatch(/id="generate-preview"/);
     expect(html).toMatch(/id="send-to-terminal"/);
-    expect(html).toMatch(/id="terminal"/);
+    // The xterm surface is now created per-tile by the multi-terminal
+    // controller; tiles host it under a dedicated `tile-term` class.
+    expect(terminalsJs).toMatch(/tile-term/);
   });
 
-  test('wires the single-session Close terminal button to the real close path', () => {
-    const html = readHtml();
-    // The Close button is now truly backed, so it must not carry the design-only marker.
-    expect(html).not.toMatch(/id="close-terminal"[^>]*class="[^"]*design-only/);
-    // It is wired to the real preload terminal close path (no renderer-side business logic).
-    expect(html).toMatch(/closeTerminalBtn\.addEventListener/);
-    expect(html).toMatch(/vibecodeAPI\.terminal\.close\(\)/);
+  test('wires per-tile Close terminal buttons to the real close path', () => {
+    const terminalsJs = fs.readFileSync(path.join(rendererDir, 'terminals.js'), 'utf8');
+    // The close button is per-tile, owned by the multi-terminal controller,
+    // and routes through the real preload terminal close path with sessionId.
+    expect(terminalsJs).toMatch(/tile-close/);
+    expect(terminalsJs).toMatch(/api\.close\(\s*sessionId\s*\)/);
   });
 
   test('wires the Runs browser to the real run-display bridge', () => {
@@ -93,11 +98,13 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(html).not.toMatch(/Token budget/);
   });
 
-  test('derives the terminals count from real session state, not a fixed literal', () => {
+  test('derives the terminals count from the real multi-session controller', () => {
     const html = readHtml();
-    // A helper updates the count and it is driven by terminalReady (real lifecycle).
+    // The helper reads the live count from the multi-terminal controller
+    // instead of hard-coding 0/1.
     expect(html).toMatch(/function updateTerminalCount/);
-    expect(html).toMatch(/terminalReady \? '1' : '0'/);
+    expect(html).toMatch(/terminals\.count\(\)/);
+    expect(html).not.toMatch(/terminalReady\s*\?\s*'1'\s*:\s*'0'/);
   });
 
   test('marks design-only features with a quiet red-tint marker, not labels', () => {
@@ -107,14 +114,21 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(css).toMatch(/\.design-only\b/);
     expect(css).toMatch(/rgba\(\s*2[0-9][0-9]\s*,/); // a red channel near 255
 
-    // Unimplemented controls carry the marker class but stay clickable buttons.
-    expect(html).toMatch(/id="add-terminal"[^>]*class="[^"]*design-only/);
+    // add-terminal is now a real control and must not carry the marker.
+    expect(html).not.toMatch(/id="add-terminal"[^>]*class="[^"]*design-only/);
+    // auto-approve is still a UI-only toggle.
     expect(html).toMatch(/id="auto-approve"[^>]*class="[^"]*design-only/);
 
     // No status-disclaimer labels leak into the UI for design-only features.
     expect(html).not.toMatch(/not implemented/i);
     expect(html).not.toMatch(/coming soon/i);
     expect(html).not.toMatch(/not yet available/i);
+  });
+
+  test('wires the New terminal button through the multi-terminal controller', () => {
+    const html = readHtml();
+    expect(html).toMatch(/addTerminalBtn\.addEventListener/);
+    expect(html).toMatch(/terminals\.addTerminal\(\)/);
   });
 
   test('has no light-theme switcher (Elegant Dark only)', () => {

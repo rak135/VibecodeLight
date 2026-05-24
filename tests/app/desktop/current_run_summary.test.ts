@@ -57,7 +57,7 @@ describe('current run summary', () => {
 
     const fakeService = {
       writes: [] as string[],
-      writeInput(data: string) { this.writes.push(data); },
+      writeInput(_sessionId: string, data: string) { this.writes.push(data); },
       getActiveSessionInfo() {
         return { sessionId: 'sess-1', cwd: tmpRepo, pid: 1234, shell: 'bash' };
       },
@@ -89,7 +89,7 @@ describe('current run summary', () => {
 
     const writes: string[] = [];
     const fakeService = {
-      writeInput(data: string) { writes.push(data); },
+      writeInput(_sessionId: string, data: string) { writes.push(data); },
       getActiveSessionInfo() {
         return { sessionId: 'sess-2', cwd: tmpRepo, pid: 999, shell: 'bash' };
       },
@@ -113,7 +113,7 @@ describe('current run summary', () => {
     if (!preview.ok) return;
 
     const fakeService = {
-      writeInput(_d: string) {},
+      writeInput(_sessionId: string, _d: string) {},
       getActiveSessionInfo() { return { sessionId: 's3', cwd: tmpRepo, pid: 1, shell: 'sh' }; },
     };
     await sendFinalPromptForRun({ runId: preview.run_id, repoRoot: tmpRepo, terminalService: fakeService as any });
@@ -131,7 +131,7 @@ describe('current run summary', () => {
     if (!preview.ok) return;
 
     const fakeService = {
-      writeInput(_d: string) {},
+      writeInput(_sessionId: string, _d: string) {},
       getActiveSessionInfo() { return { sessionId: 's4', cwd: tmpRepo, pid: 2, shell: 'sh' }; },
     };
     await sendFinalPromptForRun({ runId: preview.run_id, repoRoot: tmpRepo, terminalService: fakeService as any });

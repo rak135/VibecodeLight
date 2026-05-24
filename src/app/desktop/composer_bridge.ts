@@ -65,6 +65,7 @@ export interface ComposerBridgeOptions {
     runId: string;
     repoRoot: string;
     terminalService: DesktopTerminalServiceLike;
+    targetSessionId?: string;
   }) => Promise<SendPromptIpcResult>;
 }
 
@@ -107,11 +108,19 @@ export function registerDesktopComposerIpcHandlers(
 
   ipcMain.handle('composer:sendPreview', async (_event, ...args: unknown[]) => {
     const runId = typeof args[0] === 'string' ? args[0] : '';
+    const targetSessionId = typeof args[1] === 'string' && args[1].length > 0 ? args[1] : undefined;
     const repoRoot = options.getRepoPath();
     const terminalService = options.getTerminalService?.();
     if (!terminalService) {
       return noActiveTerminal();
     }
-    return invokeSend({ runId, repoRoot, terminalService });
+    const request: {
+      runId: string;
+      repoRoot: string;
+      terminalService: DesktopTerminalServiceLike;
+      targetSessionId?: string;
+    } = { runId, repoRoot, terminalService };
+    if (targetSessionId !== undefined) request.targetSessionId = targetSessionId;
+    return invokeSend(request);
   });
 }

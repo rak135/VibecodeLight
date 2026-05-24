@@ -41,7 +41,7 @@ describe('desktop preload bridge boundary', () => {
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
     expect(Object.keys(api).sort()).toEqual(['artifacts', 'composer', 'config', 'runs', 'terminal', 'workspace']);
-    expect(Object.keys(api.terminal).sort()).toEqual(['close', 'onData', 'onExit', 'resize', 'start', 'write']);
+    expect(Object.keys(api.terminal).sort()).toEqual(['close', 'list', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
     expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
@@ -139,10 +139,10 @@ describe('desktop preload bridge boundary', () => {
     await import('../../../src/app/desktop/preload.js');
 
     const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
-    const composer = api.composer as { sendPreview: (runId: string) => Promise<unknown> };
+    const composer = api.composer as { sendPreview: (runId: string, targetSessionId?: string) => Promise<unknown> };
     await composer.sendPreview('2026-05-20_001');
 
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001', undefined);
   });
 
   test('runs.list invokes runs:list IPC channel only', async () => {

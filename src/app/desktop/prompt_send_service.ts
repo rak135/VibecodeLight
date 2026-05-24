@@ -12,8 +12,9 @@ export interface DesktopActiveSession {
 }
 
 export interface DesktopTerminalServiceLike {
-  writeInput(data: string): void;
+  writeInput(sessionId: string, data: string): void;
   getActiveSessionInfo(): DesktopActiveSession | undefined;
+  getSession?(sessionId: string): DesktopActiveSession | undefined;
 }
 
 export interface SendPromptIpcSuccess {
@@ -43,12 +44,47 @@ export interface SendPromptForRunRequest {
   runId: string;
   repoRoot: string;
   terminalService: DesktopTerminalServiceLike;
+  targetSessionId?: string;
 }
 
 function errorResult(code: string, message: string, pathValue?: string, details: string[] = []): SendPromptIpcError {
   const error: SendPromptIpcError['error'] = { code, message, details };
   if (pathValue !== undefined) error.path = pathValue;
   return { ok: false, error };
+}
+
+function resolveTarget(
+  service: DesktopTerminalServiceLike,
+  targetSessionId: string | undefined,
+): { ok: true; session: DesktopActiveSession } | { ok: false; error: SendPromptIpcError } {
+  if (targetSessionId && targetSessionId.length > 0) {
+    const found = service.getSession?.(targetSessionId);
+    if (!found) {
+      return {
+        ok: false,
+        error: errorResult(
+          'ORIGIN_TERMINAL_CLOSED',
+          `target terminal session ${targetSessionId} is no longer available`,
+          undefined,
+          ['The terminal session that started this composer has exited; open the composer from a live terminal and send again.'],
+        ),
+      };
+    }
+    return { ok: true, session: found };
+  }
+  const active = service.getActiveSessionInfo();
+  if (!active) {
+    return {
+      ok: false,
+      error: errorResult(
+        'NO_ACTIVE_TERMINAL',
+        'no active terminal session is available to receive the prompt',
+        undefined,
+        ['Start a terminal session in the desktop shell before sending.'],
+      ),
+    };
+  }
+  return { ok: true, session: active };
 }
 
 export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promise<SendPromptIpcResult> {
@@ -71,20 +107,14 @@ export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promi
     ]);
   }
 
-  const active = req.terminalService.getActiveSessionInfo();
-  if (!active) {
-    return errorResult(
-      'NO_ACTIVE_TERMINAL',
-      'no active terminal session is available to receive the prompt',
-      undefined,
-      ['Start a terminal session in the desktop shell before sending.'],
-    );
-  }
+  const targetResolution = resolveTarget(req.terminalService, req.targetSessionId);
+  if (!targetResolution.ok) return targetResolution.error;
+  const target = targetResolution.session;
 
   const writer = {
-    sessionId: active.sessionId,
-    cwd: active.cwd,
-    write: (data: string) => req.terminalService.writeInput(data),
+    sessionId: target.sessionId,
+    cwd: target.cwd,
+    write: (data: string) => req.terminalService.writeInput(target.sessionId, data),
   };
 
   const result: SendPromptResult = await sendFinalPrompt({

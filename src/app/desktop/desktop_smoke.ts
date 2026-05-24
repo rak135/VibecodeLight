@@ -42,7 +42,7 @@ export async function runDesktopSmoke(options: DesktopSmokeOptions = {}): Promis
   let shell: string | undefined;
   let cwd = repo;
 
-  service.onData((data) => {
+  service.onData((_sessionId, data) => {
     buffer += data;
   });
 
@@ -65,7 +65,7 @@ export async function runDesktopSmoke(options: DesktopSmokeOptions = {}): Promis
         resolve(false);
       }, timeoutMs);
 
-      service.writeInput(`Write-Output "${marker}"${newline()}`);
+      service.writeInput(metadata.sessionId, `Write-Output "${marker}"${newline()}`);
     });
 
     return {
