@@ -243,6 +243,7 @@
     <!-- Local xterm assets are copied from node_modules/@xterm/xterm by scripts/launch_desktop.js. -->
     <script src="vendor/xterm/xterm.js"></script>
     <script src="flash_settings.js"></script>
+    <script src="terminal_keys.js"></script>
     <script>
       'use strict';
 
@@ -920,6 +921,19 @@
         });
         term.open(terminalElement);
         term.focus();
+
+        // Selection-aware copy: Ctrl+C copies the terminal selection when one
+        // exists (otherwise it stays the interrupt), and Ctrl+Shift+C always
+        // copies a selection. The clipboard write reuses the existing Electron
+        // clipboard preload path so no new renderer privileges are introduced.
+        if (window.VibecodeTerminalKeys && window.vibecodeAPI.artifacts) {
+          term.attachCustomKeyEventHandler(
+            window.VibecodeTerminalKeys.createTerminalKeyHandler({
+              terminal: term,
+              writeClipboard: (text) => window.vibecodeAPI.artifacts.copyToClipboard(text),
+            }),
+          );
+        }
 
         const workspace = await window.vibecodeAPI.workspace.getInfo();
         if (workspace.error) {
