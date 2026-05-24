@@ -18,6 +18,8 @@ export interface ComposerPreviewIpcResult {
   finalPrompt?: string;
   context?: ContextSummaryIpc;
   terminalSend?: 'not_sent';
+  /** The flash mode used: mock or live. */
+  flash_mode?: 'mock' | 'live';
   warnings?: string[];
   error?: { code: string; message: string; path?: string; details: string[] };
 }
@@ -171,6 +173,7 @@ export interface VibecodePreloadApi {
   };
   composer: {
     generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
+    generatePreviewLive(task: string, flashProvider?: string, flashModel?: string): Promise<ComposerPreviewIpcResult>;
     sendPreview(runId: string): Promise<ComposerSendIpcResult>;
   };
   runs: {
@@ -226,6 +229,9 @@ export function createVibecodeApi(): VibecodePreloadApi {
     composer: {
       generatePreview(task: string) {
         return ipcRenderer.invoke('composer:generatePreview', task) as Promise<ComposerPreviewIpcResult>;
+      },
+      generatePreviewLive(task: string, flashProvider?: string, flashModel?: string) {
+        return ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel) as Promise<ComposerPreviewIpcResult>;
       },
       sendPreview(runId: string) {
         return ipcRenderer.invoke('composer:sendPreview', runId) as Promise<ComposerSendIpcResult>;

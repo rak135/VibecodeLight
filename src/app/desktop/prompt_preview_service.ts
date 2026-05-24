@@ -7,6 +7,10 @@ import { readRunContextSummary, RunContextSummary } from '../../core/context/run
 export interface PromptPreviewRequest {
   task: string;
   repoRoot: string;
+  /** Flash mode: 'mock' (default) or 'live'. */
+  flashMode?: 'mock' | 'live';
+  flashProvider?: string;
+  flashModel?: string;
 }
 
 export interface PromptPreviewError {
@@ -29,6 +33,8 @@ export interface PromptPreviewSuccess {
   finalPrompt: string;
   context: RunContextSummary;
   terminalSend: 'not_sent';
+  /** The flash mode that was used for this run: mock or live. */
+  flash_mode: 'mock' | 'live';
   warnings: string[];
 }
 
@@ -59,7 +65,14 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     };
   }
 
-  const pipelineResult = await runPromptPipeline({ task, repoRoot, mock: true });
+  const pipelineResult = await runPromptPipeline({
+    task,
+    repoRoot,
+    mock: request.flashMode !== 'live',
+    live: request.flashMode === 'live',
+    flashProvider: request.flashProvider,
+    flashModel: request.flashModel,
+  });
   if (pipelineResult.ok === false) {
     const error = pipelineResult.error;
     return {
@@ -99,6 +112,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     finalPrompt,
     context: readRunContextSummary(pipelineResult.runDir),
     terminalSend: 'not_sent',
+    flash_mode: request.flashMode ?? 'mock',
     warnings: pipelineResult.warnings ?? [],
   };
 }

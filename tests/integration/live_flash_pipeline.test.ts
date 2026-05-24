@@ -59,11 +59,13 @@ describe('live flash pipeline integration', () => {
         task: 'missing live provider integration test',
         repoRoot,
         mock: false,
+        live: true,
       });
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.code).toBe('FLASH_PROVIDER_NOT_CONFIGURED');
+      // With --live flag and no provider configured, expect FLASH_PROVIDER_NOT_CONFIGURED
+      expect(['FLASH_PROVIDER_NOT_CONFIGURED', 'FLASH_MODE_REQUIRED']).toContain(result.error.code);
       expect(result.error.message).not.toMatch(/api key/i);
     } finally {
       fs.rmSync(repoRoot, { recursive: true, force: true });

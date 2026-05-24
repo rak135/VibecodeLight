@@ -71,6 +71,8 @@ export interface ConfigResolution {
   local_config_exists: boolean;
   local_config_created_from_global: boolean;
   selected_config_source: SelectedConfigSource;
+  /** Whether this resolution is for a live or mock flash run. */
+  flash_mode: 'mock' | 'live';
   provider: string | null;
   provider_label: string | null;
   provider_type: string | null;
@@ -259,6 +261,7 @@ export function resolveFlashConfig(input: ResolveFlashConfigInput): ResolveFlash
     local_config_exists: localConfigExists,
     local_config_created_from_global: input.localCreatedFromGlobal ?? false,
     selected_config_source: 'default',
+    flash_mode: input.mock ? 'mock' : 'live',
     provider: null,
     provider_label: null,
     provider_type: null,

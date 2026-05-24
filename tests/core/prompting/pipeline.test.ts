@@ -151,17 +151,21 @@ describe('full prompt pipeline', () => {
     expect(finalPrompt).toContain(task);
   });
 
-  test('prompt without --mock fails with MOCK_REQUIRED', async () => {
-    const result = await runPromptPipeline({ task: 'missing mock flag test', repoRoot: tmpRepo, mock: false });
+  test('prompt without --mock or --live fails with FLASH_MODE_REQUIRED', async () => {
+    const result = await runPromptPipeline({ task: 'missing mode flag test', repoRoot: tmpRepo, mock: false });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toEqual({
-      code: 'FLASH_PROVIDER_NOT_CONFIGURED',
-      message: 'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.',
-      path: '',
-      details: [],
-    });
+    expect(result.error.code).toBe('FLASH_MODE_REQUIRED');
+    expect(result.error.message).toMatch(/--mock.*--live|--live.*--mock/);
+  });
+
+  test('prompt --mock --live together fails FLASH_MODE_CONFLICT', async () => {
+    const result = await runPromptPipeline({ task: 'conflict mode test', repoRoot: tmpRepo, mock: true, live: true });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('FLASH_MODE_CONFLICT');
   });
 
   test('prompt --mock --json returns canonical success envelope', () => {
@@ -190,14 +194,8 @@ describe('full prompt pipeline', () => {
 
     expect(result.status).not.toBe(0);
     const envelope = JSON.parse(result.stdout.trim());
-    expect(envelope).toEqual({
-      ok: false,
-      error: {
-        code: 'FLASH_PROVIDER_NOT_CONFIGURED',
-        message: 'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.',
-        path: '',
-        details: [],
-      },
-    });
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe('FLASH_MODE_REQUIRED');
+    expect(envelope.error.message).toMatch(/--mock.*--live|--live.*--mock/);
   });
 });

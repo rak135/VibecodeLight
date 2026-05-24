@@ -1386,11 +1386,12 @@ export function createCli(): Command {
     .description('Run full prompt pipeline: scan → flash → context → render')
     .argument('[args...]', 'Task prompt, or render <runId>')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .option('--mock', 'Use mock flash adapter (required for this checkpoint)')
+    .option('--mock', 'Use mock flash adapter (deterministic, no provider call)')
+    .option('--live', 'Use configured live flash provider')
     .option('--flash-provider <id>', 'Override the active flash provider id')
     .option('--flash-model <id>', 'Override the active flash model id')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; flashProvider?: string; flashModel?: string; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -1411,6 +1412,7 @@ export function createCli(): Command {
         task,
         repoRoot,
         mock: options.mock === true,
+        live: options.live === true,
         flashProvider: options.flashProvider,
         flashModel: options.flashModel,
       });

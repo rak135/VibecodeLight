@@ -70,6 +70,24 @@ function errorResult(code: string, message: string, pathValue = '', details: str
 }
 
 export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<PromptPipelineResult> {
+  // Validate explicit mode flags: both together is a conflict, neither is required.
+  if (opts.mock && opts.live) {
+    return errorResult(
+      'FLASH_MODE_CONFLICT',
+      '--mock and --live cannot be used together. Use one or the other.',
+      '',
+      ['--mock uses the deterministic mock adapter.', '--live calls the configured flash provider.'],
+    );
+  }
+  if (!opts.mock && !opts.live && !opts.adapter) {
+    return errorResult(
+      'FLASH_MODE_REQUIRED',
+      'Flash mode is required. Use --mock for deterministic prompt generation or --live for configured flash model calls.',
+      '',
+      ['--mock: deterministic, no provider call.', '--live: calls the configured flash provider.'],
+    );
+  }
+
   // Ensure a local workspace config exists (snapshot from global, or minimal
   // defaults) so resolution and the config artifact are meaningful per run.
   const ensured = ensureLocalConfig({ repoRoot: opts.repoRoot, env: process.env });

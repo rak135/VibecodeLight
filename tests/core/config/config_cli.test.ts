@@ -223,7 +223,7 @@ describe('config CLI', () => {
     fs.writeFileSync(path.join(tmpRepo, 'README.md'), '# fixture\n', 'utf8');
 
     const result = runCli(
-      ['prompt', 'manual missing auth check', '--repo', tmpRepo, '--flash-provider', 'openrouter', '--flash-model', 'deepseek/deepseek-chat', '--json'],
+      ['prompt', 'manual missing auth check', '--repo', tmpRepo, '--live', '--flash-provider', 'openrouter', '--flash-model', 'deepseek/deepseek-chat', '--json'],
       tmpRepo,
       appData,
     );
