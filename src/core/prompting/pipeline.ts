@@ -18,6 +18,8 @@ import { buildFlashInput,
   getPreviousRunSummary,
 } from '../context/index.js';
 import { renderFinalPrompt } from './renderer.js';
+import type { PipelineEvent } from './pipeline_events.js';
+import type { PipelineProgressCallback } from './pipeline_events.js';
 import { updateCurrent } from '../runs/current.js';
 import { performScanPhase, writeRunManifest } from '../runs/scan_phase.js';
 import type { RunManifest } from '../models/index.js';
@@ -30,6 +32,7 @@ export interface PromptPipelineOptions {
   adapter?: LlmAdapter;
   flashProvider?: string;
   flashModel?: string;
+  onProgress?: PipelineProgressCallback;
 }
 
 export interface PromptPipelineSuccess {
@@ -53,6 +56,8 @@ export interface PromptPipelineError {
 
 export type PromptPipelineResult = PromptPipelineSuccess | PromptPipelineError;
 
+type PipelineEventInput = Omit<PipelineEvent, 'elapsed_ms'> & { elapsed_ms?: number };
+
 function unique(items: string[]): string[] {
   return [...new Set(items)];
 }
@@ -70,22 +75,42 @@ function errorResult(code: string, message: string, pathValue = '', details: str
 }
 
 export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<PromptPipelineResult> {
+  const startTime = Date.now();
+  const emitProgress = (event: PipelineEventInput): void => {
+    opts.onProgress?.({
+      ...event,
+      elapsed_ms: event.elapsed_ms ?? Date.now() - startTime,
+    });
+  };
+
+  const redactSecrets = (message: string, secrets: Array<string | undefined>): string => {
+    let safeMessage = message;
+    for (const secret of secrets) {
+      if (secret) safeMessage = safeMessage.split(secret).join('[REDACTED]');
+    }
+    return safeMessage;
+  };
+
   // Validate explicit mode flags: both together is a conflict, neither is required.
   if (opts.mock && opts.live) {
-    return errorResult(
+    const result = errorResult(
       'FLASH_MODE_CONFLICT',
       '--mock and --live cannot be used together. Use one or the other.',
       '',
       ['--mock uses the deterministic mock adapter.', '--live calls the configured flash provider.'],
     );
+    emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}` });
+    return result;
   }
   if (!opts.mock && !opts.live && !opts.adapter) {
-    return errorResult(
+    const result = errorResult(
       'FLASH_MODE_REQUIRED',
       'Flash mode is required. Use --mock for deterministic prompt generation or --live for configured flash model calls.',
       '',
       ['--mock: deterministic, no provider call.', '--live: calls the configured flash provider.'],
     );
+    emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}` });
+    return result;
   }
 
   // Ensure a local workspace config exists (snapshot from global, or minimal
@@ -113,15 +138,22 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       const message = code === 'FLASH_PROVIDER_NOT_CONFIGURED'
         ? 'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.'
         : resolved.error?.message ?? 'flash provider configuration is incomplete';
-      return errorResult(code, message, '', resolved.error?.details ?? []);
+      const result = errorResult(code, message, '', resolved.error?.details ?? []);
+      emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}` });
+      return result;
     }
     adapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
   }
 
+  emitProgress({ phase: 'scan_started', message: 'Scanning repository context.' });
   const scan = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
+  emitProgress({ phase: 'run_created', message: 'Prompt pipeline run created.', run_id: scan.run_id });
   if (scan.status === 'error') {
-    return errorResult('SCANNER_FAILED', scan.diagnostic, scan.scanDir, []);
+    const result = errorResult('SCANNER_FAILED', scan.diagnostic, scan.scanDir, []);
+    emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}`, run_id: scan.run_id });
+    return result;
   }
+  emitProgress({ phase: 'scan_completed', message: 'Repository scan completed.', run_id: scan.run_id });
 
   const flashDir = path.join(scan.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
@@ -167,9 +199,32 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     fs.writeFileSync(flashInputPath, flashInput, 'utf8');
     artifacts.push(flashManifestPath, flashInputPath);
     warnings.push(...flashManifest.warnings);
+    emitProgress({
+      phase: 'flash_input_built',
+      message: 'Flash input artifact built.',
+      run_id: scan.run_id,
+      artifact_path: flashInputPath,
+    });
 
     const adapter2 = adapter;
+    emitProgress({
+      phase: 'provider_resolved',
+      message: 'Flash provider resolved.',
+      run_id: scan.run_id,
+      provider_id: opts.mock ? 'mock' : resolved.resolution.provider ?? undefined,
+      model_id: opts.mock ? undefined : resolved.resolution.model ?? undefined,
+    });
+    emitProgress({
+      phase: 'flash_request_started',
+      message: 'Flash request started.',
+      run_id: scan.run_id,
+    });
     const adapterResult = await adapter2.run({ flashInputMd: flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
+    emitProgress({
+      phase: 'flash_response_received',
+      message: 'Flash response received.',
+      run_id: scan.run_id,
+    });
     const adapterMeta = adapterResult.meta as Record<string, unknown>;
     enrichFlashOutputMeta(flashDir, {
       provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
@@ -181,6 +236,11 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       config_source: resolved.resolution.selected_config_source,
       config_resolution_path: configResolutionPath,
     });
+    emitProgress({
+      phase: 'flash_output_validated',
+      message: 'Flash output validated.',
+      run_id: scan.run_id,
+    });
     artifacts.push(
       path.join(flashDir, 'flash_output.md'),
       path.join(flashDir, 'flash_output_meta.json'),
@@ -190,6 +250,12 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     const contextResult = finalizeContext(scan.runDir);
     artifacts.push(...contextResult.artifacts);
     warnings.push(...contextResult.warnings);
+    emitProgress({
+      phase: 'context_pack_written',
+      message: 'Context pack written.',
+      run_id: scan.run_id,
+      artifact_path: path.join(scan.runDir, 'output', 'context_pack.md'),
+    });
 
     const doneManifest: RunManifest = {
       ...scan.manifest,
@@ -199,7 +265,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
 
     const renderResult = renderFinalPrompt(scan.runDir, { vibecodePath: scan.vibecodePath });
     if (!renderResult.ok) {
-      return {
+      const result: PromptPipelineError = {
         ok: false,
         error: renderResult.error ?? {
           code: 'PROMPT_RENDER_FAILED',
@@ -208,6 +274,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
           details: [],
         },
       };
+      emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}`, run_id: scan.run_id });
+      return result;
     }
 
     await updateCurrent(scan.vibecodePath, doneManifest);
@@ -215,6 +283,12 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     const finalPromptPath = path.join(scan.runDir, 'output', 'final_prompt.md');
     artifacts.push(...(renderResult.artifacts ?? [finalPromptPath]));
     warnings.push(...(renderResult.warnings ?? []));
+    emitProgress({
+      phase: 'final_prompt_written',
+      message: 'Final prompt written.',
+      run_id: scan.run_id,
+      artifact_path: finalPromptPath,
+    });
 
     return {
       ok: true,
@@ -226,6 +300,11 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     };
   } catch (error) {
     const diagnostic = contextFinalizeErrorToDiagnostic(error, scan.runDir);
+    emitProgress({
+      phase: 'failed',
+      message: redactSecrets(`${diagnostic.code}: ${diagnostic.message}`, [resolved.providerConfig?.apiKey]),
+      run_id: scan.run_id,
+    });
     return {
       ok: false,
       error: {
