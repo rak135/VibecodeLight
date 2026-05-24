@@ -7,8 +7,8 @@ describe('artifact actions boundary', () => {
     vi.restoreAllMocks();
   });
 
-  test('preload exposes artifacts with only copyToClipboard and openPath', async () => {
-    const ipcRenderer = { invoke: vi.fn(), send: vi.fn(), on: vi.fn() };
+  test('preload exposes artifacts with only copyToClipboard, openPath, and readRunArtifact', async () => {
+    const ipcRenderer = { invoke: vi.fn(), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() };
     const contextBridge = { exposeInMainWorld: vi.fn() };
     vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
 
@@ -17,7 +17,7 @@ describe('artifact actions boundary', () => {
     const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
     expect(Object.keys(api)).toContain('artifacts');
     const artifacts = api['artifacts'] as Record<string, unknown>;
-    expect(Object.keys(artifacts).sort()).toEqual(['copyToClipboard', 'openPath']);
+    expect(Object.keys(artifacts).sort()).toEqual(['copyToClipboard', 'openPath', 'readRunArtifact']);
   });
 
   test('artifacts.copyToClipboard invokes artifacts:copyToClipboard IPC channel', async () => {

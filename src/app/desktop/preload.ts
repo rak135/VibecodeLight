@@ -16,12 +16,27 @@ export interface ComposerPreviewIpcResult {
   contextPackPath?: string;
   selectedSkillsPath?: string;
   finalPrompt?: string;
+  flashOutputPath?: string;
+  flashOutputContent?: string;
+  providerErrorPath?: string;
+  artifacts?: string[];
   context?: ContextSummaryIpc;
   terminalSend?: 'not_sent';
   /** The flash mode used: mock or live. */
   flash_mode?: 'mock' | 'live';
   warnings?: string[];
   error?: { code: string; message: string; path?: string; details: string[] };
+}
+
+export interface PipelineProgressEvent {
+  phase: string;
+  message: string;
+  run_id?: string;
+  provider_id?: string;
+  model_id?: string;
+  elapsed_ms?: number;
+  artifact_path?: string;
+  chunk?: string;
 }
 
 export interface ComposerSendIpcResult {
@@ -175,6 +190,7 @@ export interface VibecodePreloadApi {
     generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
     generatePreviewLive(task: string, flashProvider?: string, flashModel?: string): Promise<ComposerPreviewIpcResult>;
     sendPreview(runId: string): Promise<ComposerSendIpcResult>;
+    onProgress(callback: (event: PipelineProgressEvent) => void): () => void;
   };
   runs: {
     list(): Promise<RunsListIpc>;
@@ -192,6 +208,7 @@ export interface VibecodePreloadApi {
   artifacts: {
     copyToClipboard(text: string): void;
     openPath(p: string): Promise<{ ok: boolean; error?: string }>;
+    readRunArtifact(runId: string, relativePath: string): Promise<{ ok: boolean; content?: string; error?: string }>;
   };
 }
 
@@ -236,6 +253,11 @@ export function createVibecodeApi(): VibecodePreloadApi {
       sendPreview(runId: string) {
         return ipcRenderer.invoke('composer:sendPreview', runId) as Promise<ComposerSendIpcResult>;
       },
+      onProgress(callback: (event: PipelineProgressEvent) => void) {
+        const listener = (_event: unknown, progressEvent: PipelineProgressEvent) => callback(progressEvent);
+        ipcRenderer.on('composer:progress', listener);
+        return () => ipcRenderer.removeListener('composer:progress', listener);
+      },
     },
     runs: {
       list() {
@@ -274,6 +296,9 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       openPath(p: string) {
         return ipcRenderer.invoke('artifacts:openPath', p) as Promise<{ ok: boolean; error?: string }>;
+      },
+      readRunArtifact(runId: string, relativePath: string) {
+        return ipcRenderer.invoke('artifacts:readRunArtifact', runId, relativePath) as Promise<{ ok: boolean; content?: string; error?: string }>;
       },
     },
   };

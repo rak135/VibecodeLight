@@ -147,6 +147,12 @@
                     </div>
                   </div>
 
+                  <!-- 01b flash progress (shown while building) -->
+                  <div class="ov-section" id="ov-progress-section" style="display:none">
+                    <div class="ov-label"><span class="num">·</span> flash progress</div>
+                    <div class="ov-progress glass" id="ov-progress-list"></div>
+                  </div>
+
                   <!-- 02 context / run artifacts (real) -->
                   <div class="ov-section" id="ov-summary-section" style="display:none">
                     <div class="ov-label"><span class="num">02</span> context flash<span class="ts" id="ov-summary-ts"></span></div>
@@ -155,17 +161,34 @@
                     </div>
                   </div>
 
-                  <!-- 03 final prompt (real) -->
+                  <!-- 03 prompt artifacts (real) -->
                   <div class="ov-section" id="ov-final-section" style="display:none">
-                    <div class="ov-label"><span class="num">03</span> final prompt</div>
-                    <div class="ov-final glass" id="ov-final">
+                    <div class="ov-label"><span class="num">03</span> prompt artifacts</div>
+                    <div class="ov-final glass open" id="ov-final">
                       <div class="ov-final-head" id="ov-final-head">
                         <span style="width:6px;height:6px;background:var(--accent)"></span>
-                        <span class="filename">final_prompt.md</span>
+                        <span class="filename">preview artifacts</span>
                         <span class="meta" id="ov-final-meta"></span>
                         <span class="chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                       </div>
-                      <pre id="composer-preview"></pre>
+                      <div class="ov-tabs" id="ov-tabs" style="display:none">
+                        <button class="tab-btn active" data-tab="final" type="button">Final Prompt</button>
+                        <button class="tab-btn" data-tab="flash" type="button">Flash Output</button>
+                        <button class="tab-btn" data-tab="context" type="button">Context Pack</button>
+                        <button class="tab-btn" data-tab="diag" type="button">Diagnostics</button>
+                      </div>
+                      <div id="tab-final" class="tab-panel">
+                        <pre id="composer-preview"></pre>
+                      </div>
+                      <div id="tab-flash" class="tab-panel" style="display:none">
+                        <pre id="flash-output-preview"></pre>
+                      </div>
+                      <div id="tab-context" class="tab-panel" style="display:none">
+                        <pre id="context-pack-preview"></pre>
+                      </div>
+                      <div id="tab-diag" class="tab-panel" style="display:none">
+                        <pre id="diag-preview"></pre>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -275,6 +298,12 @@
       const sendButton = $('send-to-terminal');
       const sendStatus = $('send-status');
       const previewElement = $('composer-preview');
+      const flashOutputPreview = $('flash-output-preview');
+      const contextPackPreview = $('context-pack-preview');
+      const diagPreview = $('diag-preview');
+      const tabsBar = $('ov-tabs');
+      const progressSection = $('ov-progress-section');
+      const progressList = $('ov-progress-list');
       const summaryElement = $('composer-summary');
       const summarySection = $('ov-summary-section');
       const summaryTs = $('ov-summary-ts');
@@ -344,6 +373,7 @@
         const idx = Math.max(0, order.indexOf(stage));
         stepLabel.textContent = 'step ' + String(idx + 1).padStart(2, '0') + ' · ' + labels[stage];
         overlay.querySelectorAll('.pip').forEach((pip, i) => pip.classList.toggle('on', i <= idx));
+        if (progressSection) progressSection.style.display = stage === 'building' ? '' : 'none';
       }
 
       function refreshSendButton() {
@@ -455,6 +485,7 @@
         }
         const items = [
           ['final_prompt.md', run.finalPromptPath],
+          ['flash/flash_output.md', run.flashOutputPath],
           ['context_pack.md', run.contextPackPath],
           ['selected_skills.json', run.selectedSkillsPath],
         ];
@@ -635,6 +666,89 @@
       });
 
       // ---- Composer: build context (real core pipeline) ----
+      function switchPreviewTab(tabName) {
+        if (!tabsBar) return;
+        tabsBar.querySelectorAll('.tab-btn').forEach((btn) => {
+          btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
+        });
+        ['final', 'flash', 'context', 'diag'].forEach((name) => {
+          const panel = $('tab-' + name);
+          if (panel) panel.style.display = name === tabName ? '' : 'none';
+        });
+      }
+
+      function resetPreviewTabs() {
+        if (tabsBar) tabsBar.style.display = 'none';
+        switchPreviewTab('final');
+        previewElement.textContent = '';
+        flashOutputPreview.textContent = '';
+        contextPackPreview.textContent = '';
+        diagPreview.textContent = '';
+      }
+
+      async function readRunArtifactText(runId, relativePath) {
+        if (!runId || !window.vibecodeAPI || !window.vibecodeAPI.artifacts || !window.vibecodeAPI.artifacts.readRunArtifact) return '';
+        try {
+          const result = await window.vibecodeAPI.artifacts.readRunArtifact(runId, relativePath);
+          if (result && result.ok) return result.content || '';
+          return result && result.error ? 'Unavailable: ' + result.error : '';
+        } catch (error) {
+          return 'Unavailable: ' + (error instanceof Error ? error.message : String(error));
+        }
+      }
+
+      async function populateArtifactTabs(result) {
+        if (!result || !result.ok) return;
+        if (tabsBar) tabsBar.style.display = '';
+        previewElement.textContent = result.finalPrompt || '';
+        flashOutputPreview.textContent = result.flashOutputContent || await readRunArtifactText(result.run_id, 'flash/flash_output.md');
+        const contextPack = await readRunArtifactText(result.run_id, 'output/context_pack.md');
+        contextPackPreview.textContent = contextPack.length > 3000 ? contextPack.slice(0, 3000) + '\n… truncated to first 3KB' : contextPack;
+        const diagnostics = await readRunArtifactText(result.run_id, 'flash/flash_output_meta.json');
+        diagPreview.textContent = diagnostics || 'No diagnostics artifact available.';
+        switchPreviewTab('final');
+      }
+
+      function populateErrorDiagnostics(error, result) {
+        if (tabsBar) tabsBar.style.display = '';
+        previewElement.textContent = '';
+        flashOutputPreview.textContent = '';
+        contextPackPreview.textContent = '';
+        diagPreview.textContent = JSON.stringify({ error: error || {}, providerErrorPath: result && result.providerErrorPath, artifacts: result && result.artifacts }, null, 2);
+        finalMeta.textContent = '· diagnostics';
+        finalSection.style.display = '';
+        finalWrap.classList.add('open');
+        switchPreviewTab('diag');
+      }
+
+      function appendProgressItem(event) {
+        if (!progressList || !event || event.phase === 'flash_stream_delta') return;
+        const item = document.createElement('div');
+        item.className = 'ov-progress-item';
+        if (event.phase === 'failed') item.classList.add('err');
+        if (event.phase === 'provider_resolved') {
+          const provider = event.provider_id || 'provider';
+          const model = event.model_id || 'model';
+          item.textContent = '· provider_resolved  ' + provider + ' / ' + model;
+        } else {
+          item.textContent = '· [' + (event.phase || 'progress') + '] ' + (event.message || '');
+        }
+        progressList.appendChild(item);
+        progressList.scrollTop = progressList.scrollHeight;
+      }
+
+      if (tabsBar) {
+        tabsBar.addEventListener('click', (event) => {
+          const btn = event.target.closest('.tab-btn');
+          if (!btn) return;
+          switchPreviewTab(btn.getAttribute('data-tab') || 'final');
+        });
+      }
+
+      if (window.vibecodeAPI && window.vibecodeAPI.composer && window.vibecodeAPI.composer.onProgress) {
+        window.vibecodeAPI.composer.onProgress((event) => appendProgressItem(event));
+      }
+
       function renderSummary(result) {
         const rowsHtml = [
           ['run_id', result.run_id || '—'],
@@ -648,13 +762,13 @@
         summarySection.style.display = '';
       }
 
-      function renderErrorSummary(error) {
+      function renderErrorSummary(error, result) {
         const e = error || {};
         summaryElement.innerHTML =
           '<div class="k">error</div><div class="v err">' + escapeHtml(e.code || 'UNKNOWN') + '</div>' +
           '<div class="k">message</div><div class="v err">' + escapeHtml(e.message || 'unknown error') + '</div>';
         summarySection.style.display = '';
-        finalSection.style.display = 'none';
+        populateErrorDiagnostics(e, result);
       }
 
       async function generatePreview() {
@@ -675,7 +789,8 @@
         refreshSendButton();
         setStep('building');
         summaryTs.textContent = 'scanning…';
-        previewElement.textContent = '';
+        if (progressList) progressList.textContent = '';
+        resetPreviewTabs();
         finalSection.style.display = 'none';
 
         try {
@@ -702,14 +817,14 @@
           }
           const result = outcome.result;
           if (!result || result.ok !== true) {
-            renderErrorSummary((result && result.error) || { code: 'UNKNOWN', message: 'unknown error' });
+            renderErrorSummary((result && result.error) || { code: 'UNKNOWN', message: 'unknown error' }, result);
             setStep('compose');
             return;
           }
           currentPreview = result;
           summaryTs.textContent = 'ready';
           renderSummary(result);
-          previewElement.textContent = result.finalPrompt || '';
+          await populateArtifactTabs(result);
           finalMeta.textContent = '· ' + (result.finalPrompt || '').length + ' chars';
           finalSection.style.display = '';
           finalWrap.classList.add('open');

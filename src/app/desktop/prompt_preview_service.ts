@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { runPromptPipeline } from '../../core/prompting/pipeline.js';
+import type { PipelineEvent, PipelineProgressCallback } from '../../core/prompting/pipeline_events.js';
 import { readRunContextSummary, RunContextSummary } from '../../core/context/run_context_summary.js';
 
 export interface PromptPreviewRequest {
@@ -11,6 +12,7 @@ export interface PromptPreviewRequest {
   flashMode?: 'mock' | 'live';
   flashProvider?: string;
   flashModel?: string;
+  onProgress?: PipelineProgressCallback;
 }
 
 export interface PromptPreviewError {
@@ -21,6 +23,8 @@ export interface PromptPreviewError {
     path?: string;
     details: string[];
   };
+  providerErrorPath?: string;
+  artifacts?: string[];
 }
 
 export interface PromptPreviewSuccess {
@@ -31,6 +35,9 @@ export interface PromptPreviewSuccess {
   contextPackPath: string;
   selectedSkillsPath: string;
   finalPrompt: string;
+  flashOutputPath?: string;
+  flashOutputContent?: string;
+  providerErrorPath?: string;
   context: RunContextSummary;
   terminalSend: 'not_sent';
   /** The flash mode that was used for this run: mock or live. */
@@ -39,6 +46,25 @@ export interface PromptPreviewSuccess {
 }
 
 export type PromptPreviewResult = PromptPreviewSuccess | PromptPreviewError;
+export type PipelineProgressEvent = PipelineEvent;
+
+const FLASH_OUTPUT_INLINE_LIMIT_BYTES = 50 * 1024;
+
+function findProviderErrorPath(artifacts: string[] | undefined): string | undefined {
+  return artifacts?.find((artifact) => artifact.replace(/\\/g, '/').endsWith('/flash/provider_error.json'));
+}
+
+function readTextFilePrefix(filePath: string, maxBytes: number): string | undefined {
+  if (!fs.existsSync(filePath)) return undefined;
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
 export async function generatePromptPreview(request: PromptPreviewRequest): Promise<PromptPreviewResult> {
   const task = (request.task ?? '').trim();
@@ -72,9 +98,12 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     live: request.flashMode === 'live',
     flashProvider: request.flashProvider,
     flashModel: request.flashModel,
+    onProgress: request.onProgress,
   });
   if (pipelineResult.ok === false) {
     const error = pipelineResult.error;
+    const artifacts = error.artifacts ?? [];
+    const providerErrorPath = findProviderErrorPath(artifacts);
     return {
       ok: false,
       error: {
@@ -83,6 +112,8 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
         path: error.path,
         details: error.details,
       },
+      ...(providerErrorPath ? { providerErrorPath } : {}),
+      ...(artifacts.length > 0 ? { artifacts } : {}),
     };
   }
 
@@ -102,6 +133,12 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     };
   }
 
+  const flashOutputPath = path.join(pipelineResult.runDir, 'flash', 'flash_output.md');
+  const flashOutputContent = readTextFilePrefix(flashOutputPath, FLASH_OUTPUT_INLINE_LIMIT_BYTES);
+  const providerErrorPath = fs.existsSync(path.join(pipelineResult.runDir, 'flash', 'provider_error.json'))
+    ? path.join(pipelineResult.runDir, 'flash', 'provider_error.json')
+    : undefined;
+
   return {
     ok: true,
     run_id: pipelineResult.run_id,
@@ -110,6 +147,9 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     contextPackPath: path.join(pipelineResult.runDir, 'output', 'context_pack.md'),
     selectedSkillsPath: path.join(pipelineResult.runDir, 'skills', 'selected_skills.json'),
     finalPrompt,
+    ...(fs.existsSync(flashOutputPath) ? { flashOutputPath } : {}),
+    ...(flashOutputContent !== undefined ? { flashOutputContent } : {}),
+    ...(providerErrorPath ? { providerErrorPath } : {}),
     context: readRunContextSummary(pipelineResult.runDir),
     terminalSend: 'not_sent',
     flash_mode: request.flashMode ?? 'mock',

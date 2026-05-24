@@ -5,6 +5,7 @@ export type PipelineEventPhase =
   | 'flash_input_built'
   | 'provider_resolved'
   | 'flash_request_started'
+  | 'flash_stream_delta'
   | 'flash_response_received'
   | 'flash_output_validated'
   | 'context_pack_written'
@@ -19,6 +20,7 @@ export interface PipelineEvent {
   model_id?: string;
   elapsed_ms?: number;
   artifact_path?: string;
+  chunk?: string;
 }
 
 export type PipelineProgressCallback = (event: PipelineEvent) => void;

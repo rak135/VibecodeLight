@@ -547,6 +547,41 @@ input, textarea, select { font: inherit; color: inherit; }
 .ov-sum-grid .v { color: var(--text); font-family: var(--font-mono); word-break: break-all; }
 .ov-sum-grid .v.err { color: var(--danger); }
 
+.ov-progress {
+  max-height: 130px;
+  overflow: auto;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.ov-progress-item.err { color: var(--danger); }
+.ov-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.14);
+}
+.tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 4px 8px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: rgba(142, 240, 194, 0.18);
+}
+.tab-panel { min-height: 0; }
+
 .ov-final { overflow: hidden; position: relative; }
 .ov-final-head {
   display: flex; align-items: center; gap: 8px; padding: 6px 10px;

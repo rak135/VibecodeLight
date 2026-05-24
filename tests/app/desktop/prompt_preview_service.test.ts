@@ -6,6 +6,8 @@ describe('DesktopPromptPreviewService', () => {
   let tmpRepo: string;
 
   beforeEach(() => {
+    vi.resetModules();
+    vi.doUnmock('../../../src/core/prompting/pipeline.js');
     tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-composer-preview-'));
     fs.writeFileSync(path.join(tmpRepo, 'README.md'), '# Composer preview fixture\n', 'utf8');
     fs.mkdirSync(path.join(tmpRepo, 'src'), { recursive: true });
@@ -13,6 +15,7 @@ describe('DesktopPromptPreviewService', () => {
   });
 
   afterEach(() => {
+    vi.doUnmock('../../../src/core/prompting/pipeline.js');
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   });
 
@@ -51,6 +54,14 @@ describe('DesktopPromptPreviewService', () => {
       path.join(tmpRepo, '.vibecode', 'runs', result.run_id, 'skills', 'selected_skills.json'),
     );
     expect(result.terminalSend).toBe('not_sent');
+    expect(result.flashOutputPath).toBe(
+      path.join(tmpRepo, '.vibecode', 'runs', result.run_id, 'flash', 'flash_output.md'),
+    );
+    const flashOutputPath = result.flashOutputPath;
+    expect(flashOutputPath).toBeDefined();
+    if (!flashOutputPath) return;
+    expect(result.flashOutputContent).toBe(fs.readFileSync(flashOutputPath, 'utf8'));
+    expect(result.flashOutputContent).toContain('# Relevant Files');
 
     const savedFinal = fs.readFileSync(result.finalPromptPath, 'utf8');
     expect(result.finalPrompt).toBe(savedFinal);
@@ -123,5 +134,29 @@ describe('DesktopPromptPreviewService', () => {
     expect(result.runDir.startsWith(tmpRepo)).toBe(true);
     expect(result.runDir.startsWith(process.cwd())).toBe(false);
     expect(result.runDir).toContain(path.join(tmpRepo, '.vibecode', 'runs'));
+  });
+
+  test('error result includes providerErrorPath when provider_error.json exists in artifacts list', async () => {
+    const providerErrorPath = path.join(tmpRepo, '.vibecode', 'runs', '2026-05-24_001', 'flash', 'provider_error.json');
+    vi.doMock('../../../src/core/prompting/pipeline.js', () => ({
+      runPromptPipeline: vi.fn().mockResolvedValue({
+        ok: false,
+        error: {
+          code: 'FLASH_PROVIDER_BAD_RESPONSE',
+          message: 'bad provider response',
+          path: providerErrorPath,
+          details: ['response could not be parsed'],
+          artifacts: [providerErrorPath],
+        },
+      }),
+    }));
+
+    const { generatePromptPreview } = await import('../../../src/app/desktop/prompt_preview_service.js');
+    const result = await generatePromptPreview({ task: 'provider error path', repoRoot: tmpRepo, flashMode: 'live' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.providerErrorPath).toBe(providerErrorPath);
+    expect(result.artifacts).toEqual([providerErrorPath]);
   });
 });

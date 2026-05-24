@@ -4,6 +4,7 @@ import { app, BrowserWindow, clipboard, ipcMain, shell } from 'electron';
 
 import { getConfigPaths } from '../../core/config/index.js';
 import { resolveDesktopRepo, RepoResolveResult } from './repo_resolver.js';
+import { registerDesktopArtifactIpcHandlers } from './artifact_bridge.js';
 import { registerDesktopComposerIpcHandlers } from './composer_bridge.js';
 import { registerDesktopConfigIpcHandlers } from './config_bridge.js';
 import { registerDesktopRunsIpcHandlers } from './runs_bridge.js';
@@ -54,6 +55,7 @@ function createWindow(): void {
     });
     registerDesktopConfigIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopRunsIpcHandlers(ipcMain, { getRepoPath });
+    registerDesktopArtifactIpcHandlers(ipcMain, { getRepoPath });
 
     // Open the global config directory in the OS file explorer (no secrets read).
     ipcMain.handle('config:openDir', async () => {
