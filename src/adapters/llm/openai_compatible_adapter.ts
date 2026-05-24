@@ -9,6 +9,9 @@ import { parseFlashOutput } from '../../core/context/markdown_flash_output_parse
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
 const DEFAULT_TIMEOUT_MS = 30_000;
+const PROVIDER_BODY_EXCERPT_LIMIT = 800;
+const NON_JSON_PROVIDER_MESSAGE = 'Provider API returned a non-JSON HTTP response. Flash output remains Markdown-first; this indicates an API endpoint, authentication, model, or provider configuration error.';
+const BAD_PROVIDER_RESPONSE_PREFIX = 'Provider API returned a bad response. Flash output remains Markdown-first; this indicates an API endpoint, authentication, model, or provider configuration error.';
 
 const SYSTEM_PROMPT = [
   'You are a flash model for a coding context pipeline.',
@@ -39,6 +42,96 @@ function safeHost(baseUrl: string | undefined): string {
 function normalizeBaseUrl(baseUrl: string): string {
   // Strip trailing slash, then append /chat/completions
   return baseUrl.replace(/\/+$/, '') + '/chat/completions';
+}
+
+function truncateBodyExcerpt(body: string | undefined, apiKey?: string): string {
+  const safeBody = apiKey ? (body ?? '').split(apiKey).join('[REDACTED]') : (body ?? '');
+  return safeBody.slice(0, PROVIDER_BODY_EXCERPT_LIMIT);
+}
+
+function getResponseHeader(response: Response, name: string): string | null {
+  const responseWithHeaders = response as Response & { headers?: { get?: (headerName: string) => string | null } };
+  return responseWithHeaders.headers?.get?.(name) ?? null;
+}
+
+async function readResponseTextForDiagnostics(response: Response): Promise<string | undefined> {
+  const responseWithHelpers = response as Response & {
+    clone?: () => Response;
+    text?: () => Promise<string>;
+  };
+
+  try {
+    if (typeof responseWithHelpers.clone === 'function') {
+      return await responseWithHelpers.clone().text();
+    }
+    if (typeof responseWithHelpers.text === 'function') {
+      return await responseWithHelpers.text();
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function providerResponseDiagnostic(args: {
+  code: string;
+  message: string;
+  provider: string;
+  model: string;
+  baseUrl: string;
+  response: Response;
+  bodyText?: string;
+  apiKey?: string;
+}): Record<string, unknown> {
+  return {
+    code: args.code,
+    message: args.message,
+    provider_id: args.provider,
+    model_id: args.model,
+    base_url_host: safeHost(args.baseUrl),
+    http_status: args.response.status,
+    content_type: getResponseHeader(args.response, 'content-type') ?? 'unknown',
+    body_excerpt_redacted: truncateBodyExcerpt(args.bodyText, args.apiKey),
+    x_request_id: getResponseHeader(args.response, 'x-request-id'),
+    cf_ray: getResponseHeader(args.response, 'cf-ray'),
+  };
+}
+
+function providerResponseDetails(diagnostic: Record<string, unknown>): string[] {
+  const details = [
+    `provider: ${String(diagnostic.provider_id ?? '')}`,
+    `model: ${String(diagnostic.model_id ?? '')}`,
+    `baseUrl: ${String(diagnostic.base_url_host ?? '')}`,
+  ];
+  if (typeof diagnostic.http_status === 'number') details.push(`status: ${diagnostic.http_status}`);
+  if (typeof diagnostic.content_type === 'string') details.push(`contentType: ${diagnostic.content_type}`);
+  const xRequestId = diagnostic.x_request_id;
+  if (typeof xRequestId === 'string') details.push(`x-request-id: ${xRequestId}`);
+  const cfRay = diagnostic.cf_ray;
+  if (typeof cfRay === 'string') details.push(`cf-ray: ${cfRay}`);
+  return details;
+}
+
+function writeProviderErrorArtifact(flashDir: string, error: LlmAdapterError): void {
+  if (!error.diagnostic) return;
+
+  const diagnostic = error.diagnostic;
+  const artifact = {
+    code: error.code,
+    message: error.message,
+    provider_id: diagnostic.provider_id ?? null,
+    model_id: diagnostic.model_id ?? null,
+    base_url_host: diagnostic.base_url_host ?? null,
+    http_status: diagnostic.http_status ?? null,
+    content_type: diagnostic.content_type ?? 'unknown',
+    body_excerpt_redacted: diagnostic.body_excerpt_redacted ?? '',
+    x_request_id: diagnostic.x_request_id ?? null,
+    cf_ray: diagnostic.cf_ray ?? null,
+    timestamp_utc: new Date().toISOString(),
+  };
+
+  fs.mkdirSync(flashDir, { recursive: true });
+  fs.writeFileSync(path.join(flashDir, 'provider_error.json'), `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
 }
 
 export class OpenAiCompatibleAdapter implements LlmAdapter {
@@ -144,43 +237,95 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
       });
     }
 
+    const responseBodyForDiagnostics = await readResponseTextForDiagnostics(response);
+
     if (!response.ok) {
-      throw new LlmAdapterError(`flash provider returned HTTP ${response.status}`, {
+      const message = `flash provider returned HTTP ${response.status}`;
+      const diagnostic = providerResponseDiagnostic({
         code: 'FLASH_PROVIDER_REQUEST_FAILED',
-        details: [
-          `provider: ${provider}`,
-          `model: ${resolvedModel}`,
-          `baseUrl: ${safeHost(baseUrl)}`,
-          `status: ${response.status}`,
-        ],
+        message,
+        provider,
+        model: resolvedModel,
+        baseUrl,
+        response,
+        bodyText: responseBodyForDiagnostics,
+        apiKey,
       });
+      const error = new LlmAdapterError(message, {
+        code: 'FLASH_PROVIDER_REQUEST_FAILED',
+        details: providerResponseDetails(diagnostic),
+        diagnostic,
+      });
+      writeProviderErrorArtifact(flashDir, error);
+      throw error;
     }
 
     let json: unknown;
     try {
       json = await response.json();
     } catch {
-      throw new LlmAdapterError('flash provider returned non-JSON response body', {
+      const diagnostic = providerResponseDiagnostic({
         code: 'FLASH_PROVIDER_BAD_RESPONSE',
-        details: [`provider: ${provider}`, `model: ${resolvedModel}`],
+        message: NON_JSON_PROVIDER_MESSAGE,
+        provider,
+        model: resolvedModel,
+        baseUrl,
+        response,
+        bodyText: responseBodyForDiagnostics,
+        apiKey,
       });
+      const error = new LlmAdapterError(NON_JSON_PROVIDER_MESSAGE, {
+        code: 'FLASH_PROVIDER_BAD_RESPONSE',
+        details: providerResponseDetails(diagnostic),
+        diagnostic,
+      });
+      writeProviderErrorArtifact(flashDir, error);
+      throw error;
     }
 
     // Extract content from choices[0].message.content
     const choices = (json as { choices?: unknown[] }).choices;
     if (!Array.isArray(choices) || choices.length === 0) {
-      throw new LlmAdapterError('flash provider response has no choices', {
+      const message = `${BAD_PROVIDER_RESPONSE_PREFIX} Response has no choices.`;
+      const diagnostic = providerResponseDiagnostic({
         code: 'FLASH_PROVIDER_BAD_RESPONSE',
-        details: [`provider: ${provider}`, `model: ${resolvedModel}`],
+        message,
+        provider,
+        model: resolvedModel,
+        baseUrl,
+        response,
+        bodyText: responseBodyForDiagnostics,
+        apiKey,
       });
+      const error = new LlmAdapterError(message, {
+        code: 'FLASH_PROVIDER_BAD_RESPONSE',
+        details: providerResponseDetails(diagnostic),
+        diagnostic,
+      });
+      writeProviderErrorArtifact(flashDir, error);
+      throw error;
     }
 
     const content = (choices[0] as { message?: { content?: string } }).message?.content;
     if (typeof content !== 'string' || !content.trim()) {
-      throw new LlmAdapterError('flash provider response choice has empty or missing content', {
+      const message = `${BAD_PROVIDER_RESPONSE_PREFIX} Response choice has empty or missing content.`;
+      const diagnostic = providerResponseDiagnostic({
         code: 'FLASH_PROVIDER_BAD_RESPONSE',
-        details: [`provider: ${provider}`, `model: ${resolvedModel}`],
+        message,
+        provider,
+        model: resolvedModel,
+        baseUrl,
+        response,
+        bodyText: responseBodyForDiagnostics,
+        apiKey,
       });
+      const error = new LlmAdapterError(message, {
+        code: 'FLASH_PROVIDER_BAD_RESPONSE',
+        details: providerResponseDetails(diagnostic),
+        diagnostic,
+      });
+      writeProviderErrorArtifact(flashDir, error);
+      throw error;
     }
 
     const flashOutputMd = content;
