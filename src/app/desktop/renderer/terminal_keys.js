@@ -27,19 +27,28 @@
   function () {
     'use strict';
 
-    // Pure, DOM-free decision for what a Ctrl+C / Ctrl+Shift+C keystroke should
-    // do given whether the terminal currently has a selection:
+    // Pure, DOM-free decision for what a Ctrl+C / Ctrl+Shift+C / Ctrl+V /
+    // Ctrl+Shift+V keystroke should do given whether the terminal currently has
+    // a selection:
     //   'copy'        copy the selection; do NOT forward ^C to the PTY
+    //   'paste'       paste the clipboard into the terminal; do NOT forward ^V
     //   'passthrough' let the terminal handle the key normally (Ctrl+C => ^C)
     //   'noop'        swallow the key with no side effect
     function decideTerminalCopyAction(event, hasSelection) {
       var e = event || {};
       // The xterm custom handler also fires for keyup; only act on keydown so a
-      // single press never copies twice.
+      // single press never copies/pastes twice.
       if (e.type && e.type !== 'keydown') {
         return { type: 'passthrough' };
       }
       var key = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+      // Paste: Ctrl+V and Ctrl+Shift+V. Left alone, xterm turns Ctrl+V into the
+      // ^V (0x16) control byte and calls preventDefault on the keydown, which
+      // also suppresses the browser's native paste event — so nothing ever
+      // reaches the PTY. We intercept and paste the clipboard explicitly.
+      if (key === 'v' && e.ctrlKey) {
+        return { type: 'paste' };
+      }
       if (key !== 'c' || !e.ctrlKey) {
         return { type: 'passthrough' };
       }
@@ -60,8 +69,38 @@
     function createTerminalKeyHandler(opts) {
       var terminal = opts.terminal;
       var writeClipboard = opts.writeClipboard;
+      var readClipboard = opts.readClipboard;
       return function handleKey(event) {
         var action = decideTerminalCopyAction(event, Boolean(terminal.hasSelection()));
+        if (action.type === 'paste') {
+          // Block xterm's default so it cannot emit ^V or swallow the native
+          // paste event before we run our own clipboard read.
+          if (event && typeof event.preventDefault === 'function') {
+            event.preventDefault();
+          }
+          if (typeof readClipboard === 'function' && typeof terminal.paste === 'function') {
+            // terminal.paste() routes through xterm's onData, so the pasted text
+            // is forwarded to the PTY by the same bridge as normal typing and it
+            // honours bracketed-paste mode. The reader may be sync (tests) or a
+            // Promise (the real Electron clipboard bridge); support both and
+            // never let a clipboard failure crash the renderer or send ^V.
+            try {
+              var pending = readClipboard();
+              if (pending && typeof pending.then === 'function') {
+                pending.then(function (text) {
+                  if (text) {
+                    try { terminal.paste(String(text)); } catch (_error) { /* best-effort */ }
+                  }
+                }).catch(function () { /* clipboard unavailable; ignore */ });
+              } else if (pending) {
+                terminal.paste(String(pending));
+              }
+            } catch (_error) {
+              // A synchronous clipboard failure must never fall through to ^V.
+            }
+          }
+          return false;
+        }
         if (action.type === 'copy') {
           // Prevent the browser's native copy so it cannot overwrite the
           // clipboard with the (empty) DOM selection after we write the

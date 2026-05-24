@@ -60,6 +60,7 @@
     const onSessionExit = options.onSessionExit || function () {};
     const buildKeyHandler = options.buildKeyHandler || null;
     const writeClipboard = options.writeClipboard || null;
+    const readClipboard = options.readClipboard || null;
     const TerminalCtor = options.TerminalCtor || window.Terminal;
 
     const tiles = new Map(); // sessionId -> { tile, term, name, statusEl, statusTextEl, nameEl, info }
@@ -183,7 +184,7 @@
 
       if (buildKeyHandler && writeClipboard) {
         try {
-          term.attachCustomKeyEventHandler(buildKeyHandler({ terminal: term, writeClipboard }));
+          term.attachCustomKeyEventHandler(buildKeyHandler({ terminal: term, writeClipboard, readClipboard }));
         } catch (_e) {
           // Custom key handling is best-effort; do not block tile creation.
         }

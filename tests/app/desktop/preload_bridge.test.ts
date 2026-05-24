@@ -55,7 +55,7 @@ describe('desktop preload bridge boundary', () => {
       'show',
       'syncFromGlobal',
     ]);
-    expect(Object.keys(api.artifacts).sort()).toEqual(['copyToClipboard', 'openPath', 'readRunArtifact']);
+    expect(Object.keys(api.artifacts).sort()).toEqual(['copyToClipboard', 'openPath', 'readClipboard', 'readRunArtifact']);
   });
 
   test("renderer-facing API does not expose forbidden keys", async () => {

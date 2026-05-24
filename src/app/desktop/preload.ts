@@ -224,6 +224,7 @@ export interface VibecodePreloadApi {
   };
   artifacts: {
     copyToClipboard(text: string): void;
+    readClipboard(): Promise<string>;
     openPath(p: string): Promise<{ ok: boolean; error?: string }>;
     readRunArtifact(runId: string, relativePath: string): Promise<{ ok: boolean; content?: string; error?: string }>;
   };
@@ -316,6 +317,9 @@ export function createVibecodeApi(): VibecodePreloadApi {
     artifacts: {
       copyToClipboard(text: string) {
         void ipcRenderer.invoke('artifacts:copyToClipboard', text);
+      },
+      readClipboard() {
+        return ipcRenderer.invoke('artifacts:readClipboard') as Promise<string>;
       },
       openPath(p: string) {
         return ipcRenderer.invoke('artifacts:openPath', p) as Promise<{ ok: boolean; error?: string }>;

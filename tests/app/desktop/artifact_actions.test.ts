@@ -7,7 +7,7 @@ describe('artifact actions boundary', () => {
     vi.restoreAllMocks();
   });
 
-  test('preload exposes artifacts with only copyToClipboard, openPath, and readRunArtifact', async () => {
+  test('preload exposes artifacts with only copyToClipboard, openPath, readClipboard, and readRunArtifact', async () => {
     const ipcRenderer = { invoke: vi.fn(), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() };
     const contextBridge = { exposeInMainWorld: vi.fn() };
     vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
@@ -17,7 +17,20 @@ describe('artifact actions boundary', () => {
     const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
     expect(Object.keys(api)).toContain('artifacts');
     const artifacts = api['artifacts'] as Record<string, unknown>;
-    expect(Object.keys(artifacts).sort()).toEqual(['copyToClipboard', 'openPath', 'readRunArtifact']);
+    expect(Object.keys(artifacts).sort()).toEqual(['copyToClipboard', 'openPath', 'readClipboard', 'readRunArtifact']);
+  });
+
+  test('artifacts.readClipboard invokes artifacts:readClipboard IPC channel', async () => {
+    const ipcRenderer = { invoke: vi.fn().mockResolvedValue('clip text'), send: vi.fn(), on: vi.fn() };
+    const contextBridge = { exposeInMainWorld: vi.fn() };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
+    const artifacts = api['artifacts'] as Record<string, (...args: unknown[]) => unknown>;
+    await artifacts.readClipboard();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('artifacts:readClipboard');
   });
 
   test('artifacts.copyToClipboard invokes artifacts:copyToClipboard IPC channel', async () => {

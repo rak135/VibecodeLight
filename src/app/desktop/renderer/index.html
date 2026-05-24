@@ -1077,6 +1077,9 @@
           writeClipboard: window.vibecodeAPI.artifacts
             ? (text) => window.vibecodeAPI.artifacts.copyToClipboard(text)
             : null,
+          readClipboard: window.vibecodeAPI.artifacts && window.vibecodeAPI.artifacts.readClipboard
+            ? () => window.vibecodeAPI.artifacts.readClipboard()
+            : null,
           onTileFocus: (info) => {
             sessionState.name = info.name;
             sessionState.shell = info.shell;

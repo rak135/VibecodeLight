@@ -83,6 +83,7 @@ function createWindow(): void {
     ipcMain.handle('artifacts:copyToClipboard', (_event, text: string) => {
       clipboard.writeText(typeof text === 'string' ? text : '');
     });
+    ipcMain.handle('artifacts:readClipboard', () => clipboard.readText());
     ipcMain.handle('artifacts:openPath', async (_event, p: string) => {
       if (typeof p !== 'string' || !p) return { ok: false, error: 'path required' };
       const result = await shell.openPath(p);

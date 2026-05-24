@@ -34,6 +34,18 @@ function makeTerminal(selection: string): { hasSelection(): boolean; getSelectio
   };
 }
 
+function makePasteTerminal(): {
+  hasSelection(): boolean;
+  getSelection(): string;
+  paste: ReturnType<typeof vi.fn>;
+} {
+  return {
+    hasSelection: () => false,
+    getSelection: () => '',
+    paste: vi.fn(),
+  };
+}
+
 describe('decideTerminalCopyAction', () => {
   test('Ctrl+C with a selection chooses copy', () => {
     const action = TerminalKeys.decideTerminalCopyAction(keyEvent({ ctrlKey: true, key: 'c' }), true);
@@ -76,6 +88,32 @@ describe('decideTerminalCopyAction', () => {
       keyEvent({ type: 'keyup', ctrlKey: true, key: 'c' }),
       true,
     );
+    expect(action.type).toBe('passthrough');
+  });
+
+  test('Ctrl+V chooses paste', () => {
+    const action = TerminalKeys.decideTerminalCopyAction(keyEvent({ ctrlKey: true, key: 'v' }), false);
+    expect(action.type).toBe('paste');
+  });
+
+  test('Ctrl+Shift+V chooses paste', () => {
+    const action = TerminalKeys.decideTerminalCopyAction(
+      keyEvent({ ctrlKey: true, shiftKey: true, key: 'V' }),
+      false,
+    );
+    expect(action.type).toBe('paste');
+  });
+
+  test('Ctrl+V on keyup passes through (paste acts on keydown only)', () => {
+    const action = TerminalKeys.decideTerminalCopyAction(
+      keyEvent({ type: 'keyup', ctrlKey: true, key: 'v' }),
+      false,
+    );
+    expect(action.type).toBe('passthrough');
+  });
+
+  test('a plain v keystroke passes through', () => {
+    const action = TerminalKeys.decideTerminalCopyAction(keyEvent({ key: 'v' }), false);
     expect(action.type).toBe('passthrough');
   });
 });
@@ -156,5 +194,77 @@ describe('createTerminalKeyHandler', () => {
     });
     handler(keyEvent({ ctrlKey: true, key: 'c', preventDefault }));
     expect(preventDefault).toHaveBeenCalled();
+  });
+
+  test('Ctrl+V pastes the clipboard text into the terminal and does not send ^V (returns false)', () => {
+    const terminal = makePasteTerminal();
+    const handler = TerminalKeys.createTerminalKeyHandler({
+      terminal,
+      writeClipboard: vi.fn(),
+      readClipboard: () => 'pasted-snippet',
+    });
+    expect(handler(keyEvent({ ctrlKey: true, key: 'v' }))).toBe(false);
+    expect(terminal.paste).toHaveBeenCalledWith('pasted-snippet');
+  });
+
+  test('Ctrl+V prevents the browser default so xterm cannot turn it into a ^V control byte', () => {
+    const preventDefault = vi.fn();
+    const handler = TerminalKeys.createTerminalKeyHandler({
+      terminal: makePasteTerminal(),
+      writeClipboard: vi.fn(),
+      readClipboard: () => 'x',
+    });
+    handler(keyEvent({ ctrlKey: true, key: 'v', preventDefault }));
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  test('Ctrl+V resolves an async clipboard reader before pasting', async () => {
+    const terminal = makePasteTerminal();
+    const handler = TerminalKeys.createTerminalKeyHandler({
+      terminal,
+      writeClipboard: vi.fn(),
+      readClipboard: () => Promise.resolve('async-clip'),
+    });
+    expect(handler(keyEvent({ ctrlKey: true, key: 'v' }))).toBe(false);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(terminal.paste).toHaveBeenCalledWith('async-clip');
+  });
+
+  test('an empty clipboard is never pasted', () => {
+    const terminal = makePasteTerminal();
+    const handler = TerminalKeys.createTerminalKeyHandler({
+      terminal,
+      writeClipboard: vi.fn(),
+      readClipboard: () => '',
+    });
+    handler(keyEvent({ ctrlKey: true, key: 'v' }));
+    expect(terminal.paste).not.toHaveBeenCalled();
+  });
+
+  test('a clipboard read error is swallowed and never sends ^V', () => {
+    const terminal = makePasteTerminal();
+    const handler = TerminalKeys.createTerminalKeyHandler({
+      terminal,
+      writeClipboard: vi.fn(),
+      readClipboard: () => {
+        throw new Error('clipboard unavailable');
+      },
+    });
+    expect(() => handler(keyEvent({ ctrlKey: true, key: 'v' }))).not.toThrow();
+    expect(terminal.paste).not.toHaveBeenCalled();
+  });
+
+  test('a rejected async clipboard read does not crash the renderer', async () => {
+    const terminal = makePasteTerminal();
+    const handler = TerminalKeys.createTerminalKeyHandler({
+      terminal,
+      writeClipboard: vi.fn(),
+      readClipboard: () => Promise.reject(new Error('denied')),
+    });
+    expect(handler(keyEvent({ ctrlKey: true, key: 'v' }))).toBe(false);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(terminal.paste).not.toHaveBeenCalled();
   });
 });
