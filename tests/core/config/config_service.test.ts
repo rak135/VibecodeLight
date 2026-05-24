@@ -131,6 +131,36 @@ describe('resolveFlashConfig (provider registry)', () => {
     expect(providerConfig?.temperature).toBe(0.1);
   });
 
+  test('defaults.flash.timeout_ms resolves to the configured timeout for live flash providers', () => {
+    const registry = clone(REGISTRY);
+    registry.defaults.flash.timeout_ms = 180000;
+    writeYaml(localConfigPath, registry);
+    writeEnv(globalEnvPath, [`OPENROUTER_API_KEY=${SECRET}`]);
+
+    const { resolution, providerConfig, error } = resolve({ live: true });
+
+    expect(error).toBeUndefined();
+    expect(resolution.timeoutMs).toBe(180000);
+    expect(resolution.source_map.timeout).toBe('local');
+    expect(providerConfig?.timeoutMs).toBe(180000);
+  });
+
+  test('missing defaults.flash.timeout_ms falls back to 30000ms', () => {
+    const registry = {
+      ...clone(REGISTRY),
+      defaults: { flash: { provider: 'openrouter', model: 'deepseek/deepseek-chat' } },
+    };
+    writeYaml(localConfigPath, registry);
+    writeEnv(globalEnvPath, [`OPENROUTER_API_KEY=${SECRET}`]);
+
+    const { resolution, providerConfig, error } = resolve({ live: true });
+
+    expect(error).toBeUndefined();
+    expect(resolution.timeoutMs).toBe(30000);
+    expect(resolution.source_map.timeout).toBe('default');
+    expect(providerConfig?.timeoutMs).toBe(30000);
+  });
+
   test('local config overrides global config', () => {
     writeYaml(globalConfigPath, REGISTRY);
     writeYaml(localConfigPath, { defaults: { flash: { provider: 'deepseek', model: 'deepseek-chat' } } });
@@ -271,6 +301,18 @@ describe('resolveFlashConfig (provider registry)', () => {
     const { error, providerConfig } = resolve();
     expect(providerConfig).toBeNull();
     expect(error?.code).toBe('CONFIG_INVALID_PROVIDER_REGISTRY');
+  });
+
+  test('invalid defaults.flash.timeout_ms fails clearly', () => {
+    writeYaml(localConfigPath, {
+      ...clone(REGISTRY),
+      defaults: { flash: { provider: 'openrouter', model: 'deepseek/deepseek-chat', timeout_ms: 0 } },
+    });
+    const { error, providerConfig } = resolve();
+    expect(providerConfig).toBeNull();
+    expect(error?.code).toBe('CONFIG_INVALID_PROVIDER_REGISTRY');
+    expect(error?.details.join(' ')).toMatch(/timeout_ms/i);
+    expect(error?.details.join(' ')).toMatch(/positive integer/i);
   });
 
   test('API key value is never included in the resolution object', () => {

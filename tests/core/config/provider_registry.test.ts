@@ -107,6 +107,23 @@ describe('parseRegistryObject', () => {
     expect(parsed.invalid).toBe(true);
   });
 
+  test('rejects defaults.flash.timeout_ms when it is not a positive integer', () => {
+    const parsed = parseRegistryObject({
+      providers: {
+        openrouter: {
+          type: 'openai-compatible',
+          base_url: 'https://openrouter.ai/api/v1',
+          api_key_env: 'OPENROUTER_API_KEY',
+          models: [{ id: 'deepseek/deepseek-chat', role: 'flash' }],
+        },
+      },
+      defaults: { flash: { provider: 'openrouter', model: 'deepseek/deepseek-chat', timeout_ms: 0 } },
+    });
+    expect(parsed.invalid).toBe(true);
+    expect(parsed.errors.join(' ')).toMatch(/timeout_ms/i);
+    expect(parsed.errors.join(' ')).toMatch(/positive integer/i);
+  });
+
   test('empty object is valid but empty', () => {
     const parsed = parseRegistryObject({});
     expect(parsed.invalid).toBe(false);

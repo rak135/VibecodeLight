@@ -121,6 +121,13 @@ function num(v: unknown): number | undefined {
   return undefined;
 }
 
+function positiveInteger(v: unknown): number | undefined {
+  const n = num(v);
+  if (n === undefined) return undefined;
+  if (Number.isInteger(n) && n > 0) return n;
+  return undefined;
+}
+
 function collectSecretKeys(obj: unknown, out: string[]): void {
   if (!obj || typeof obj !== 'object') return;
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
@@ -225,8 +232,15 @@ export function parseRegistryObject(parsed: unknown): ParsedRegistry {
       if (p) flash.provider = p;
       const m = str(rawFlash.model);
       if (m) flash.model = m;
-      const t = num(rawFlash.timeout_ms);
-      if (t !== undefined) flash.timeout_ms = t;
+      if (rawFlash.timeout_ms !== undefined) {
+        const t = positiveInteger(rawFlash.timeout_ms);
+        if (t !== undefined) {
+          flash.timeout_ms = t;
+        } else {
+          invalid = true;
+          errors.push('defaults.flash.timeout_ms must be a positive integer');
+        }
+      }
       const mx = num(rawFlash.max_tokens);
       if (mx !== undefined) flash.max_tokens = mx;
       const tp = num(rawFlash.temperature);

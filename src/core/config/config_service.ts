@@ -133,6 +133,8 @@ export interface ConfigPaths {
   localConfig: string;
 }
 
+const DEFAULT_FLASH_TIMEOUT_MS = 30_000;
+
 interface RegistryFileRead {
   exists: boolean;
   parsed: ParsedRegistry;
@@ -335,7 +337,11 @@ export function resolveFlashConfig(input: ResolveFlashConfigInput): ResolveFlash
     if (field.value !== undefined) return { value: field.value, source: field.origin === 'none' ? 'none' : field.origin };
     return { source: 'none' };
   };
-  const timeout = pickNumber(cli.timeoutMs, merged.flash.timeout_ms);
+  const timeout = (() => {
+    const picked = pickNumber(cli.timeoutMs, merged.flash.timeout_ms);
+    if (picked.value !== undefined) return picked;
+    return { value: DEFAULT_FLASH_TIMEOUT_MS, source: 'default' as FieldSource };
+  })();
   const maxTokens = pickNumber(cli.maxTokens, merged.flash.max_tokens);
   const temperature = pickNumber(cli.temperature, merged.flash.temperature);
 
@@ -557,6 +563,7 @@ const MINIMAL_LOCAL_CONFIG = [
   '#     flash:',
   '#       provider: lmstudio',
   '#       model: qwen3.5-9b',
+  '#       timeout_ms: 180000',
   'version: 1',
   'providers: {}',
   'defaults:',

@@ -79,6 +79,26 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
     }
   });
 
+  test('timeout diagnostic reports the resolved timeoutMs and never leaks the api key', async () => {
+    const { workspaceRoot, runId } = makeWorkspace();
+    try {
+      const adapter = new OpenAiCompatibleAdapter(
+        config({ timeoutMs: 180000 }),
+        async () => {
+          throw new DOMException('aborted', 'AbortError');
+        },
+      );
+
+      const error = await captureError(adapter, runId, workspaceRoot);
+      expect(error.code).toBe('FLASH_PROVIDER_TIMEOUT');
+      expect(error.message).toContain('180000ms');
+      expect(error.details).toContain('timeoutMs: 180000');
+      expect(JSON.stringify(error)).not.toContain(TEST_API_KEY);
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   test('non-JSON response diagnostic includes http_status, content_type, and body_excerpt_redacted', async () => {
     const { workspaceRoot, runId } = makeWorkspace();
     const html = '<html><body>diagnostic body</body></html>';

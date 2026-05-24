@@ -233,6 +233,38 @@ describe('OpenAiCompatibleAdapter', () => {
     }
   });
 
+  test('uses the provided timeoutMs in the live adapter request path', async () => {
+    const { workspaceRoot, runId } = makeWorkspace();
+    let seenAbortSignal: AbortSignal | undefined;
+
+    try {
+      const adapter = new OpenAiCompatibleAdapter(
+        {
+          provider: 'openrouter',
+          apiKey: 'secret-api-key',
+          baseUrl: 'https://api.example.com/v1',
+          live: true,
+          timeoutMs: 180000,
+        },
+        async (_url, init) => {
+          seenAbortSignal = init?.signal ?? undefined;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ choices: [{ message: { content: VALID_FLASH_MARKDOWN } }] }),
+          } as Response;
+        },
+      );
+
+      const result = await adapter.run({ flashInputMd: '', runId, workspaceRoot });
+      expect(result.meta).toMatchObject({ provider: 'openrouter', live: true });
+      expect(seenAbortSignal).toBeDefined();
+      expect(seenAbortSignal?.aborted).toBe(false);
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   test('maps non-2xx responses to FLASH_PROVIDER_REQUEST_FAILED with status details', async () => {
     const { workspaceRoot, runId } = makeWorkspace();
 
