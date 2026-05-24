@@ -129,8 +129,8 @@
                       <textarea id="composer-task" class="ov-input" rows="3" placeholder="What should the agent do?  The composer renders final_prompt.md through the same core pipeline as the CLI."></textarea>
                       <div class="ov-task-actions">
                         <span class="ov-mode" role="radiogroup" aria-label="Flash mode" title="Choose how the flash context is generated">
-                          <label class="mode-opt"><input type="radio" name="composer-flash-mode" id="composer-flash-mock" value="mock" checked /> Mock</label>
-                          <label class="mode-opt"><input type="radio" name="composer-flash-mode" id="composer-flash-live" value="live" /> Live</label>
+                          <label class="mode-opt"><input type="radio" name="composer-flash-mode" id="composer-flash-mock" value="mock" /> Mock</label>
+                          <label class="mode-opt"><input type="radio" name="composer-flash-mode" id="composer-flash-live" value="live" checked /> Live</label>
                         </span>
                         <span class="ov-flash" id="composer-live-controls" hidden>
                           <label for="composer-flash-provider">provider</label>
@@ -139,7 +139,6 @@
                           <span id="composer-flash-key" class="ov-flash-key"></span>
                         </span>
                         <span class="spacer"></span>
-                        <span id="composer-flash-meta" style="display:none"></span>
                         <button id="generate-preview" class="btn primary" type="button">
                           <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
                           Build context
@@ -305,7 +304,6 @@
       const openConfigFolderButton = $('open-config-folder');
       const composerFlashProvider = $('composer-flash-provider');
       const composerFlashModel = $('composer-flash-model');
-      const composerFlashMeta = $('composer-flash-meta');
       const composerLiveControls = $('composer-live-controls');
       const composerFlashKey = $('composer-flash-key');
       const composerModeRadios = overlay.querySelectorAll('input[name="composer-flash-mode"]');
@@ -832,7 +830,6 @@
         composerDefaultModel = selection.defaultModel;
         const activeProvider = selection.defaultProvider || (selection.providers[0] && selection.providers[0].id) || '';
         updateComposerModels(activeProvider);
-        composerFlashMeta.textContent = selection.sourceText + ' · ' + selection.note;
         applyComposerMode();
       }
 
@@ -857,7 +854,6 @@
         if (window.VibecodeFlashSettings) {
           const state = window.VibecodeFlashSettings.composerModeState(mode);
           if (composerLiveControls) composerLiveControls.hidden = !state.showLiveControls;
-          if (composerFlashMeta) composerFlashMeta.style.display = state.showLiveControls ? '' : 'none';
         }
         if (flashController) flashController.setMode(mode);
         updateComposerKeyStatus();

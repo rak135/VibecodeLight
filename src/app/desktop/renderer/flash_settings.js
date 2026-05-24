@@ -26,8 +26,6 @@
   function () {
     'use strict';
 
-    var MOCK_NOTE = 'Mock is selected by default to avoid surprise live API calls';
-
     function display(value) {
       return value === null || value === undefined || value === '' ? '(none)' : String(value);
     }
@@ -136,9 +134,7 @@
         providers: providers,
         defaultProvider: r.provider || null,
         defaultModel: r.model || null,
-        defaultMode: 'mock',
-        note: MOCK_NOTE,
-        sourceText: 'Source: ' + (r.selected_config_source || 'unknown'),
+        defaultMode: 'live',
       };
     }
 
@@ -233,7 +229,7 @@
     function createController(opts) {
       var api = opts.api;
       var view = opts.view;
-      var currentMode = 'mock';
+      var currentMode = 'live';
       var lastResolution = null;
 
       function renderPill() {

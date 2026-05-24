@@ -75,11 +75,11 @@ describe('renderer index.html wires the flash settings GUI', () => {
     expect(html).toMatch(/name="composer-flash-mode"[^>]*value="live"/);
   });
 
-  test('defaults the composer flash mode selector to Mock and marks it checked', () => {
+  test('defaults the composer flash mode selector to Live and marks it checked', () => {
     const html = fs.readFileSync(indexHtml, 'utf8');
-    // The Mock radio is the checked one; Live must not be pre-checked.
-    expect(html).toMatch(/id="composer-flash-mock"[^>]*\bchecked\b/);
-    expect(html).not.toMatch(/id="composer-flash-live"[^>]*\bchecked\b/);
+    // The Live radio is the checked one; Mock must not be pre-checked.
+    expect(html).toMatch(/id="composer-flash-live"[^>]*\bchecked\b/);
+    expect(html).not.toMatch(/id="composer-flash-mock"[^>]*\bchecked\b/);
   });
 
   test('wraps live-only provider/model/key controls in a togglable container with a key-status element', () => {

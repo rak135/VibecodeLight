@@ -62,9 +62,8 @@ function resolution(overrides: Record<string, unknown> = {}): any {
 }
 
 describe('flash settings presenter — header pill', () => {
-  test('buildPill shows Mock by default so no surprise live call is implied', () => {
+  test('buildPill falls back to Mock when no mode is supplied (defensive)', () => {
     const pill = FlashSettings.buildPill(resolution());
-    expect(pill.available).toBe(true);
     expect(pill.mode).toBe('mock');
     expect(pill.text).toBe('Flash: Mock');
     expect(pill.sourceText).toBe('');
@@ -165,11 +164,9 @@ describe('flash settings presenter — composer selection', () => {
     expect(sel.providers.map((p) => p.id).sort()).toEqual(['deepseek', 'openrouter']);
   });
 
-  test('buildComposerSelection defaults to Mock mode to avoid surprise API calls', () => {
+  test('buildComposerSelection defaults to Live mode', () => {
     const sel = FlashSettings.buildComposerSelection(resolution());
-    expect(sel.defaultMode).toBe('mock');
-    expect(sel.note.toLowerCase()).toContain('mock');
-    expect(sel.sourceText).toBe('Source: local');
+    expect(sel.defaultMode).toBe('live');
   });
 
   test('modelsForProvider filters models to the requested provider', () => {

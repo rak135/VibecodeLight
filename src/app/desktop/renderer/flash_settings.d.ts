@@ -36,8 +36,6 @@ export interface ComposerSelection {
   defaultProvider: string | null;
   defaultModel: string | null;
   defaultMode: FlashMode;
-  note: string;
-  sourceText: string;
 }
 
 export interface ComposerModeState {
