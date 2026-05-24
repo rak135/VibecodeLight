@@ -3,8 +3,11 @@
 // only forwards the safe, secret-free payloads returned by the preload `config`
 // bridge; the return shapes are the view-models the GUI renders.
 
+export type FlashMode = 'mock' | 'live';
+
 export interface FlashPill {
   available: boolean;
+  mode: FlashMode;
   text: string;
   sourceText: string;
 }
@@ -32,8 +35,40 @@ export interface ComposerSelection {
   providers: Array<{ id: string; label: string | null }>;
   defaultProvider: string | null;
   defaultModel: string | null;
+  defaultMode: FlashMode;
   note: string;
   sourceText: string;
+}
+
+export interface ComposerModeState {
+  mode: FlashMode;
+  showLiveControls: boolean;
+}
+
+export interface ComposerKeyStatus {
+  hasApiKey: boolean;
+  apiKeyEnv: string | null;
+  text: string;
+}
+
+export interface ComposerPreviewOptions {
+  composer: {
+    generatePreview(task: string): Promise<unknown>;
+    generatePreviewLive(task: string, provider?: string, model?: string): Promise<unknown>;
+  };
+  mode: FlashMode | string | undefined;
+  task: string;
+  provider: string;
+  model: string;
+  providerList: ProviderListItem[];
+}
+
+export interface ComposerPreviewOutcome {
+  mode: FlashMode;
+  flashMode: FlashMode;
+  blocked: boolean;
+  result?: unknown;
+  diagnostic?: { code: string; message: string };
 }
 
 export interface FlashSettingsView {
@@ -53,15 +88,19 @@ export interface FlashSettingsConfigApi {
 
 export interface FlashSettingsController {
   refresh(): Promise<void>;
+  setMode(mode: FlashMode | string | undefined): FlashMode;
   syncFromGlobal(): Promise<void>;
   openConfigFolder(): Promise<void>;
 }
 
 export interface FlashSettingsModule {
-  buildPill(resolution: unknown): FlashPill;
+  buildPill(resolution: unknown, mode?: FlashMode | string): FlashPill;
   buildSettings(resolution: unknown): SettingRow[];
   buildProviderList(providers: unknown): ProviderListItem[];
   buildComposerSelection(resolution: unknown): ComposerSelection;
+  composerModeState(mode: FlashMode | string | undefined): ComposerModeState;
+  composerKeyStatus(providerList: ProviderListItem[], providerId: string): ComposerKeyStatus;
+  runComposerPreview(opts: ComposerPreviewOptions): Promise<ComposerPreviewOutcome>;
   modelsForProvider(providers: unknown, providerId: string): ProviderModelView[];
   safeDiagnostic(errLike: unknown): string;
   createController(opts: { api: FlashSettingsConfigApi; view: FlashSettingsView }): FlashSettingsController;

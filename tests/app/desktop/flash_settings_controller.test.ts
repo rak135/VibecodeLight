@@ -101,10 +101,33 @@ describe('flash settings controller', () => {
 
     expect(api.show).toHaveBeenCalledTimes(1);
     expect(api.providers).toHaveBeenCalledTimes(1);
-    expect((view.pill as { text: string }).text).toBe('Flash: OpenRouter / deepseek/deepseek-chat');
+    expect((view.pill as { text: string; mode: string }).text).toBe('Flash: Mock');
+    expect((view.pill as { mode: string }).mode).toBe('mock');
     expect(Array.isArray(view.settings)).toBe(true);
     expect((view.providers as unknown[]).length).toBe(2);
     expect((view.composer as { defaultProvider: string }).defaultProvider).toBe('openrouter');
+  });
+
+  test('setMode("live") re-renders the header pill with provider/model without refetching config', async () => {
+    const api = makeApi();
+    const view = makeView();
+    const controller = FlashSettings.createController({ api, view });
+
+    await controller.refresh();
+    expect((view.pill as { mode: string }).mode).toBe('mock');
+
+    controller.setMode('live');
+
+    expect((view.pill as { text: string; mode: string }).text).toBe(
+      'Flash: Live · OpenRouter · deepseek/deepseek-chat',
+    );
+    expect((view.pill as { mode: string }).mode).toBe('live');
+    // No extra config fetch is required to flip the visible mode.
+    expect(api.show).toHaveBeenCalledTimes(1);
+    expect(api.providers).toHaveBeenCalledTimes(1);
+
+    controller.setMode('mock');
+    expect((view.pill as { text: string }).text).toBe('Flash: Mock');
   });
 
   test('sync global -> local calls preload config.syncFromGlobal then refreshes the panel', async () => {

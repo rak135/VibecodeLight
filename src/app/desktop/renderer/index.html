@@ -128,10 +128,15 @@
                     <div class="ov-task-wrap glass">
                       <textarea id="composer-task" class="ov-input" rows="3" placeholder="What should the agent do?  The composer renders final_prompt.md through the same core pipeline as the CLI."></textarea>
                       <div class="ov-task-actions">
-                        <span class="ov-flash">
-                          <label for="composer-flash-provider">flash</label>
-                          <select id="composer-flash-provider" class="design-only"></select>
-                          <select id="composer-flash-model" class="design-only"></select>
+                        <span class="ov-mode" role="radiogroup" aria-label="Flash mode" title="Choose how the flash context is generated">
+                          <label class="mode-opt"><input type="radio" name="composer-flash-mode" id="composer-flash-mock" value="mock" checked /> Mock</label>
+                          <label class="mode-opt"><input type="radio" name="composer-flash-mode" id="composer-flash-live" value="live" /> Live</label>
+                        </span>
+                        <span class="ov-flash" id="composer-live-controls" hidden>
+                          <label for="composer-flash-provider">provider</label>
+                          <select id="composer-flash-provider"></select>
+                          <select id="composer-flash-model"></select>
+                          <span id="composer-flash-key" class="ov-flash-key"></span>
                         </span>
                         <span class="spacer"></span>
                         <span id="composer-flash-meta" style="display:none"></span>
@@ -301,6 +306,9 @@
       const composerFlashProvider = $('composer-flash-provider');
       const composerFlashModel = $('composer-flash-model');
       const composerFlashMeta = $('composer-flash-meta');
+      const composerLiveControls = $('composer-live-controls');
+      const composerFlashKey = $('composer-flash-key');
+      const composerModeRadios = overlay.querySelectorAll('input[name="composer-flash-mode"]');
 
       const cols = 120;
       const rows = 32;
@@ -672,7 +680,28 @@
         finalSection.style.display = 'none';
 
         try {
-          const result = await window.vibecodeAPI.composer.generatePreview(task);
+          if (!window.VibecodeFlashSettings) {
+            renderErrorSummary({ code: 'NO_FLASH_MODULE', message: 'Flash settings module is unavailable.' });
+            setStep('compose');
+            return;
+          }
+          // Route through the testable, secret-free preview planner. Live mode is
+          // gated on the resolved API-key status; a missing key blocks here with a
+          // clear diagnostic and never silently falls back to the mock path.
+          const outcome = await window.VibecodeFlashSettings.runComposerPreview({
+            composer: window.vibecodeAPI.composer,
+            mode: currentComposerMode(),
+            task,
+            provider: composerFlashProvider.value,
+            model: composerFlashModel.value,
+            providerList: composerProviderList,
+          });
+          if (outcome.blocked) {
+            renderErrorSummary(outcome.diagnostic);
+            setStep('compose');
+            return;
+          }
+          const result = outcome.result;
           if (!result || result.ok !== true) {
             renderErrorSummary((result && result.error) || { code: 'UNKNOWN', message: 'unknown error' });
             setStep('compose');
@@ -804,6 +833,34 @@
         const activeProvider = selection.defaultProvider || (selection.providers[0] && selection.providers[0].id) || '';
         updateComposerModels(activeProvider);
         composerFlashMeta.textContent = selection.sourceText + ' · ' + selection.note;
+        applyComposerMode();
+      }
+
+      // ---- Composer flash mode (Mock / Live) ----
+      function currentComposerMode() {
+        const checked = overlay.querySelector('input[name="composer-flash-mode"]:checked');
+        return checked && checked.value === 'live' ? 'live' : 'mock';
+      }
+
+      function updateComposerKeyStatus() {
+        if (!composerFlashKey || !window.VibecodeFlashSettings) return;
+        const status = window.VibecodeFlashSettings.composerKeyStatus(composerProviderList, composerFlashProvider.value);
+        composerFlashKey.textContent = status.text;
+        composerFlashKey.classList.toggle('warn', !status.hasApiKey);
+      }
+
+      // Reflect the selected mode: reveal live-only controls, surface the config
+      // source, and flip the header pill. Mock is the default so no live call is
+      // implied until the user opts in.
+      function applyComposerMode() {
+        const mode = currentComposerMode();
+        if (window.VibecodeFlashSettings) {
+          const state = window.VibecodeFlashSettings.composerModeState(mode);
+          if (composerLiveControls) composerLiveControls.hidden = !state.showLiveControls;
+          if (composerFlashMeta) composerFlashMeta.style.display = state.showLiveControls ? '' : 'none';
+        }
+        if (flashController) flashController.setMode(mode);
+        updateComposerKeyStatus();
       }
 
       function setFlashSettingsStatus(text, kind) {
@@ -844,7 +901,11 @@
         closeSettingsBtn.addEventListener('click', closeSettings);
         syncFromGlobalButton.addEventListener('click', () => { void flashController.syncFromGlobal(); });
         openConfigFolderButton.addEventListener('click', () => { void flashController.openConfigFolder(); });
-        composerFlashProvider.addEventListener('change', () => updateComposerModels(composerFlashProvider.value));
+        composerFlashProvider.addEventListener('change', () => {
+          updateComposerModels(composerFlashProvider.value);
+          updateComposerKeyStatus();
+        });
+        composerModeRadios.forEach((radio) => radio.addEventListener('change', applyComposerMode));
         void flashController.refresh();
       }
 

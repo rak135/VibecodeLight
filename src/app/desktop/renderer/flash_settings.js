@@ -26,7 +26,7 @@
   function () {
     'use strict';
 
-    var MOCK_NOTE = 'Desktop preview currently uses mock flash';
+    var MOCK_NOTE = 'Mock is selected by default to avoid surprise live API calls';
 
     function display(value) {
       return value === null || value === undefined || value === '' ? '(none)' : String(value);
@@ -51,15 +51,28 @@
       return Boolean(provider) && provider !== 'mock' && Boolean(model);
     }
 
-    function buildPill(resolution) {
+    function normalizeMode(mode) {
+      return mode === 'live' ? 'live' : 'mock';
+    }
+
+    // The header pill reflects the flash mode the next preview will use. It
+    // defaults to Mock so the GUI never implies a surprise live API call; only
+    // when the user explicitly selects Live does it surface the resolved
+    // provider/model (sourced from the core config service via preload).
+    function buildPill(resolution, mode) {
+      var m = normalizeMode(mode);
+      if (m === 'mock') {
+        return { available: true, mode: 'mock', text: 'Flash: Mock', sourceText: '' };
+      }
       if (!isConfigured(resolution)) {
-        return { available: false, text: 'Flash: not configured', sourceText: '' };
+        return { available: false, mode: 'live', text: 'Flash: not configured', sourceText: '' };
       }
       var label =
         (resolution.provider_label && String(resolution.provider_label)) || String(resolution.provider);
       return {
         available: true,
-        text: 'Flash: ' + label + ' / ' + String(resolution.model),
+        mode: 'live',
+        text: 'Flash: Live · ' + label + ' · ' + String(resolution.model),
         sourceText: 'Source: ' + (resolution.selected_config_source || 'unknown'),
       };
     }
@@ -123,9 +136,86 @@
         providers: providers,
         defaultProvider: r.provider || null,
         defaultModel: r.model || null,
+        defaultMode: 'mock',
         note: MOCK_NOTE,
         sourceText: 'Source: ' + (r.selected_config_source || 'unknown'),
       };
+    }
+
+    // Pure view-state for the composer flash mode toggle. Live-only controls
+    // (provider/model dropdowns + key status) are hidden unless Live is chosen.
+    function composerModeState(mode) {
+      var m = normalizeMode(mode);
+      return { mode: m, showLiveControls: m === 'live' };
+    }
+
+    function findProvider(providerList, providerId) {
+      if (!Array.isArray(providerList)) return null;
+      for (var i = 0; i < providerList.length; i += 1) {
+        if (providerList[i] && providerList[i].id === providerId) return providerList[i];
+      }
+      return null;
+    }
+
+    // Safe, secret-free API-key status for the selected provider. Only ever
+    // reports the boolean has_api_key and the api_key_env NAME — never a value.
+    function composerKeyStatus(providerList, providerId) {
+      var provider = findProvider(providerList, providerId);
+      if (!provider) {
+        return { hasApiKey: false, apiKeyEnv: null, text: 'API key: unknown provider' };
+      }
+      var env = nullableString(provider.apiKeyEnv);
+      if (provider.hasApiKey) {
+        return { hasApiKey: true, apiKeyEnv: env, text: 'API key: yes' };
+      }
+      return {
+        hasApiKey: false,
+        apiKeyEnv: env,
+        text: 'API key: no (set ' + (env || 'the provider API key env') + ')',
+      };
+    }
+
+    // Routes a composer preview request to the correct preload call based on the
+    // visible Mock/Live selector. Live mode is gated on the safe has_api_key flag
+    // so a missing key produces a clear FLASH_PROVIDER_AUTH_MISSING diagnostic.
+    // It must NEVER fall back from Live to the mock path.
+    async function runComposerPreview(opts) {
+      var composer = opts.composer;
+      var mode = normalizeMode(opts.mode);
+      if (mode === 'mock') {
+        var mockResult = await composer.generatePreview(opts.task);
+        return { mode: 'mock', flashMode: 'mock', blocked: false, result: mockResult };
+      }
+
+      var provider = findProvider(opts.providerList, opts.provider);
+      if (!provider) {
+        return {
+          mode: 'live',
+          flashMode: 'live',
+          blocked: true,
+          diagnostic: {
+            code: 'FLASH_PROVIDER_NOT_SELECTED',
+            message: 'Select a flash provider to use live mode.',
+          },
+        };
+      }
+      if (!provider.hasApiKey) {
+        var envName = nullableString(provider.apiKeyEnv) || 'the provider API key env';
+        var providerName = nullableString(provider.label) || String(provider.id);
+        return {
+          mode: 'live',
+          flashMode: 'live',
+          blocked: true,
+          diagnostic: {
+            code: 'FLASH_PROVIDER_AUTH_MISSING',
+            message:
+              'No API key configured for ' + providerName + '. Set ' + envName + ' in the global .env to use live mode.',
+          },
+        };
+      }
+
+      var liveResult = await composer.generatePreviewLive(opts.task, opts.provider, opts.model);
+      return { mode: 'live', flashMode: 'live', blocked: false, result: liveResult };
     }
 
     function safeDiagnostic(errLike) {
@@ -143,6 +233,12 @@
     function createController(opts) {
       var api = opts.api;
       var view = opts.view;
+      var currentMode = 'mock';
+      var lastResolution = null;
+
+      function renderPill() {
+        view.setPill(buildPill(lastResolution, currentMode));
+      }
 
       async function refresh() {
         try {
@@ -156,13 +252,22 @@
           var providers =
             provResp && Array.isArray(provResp.providers) ? provResp.providers : resolution.providers || [];
 
-          view.setPill(buildPill(resolution));
+          lastResolution = resolution;
+          renderPill();
           view.setSettings(buildSettings(resolution));
           view.setProviders(buildProviderList(providers));
           view.setComposer(buildComposerSelection(resolution));
         } catch (err) {
           view.setStatus(safeDiagnostic(err), 'error');
         }
+      }
+
+      // Flip the visible flash mode (Mock/Live) and re-render the header pill
+      // from the already-loaded resolution; no config refetch is needed.
+      function setMode(nextMode) {
+        currentMode = normalizeMode(nextMode);
+        if (lastResolution) renderPill();
+        return currentMode;
       }
 
       async function runSync(invoke, okMessage) {
@@ -202,6 +307,7 @@
 
       return {
         refresh: refresh,
+        setMode: setMode,
         syncFromGlobal: syncFromGlobal,
         openConfigFolder: openConfigFolder,
       };
@@ -212,6 +318,9 @@
       buildSettings: buildSettings,
       buildProviderList: buildProviderList,
       buildComposerSelection: buildComposerSelection,
+      composerModeState: composerModeState,
+      composerKeyStatus: composerKeyStatus,
+      runComposerPreview: runComposerPreview,
       modelsForProvider: modelsForProvider,
       safeDiagnostic: safeDiagnostic,
       createController: createController,

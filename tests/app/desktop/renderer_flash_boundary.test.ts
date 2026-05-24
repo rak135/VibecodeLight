@@ -66,6 +66,43 @@ describe('renderer index.html wires the flash settings GUI', () => {
     expect(html).toMatch(/id="composer-flash-model"/);
   });
 
+  test('renders a composer Mock/Live flash mode selector', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+    expect(html).toMatch(/id="composer-flash-mock"/);
+    expect(html).toMatch(/id="composer-flash-live"/);
+    // Both options share one radio group.
+    expect(html).toMatch(/name="composer-flash-mode"[^>]*value="mock"/);
+    expect(html).toMatch(/name="composer-flash-mode"[^>]*value="live"/);
+  });
+
+  test('defaults the composer flash mode selector to Mock and marks it checked', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+    // The Mock radio is the checked one; Live must not be pre-checked.
+    expect(html).toMatch(/id="composer-flash-mock"[^>]*\bchecked\b/);
+    expect(html).not.toMatch(/id="composer-flash-live"[^>]*\bchecked\b/);
+  });
+
+  test('wraps live-only provider/model/key controls in a togglable container with a key-status element', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+    expect(html).toMatch(/id="composer-live-controls"/);
+    expect(html).toMatch(/id="composer-flash-key"/);
+  });
+
+  test('routes composer preview through the testable runComposerPreview (no mock fallback in renderer glue)', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+    expect(html).toMatch(/runComposerPreview/);
+    // The header pill is flipped through the controller, not recomputed inline.
+    expect(html).toMatch(/setMode/);
+  });
+
+  test('renderer never references the disabled local-to-global sync', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+    const js = fs.readFileSync(flashSettingsJs, 'utf8');
+    expect(html).not.toMatch(/syncToGlobal/);
+    expect(html).not.toMatch(/sync-to-global/);
+    expect(js).not.toMatch(/syncToGlobal/);
+  });
+
   test('does not parse config files itself (delegates to preload/core)', () => {
     const html = fs.readFileSync(indexHtml, 'utf8');
     expect(html).not.toMatch(/YAML\.parse|from\s+['"]yaml['"]/);

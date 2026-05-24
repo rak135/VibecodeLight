@@ -519,6 +519,12 @@ input, textarea, select { font: inherit; color: inherit; }
   flex-wrap: wrap;
 }
 .ov-task-actions .spacer { flex: 1; }
+.ov-mode { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-2); }
+.ov-mode .mode-opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.ov-mode input { accent-color: var(--accent); margin: 0; }
+.ov-flash[hidden] { display: none; }
+.ov-flash-key { color: var(--muted); }
+.ov-flash-key.warn { color: var(--warn); }
 .ov-flash { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
 .ov-flash select {
   background: rgba(0, 0, 0, 0.25);

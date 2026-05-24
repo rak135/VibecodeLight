@@ -88,6 +88,34 @@ describe('desktop preload bridge boundary', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:generatePreview', 'integration smoke');
   });
 
+  test('composer.generatePreviewLive forwards live mode with provider/model over the same channel', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const composer = api.composer as {
+      generatePreviewLive: (task: string, provider?: string, model?: string) => Promise<unknown>;
+    };
+    await composer.generatePreviewLive('live smoke', 'openrouter', 'deepseek/deepseek-chat');
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      'composer:generatePreview',
+      'live smoke',
+      'live',
+      'openrouter',
+      'deepseek/deepseek-chat',
+    );
+  });
+
   test('composer.sendPreview invokes composer:sendPreview IPC channel only', async () => {
     const ipcRenderer = {
       invoke: vi.fn().mockResolvedValue({ ok: true }),

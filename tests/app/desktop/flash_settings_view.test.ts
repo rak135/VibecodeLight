@@ -62,26 +62,35 @@ function resolution(overrides: Record<string, unknown> = {}): any {
 }
 
 describe('flash settings presenter — header pill', () => {
-  test('buildPill shows active provider/model and source when configured', () => {
+  test('buildPill shows Mock by default so no surprise live call is implied', () => {
     const pill = FlashSettings.buildPill(resolution());
     expect(pill.available).toBe(true);
-    expect(pill.text).toBe('Flash: OpenRouter / deepseek/deepseek-chat');
+    expect(pill.mode).toBe('mock');
+    expect(pill.text).toBe('Flash: Mock');
+    expect(pill.sourceText).toBe('');
+  });
+
+  test('buildPill in live mode shows active provider/model and source', () => {
+    const pill = FlashSettings.buildPill(resolution(), 'live');
+    expect(pill.available).toBe(true);
+    expect(pill.mode).toBe('live');
+    expect(pill.text).toBe('Flash: Live · OpenRouter · deepseek/deepseek-chat');
     expect(pill.sourceText).toBe('Source: local');
   });
 
-  test('buildPill falls back to provider id when label missing', () => {
-    const pill = FlashSettings.buildPill(resolution({ provider_label: null }));
-    expect(pill.text).toBe('Flash: openrouter / deepseek/deepseek-chat');
+  test('buildPill in live mode falls back to provider id when label missing', () => {
+    const pill = FlashSettings.buildPill(resolution({ provider_label: null }), 'live');
+    expect(pill.text).toBe('Flash: Live · openrouter · deepseek/deepseek-chat');
   });
 
-  test('buildPill reports not configured when provider is null', () => {
-    const pill = FlashSettings.buildPill(resolution({ provider: null, model: null }));
+  test('buildPill in live mode reports not configured when provider is null', () => {
+    const pill = FlashSettings.buildPill(resolution({ provider: null, model: null }), 'live');
     expect(pill.available).toBe(false);
     expect(pill.text).toBe('Flash: not configured');
   });
 
-  test('buildPill reports not configured for the mock provider', () => {
-    const pill = FlashSettings.buildPill(resolution({ provider: 'mock', provider_label: 'Mock', model: null }));
+  test('buildPill in live mode reports not configured for the mock provider', () => {
+    const pill = FlashSettings.buildPill(resolution({ provider: 'mock', provider_label: 'Mock', model: null }), 'live');
     expect(pill.available).toBe(false);
     expect(pill.text).toBe('Flash: not configured');
   });
@@ -156,8 +165,9 @@ describe('flash settings presenter — composer selection', () => {
     expect(sel.providers.map((p) => p.id).sort()).toEqual(['deepseek', 'openrouter']);
   });
 
-  test('buildComposerSelection carries an honest mock-only generation note', () => {
+  test('buildComposerSelection defaults to Mock mode to avoid surprise API calls', () => {
     const sel = FlashSettings.buildComposerSelection(resolution());
+    expect(sel.defaultMode).toBe('mock');
     expect(sel.note.toLowerCase()).toContain('mock');
     expect(sel.sourceText).toBe('Source: local');
   });
