@@ -22,6 +22,11 @@ if (!fs.existsSync(xtermJs) || !fs.existsSync(xtermCss)) {
 fs.mkdirSync(xtermVendorOutput, { recursive: true });
 fs.copyFileSync(xtermJs, path.join(xtermVendorOutput, 'xterm.js'));
 fs.copyFileSync(xtermCss, path.join(xtermVendorOutput, 'xterm.css'));
+const fitAddonSrc = path.join(repoRoot, 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js');
+if (!fs.existsSync(fitAddonSrc)) {
+  throw new Error(`addon-fit.js missing under ${fitAddonSrc}; run "pnpm install" to restore @xterm/addon-fit`);
+}
+fs.copyFileSync(fitAddonSrc, path.join(xtermVendorOutput, 'addon-fit.js'));
 
 execSync('electron dist-desktop/app/desktop/main.js', {
   stdio: 'inherit',

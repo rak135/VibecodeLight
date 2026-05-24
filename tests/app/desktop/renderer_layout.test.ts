@@ -178,19 +178,23 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(gridRule![0]).toMatch(/min-height:\s*100%/);
   });
 
-  test('applies fill-height class to stretch tiles to viewport when they fit in one row', () => {
-    const css = fs.readFileSync(stylesCss, 'utf8');
+  test('loads addon-fit and wires FitAddonCtor into the terminal controller', () => {
     const html = readHtml();
+    const js = fs.readFileSync(path.join(rendererDir, 'terminals.js'), 'utf8');
 
-    // .grid.fill-height must set an explicit height so 1fr resolves against a
-    // definite height and tiles stretch to fill the viewport instead of
-    // collapsing to the 340px minimum and leaving a black gap.
-    expect(css).toMatch(/\.grid\.fill-height\s*\{[^}]*height:\s*100%/);
+    // The addon script must be loaded before terminals.js so the global is available.
+    expect(html).toMatch(/vendor\/xterm\/addon-fit\.js/);
 
-    // JS must expose a helper and call it whenever the count or density changes.
-    expect(html).toMatch(/function updateGridFit/);
-    expect(html).toMatch(/updateGridFit\(\)/);
-    // The helper must toggle the fill-height class based on count vs density.
-    expect(html).toMatch(/fill-height/);
+    // FitAddonCtor must be passed into the controller so it can resize xterm to
+    // fill the tile, eliminating the black gap that appears when few terminals
+    // are open and tiles are taller than the default fixed-row canvas height.
+    expect(html).toMatch(/FitAddonCtor/);
+    expect(html).toMatch(/window\.FitAddon/);
+
+    // terminals.js must use the addon (loadAddon), fit after open, and track
+    // tile size changes with a ResizeObserver.
+    expect(js).toMatch(/loadAddon/);
+    expect(js).toMatch(/fitAddon\.fit\(\)/);
+    expect(js).toMatch(/ResizeObserver/);
   });
 });

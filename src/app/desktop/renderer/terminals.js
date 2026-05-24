@@ -62,8 +62,9 @@
     const writeClipboard = options.writeClipboard || null;
     const readClipboard = options.readClipboard || null;
     const TerminalCtor = options.TerminalCtor || window.Terminal;
+    const FitAddonCtor = options.FitAddonCtor || null;
 
-    const tiles = new Map(); // sessionId -> { tile, term, name, statusEl, statusTextEl, nameEl, info }
+    const tiles = new Map(); // sessionId -> { tile, term, fitAddon, resizeObserver, name, statusEl, statusTextEl, nameEl, info }
     let nextLocalIndex = 0;
     let focusedSessionId = null;
     let placeholderEl = null;
@@ -129,6 +130,7 @@
     function removeTile(sessionId) {
       const entry = tiles.get(sessionId);
       if (!entry) return;
+      if (entry.resizeObserver) { try { entry.resizeObserver.disconnect(); } catch (_e) { /* best-effort */ } }
       if (entry.tile.parentNode) entry.tile.parentNode.removeChild(entry.tile);
       try { entry.term.dispose(); } catch (_e) { /* best-effort */ }
       tiles.delete(sessionId);
@@ -180,6 +182,13 @@
         fontSize: 12.5,
         theme: { background: '#0c0c0e', foreground: '#d8d8de' },
       });
+
+      let fitAddon = null;
+      if (FitAddonCtor) {
+        fitAddon = new FitAddonCtor();
+        term.loadAddon(fitAddon);
+      }
+
       term.open(termHost);
 
       if (buildKeyHandler && writeClipboard) {
@@ -211,12 +220,36 @@
       tiles.set(session.sessionId, {
         tile: tileEl,
         term,
+        fitAddon,
+        resizeObserver: null,
         name,
         statusEl,
         statusTextEl,
         nameEl,
         info,
       });
+
+      // Fit the xterm canvas to fill the tile; deferred to the next frame so
+      // the CSS grid has finished computing row heights before we measure.
+      if (fitAddon) {
+        const entry = tiles.get(session.sessionId);
+        requestAnimationFrame(() => {
+          try {
+            fitAddon.fit();
+            api.resize(session.sessionId, term.cols, term.rows);
+          } catch (_e) { /* best-effort */ }
+        });
+        // Re-fit whenever the tile container changes size (window resize,
+        // adding / removing tiles, sidebar toggling, density changes, etc.).
+        const ro = new ResizeObserver(() => {
+          try {
+            fitAddon.fit();
+            api.resize(session.sessionId, term.cols, term.rows);
+          } catch (_e) { /* best-effort */ }
+        });
+        ro.observe(termHost);
+        entry.resizeObserver = ro;
+      }
 
       term.onData((data) => api.write(session.sessionId, data));
       tileEl.addEventListener('mousedown', () => focusTile(session.sessionId));
@@ -263,7 +296,14 @@
 
     function resizeAll() {
       for (const entry of tiles.values()) {
-        try { api.resize(entry.info.sessionId, cols, rows); } catch (_e) { /* best-effort */ }
+        try {
+          if (entry.fitAddon) {
+            entry.fitAddon.fit();
+            api.resize(entry.info.sessionId, entry.term.cols, entry.term.rows);
+          } else {
+            api.resize(entry.info.sessionId, cols, rows);
+          }
+        } catch (_e) { /* best-effort */ }
       }
     }
 

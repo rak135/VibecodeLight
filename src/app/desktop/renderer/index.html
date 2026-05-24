@@ -243,8 +243,9 @@
       </div>
     </section>
 
-    <!-- Local xterm assets are copied from node_modules/@xterm/xterm by scripts/launch_desktop.js. -->
+    <!-- Local xterm assets are copied from node_modules/@xterm by scripts/launch_desktop.js. -->
     <script src="vendor/xterm/xterm.js"></script>
+    <script src="vendor/xterm/addon-fit.js"></script>
     <script src="flash_settings.js"></script>
     <script src="terminal_keys.js"></script>
     <script src="terminals.js"></script>
@@ -426,24 +427,12 @@
         refreshSendButton();
       }
 
-      // ---- Grid fill helper ----
-      // Toggle .fill-height when all tiles fit in a single row so that 1fr
-      // resolves against a definite height and tiles stretch to fill the
-      // viewport instead of collapsing to the 340px minimum.
-      function updateGridFit() {
-        const count = terminals ? terminals.count() : 0;
-        const densityBtn = densitySeg.querySelector('button.on');
-        const density = densityBtn ? parseInt(densityBtn.getAttribute('data-density'), 10) : 1;
-        grid.classList.toggle('fill-height', count <= density);
-      }
-
       // ---- Density ----
       densitySeg.addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-density]');
         if (!btn) return;
         const d = btn.getAttribute('data-density');
         grid.className = 'grid cols-' + d;
-        grid.classList.toggle('fill-height', terminals ? terminals.count() <= parseInt(d, 10) : true);
         densitySeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
       });
 
@@ -1100,6 +1089,7 @@
           cols,
           rows,
           repoPath: workspace.repoPath,
+          FitAddonCtor: window.FitAddon && window.FitAddon.FitAddon ? window.FitAddon.FitAddon : null,
           buildKeyHandler: window.VibecodeTerminalKeys
             ? window.VibecodeTerminalKeys.createTerminalKeyHandler
             : null,
@@ -1121,7 +1111,6 @@
           onCountChange: () => {
             updateTerminalCount();
             refreshSendButton();
-            updateGridFit();
           },
           onSessionExit: (sessionId) => {
             if (composerOriginSessionId === sessionId) {
@@ -1149,7 +1138,6 @@
         }
         updateTerminalCount();
         refreshSendButton();
-        updateGridFit();
         if (activePanel === 'session') renderPanel('session');
 
         if (addTerminalBtn) {

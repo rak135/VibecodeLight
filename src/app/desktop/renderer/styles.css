@@ -257,10 +257,7 @@ input, textarea, select { font: inherit; color: inherit; }
 /* min-height (not height) so the grid grows past the viewport once the tiles no
    longer fit; otherwise its overflow never reaches the scrollable workspace and
    the lower tiles become unreachable. Rows are minmax(min, 1fr) so a few tiles
-   stretch to fill the height while many tiles keep a usable size and scroll.
-   .fill-height is toggled by JS when all tiles fit in a single row: adding an
-   explicit height gives 1fr a definite reference so tiles stretch to fill the
-   viewport instead of collapsing to the 340px minimum and leaving a black gap. */
+   stretch to fill the height while many tiles keep a usable size and scroll. */
 .grid {
   display: grid;
   gap: var(--gap);
@@ -268,7 +265,6 @@ input, textarea, select { font: inherit; color: inherit; }
   grid-auto-rows: minmax(340px, 1fr);
   align-content: stretch;
 }
-.grid.fill-height { height: 100%; }
 .grid.cols-1 { grid-template-columns: 1fr; }
 .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
