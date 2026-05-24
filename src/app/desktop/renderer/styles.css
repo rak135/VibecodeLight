@@ -279,6 +279,11 @@ input, textarea, select { font: inherit; color: inherit; }
   flex-direction: column;
   min-height: 340px;
   height: 100%;
+  /* Cap the tile so it never fills the full viewport — the bottom edge must
+     always be visible, making it clear the terminal is a windowed pane.
+     Leaves one --gap strip of workspace background below the tile on any
+     monitor resolution, plus the workspace's own padding at the bottom. */
+  max-height: calc(100vh - var(--top-h) - 2 * var(--pad) - var(--gap));
   overflow: hidden;
   transition: border-color var(--tx-base);
 }
