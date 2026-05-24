@@ -154,6 +154,31 @@ describe('flash settings presenter — provider/model list', () => {
   test('buildProviderList tolerates an empty list', () => {
     expect(FlashSettings.buildProviderList([])).toEqual([]);
   });
+
+  test('buildProviderList exposes arbitrary LM Studio provider data from preload config', () => {
+    const list = FlashSettings.buildProviderList([
+      {
+        id: 'lmstudio',
+        label: 'LM Studio',
+        type: 'openai-compatible',
+        baseUrl_host: '127.0.0.1',
+        api_key_env: 'LMSTUDIO_API_KEY',
+        has_api_key: true,
+        origin: 'local',
+        models: [{ id: 'qwen3.5-9b', label: 'Qwen3.5 9B Local', role: 'flash' }],
+      },
+    ]);
+
+    expect(list).toEqual([
+      {
+        id: 'lmstudio',
+        label: 'LM Studio',
+        hasApiKey: true,
+        apiKeyEnv: 'LMSTUDIO_API_KEY',
+        models: [{ id: 'qwen3.5-9b', label: 'Qwen3.5 9B Local', role: 'flash' }],
+      },
+    ]);
+  });
 });
 
 describe('flash settings presenter — composer selection', () => {

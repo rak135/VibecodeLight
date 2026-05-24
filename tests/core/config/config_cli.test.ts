@@ -1,14 +1,15 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 import YAML from 'yaml';
 
 const repoRoot = path.resolve(__dirname, '../../..');
 const binPath = path.join(repoRoot, 'bin', 'vibecode.js');
 
-const SECRET = 'sk-cli-secret-should-never-print';
+const SECRET = 'sk-cli-do-not-print';
+const LMSTUDIO_DUMMY_KEY = 'not-needed';
 
 const REGISTRY = {
   version: 1,
@@ -34,6 +35,108 @@ const REGISTRY = {
   defaults: { flash: { provider: 'openrouter', model: 'deepseek/deepseek-chat', timeout_ms: 30000 } },
 };
 
+const LMSTUDIO_REGISTRY = {
+  version: 1,
+  providers: {
+    lmstudio: {
+      type: 'openai-compatible',
+      label: 'LM Studio',
+      base_url: 'http://127.0.0.1:1234/v1',
+      api_key_env: 'LMSTUDIO_API_KEY',
+      models: [{ id: 'qwen3.5-9b', label: 'Qwen3.5 9B Local', role: 'flash' }],
+    },
+  },
+  defaults: { flash: { provider: 'lmstudio', model: 'qwen3.5-9b', timeout_ms: 30000 } },
+};
+
+const VALID_FLASH_MARKDOWN = [
+  '# Task Summary',
+  'LM Studio CLI live fixture.',
+  '',
+  '# Relevant Files',
+  '- README.md — fixture repository overview',
+  '',
+  '# Files To Read With Tools',
+  '- README.md — inspect repository overview before implementation',
+  '',
+  '# Relevant Tests',
+  '- pnpm test — run the default test suite',
+  '',
+  '# Commands To Run',
+  '- pnpm test — run the default test suite',
+  '',
+  '# Selected Skills',
+  '- test-driven-development — keep coverage before changes',
+  '',
+  '# Cautions',
+  '- fixture only',
+  '',
+  '# Context Pack',
+  'Deterministic fixture context pack.',
+  '',
+].join('\n');
+
+async function startFakeOpenAiServer() {
+  const script = `
+    const http = require('http');
+    const response = ${JSON.stringify(VALID_FLASH_MARKDOWN)};
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'not found' }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: response } }] }));
+      });
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      process.stdout.write(String(address.port) + '\\n');
+    });
+  `;
+  const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const port = await new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('fake provider server did not start')), 5000);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+      const firstLine = stdout.split(/\r?\n/)[0];
+      const parsed = Number(firstLine);
+      if (parsed > 0) {
+        clearTimeout(timer);
+        resolve(parsed);
+      }
+    });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      reject(new Error(`fake provider server exited with ${code}: ${stderr}`));
+    });
+  });
+  return { child, port };
+}
+
+function lmstudioRegistryForPort(port: number) {
+  return {
+    version: 1,
+    providers: {
+      lmstudio: {
+        type: 'openai-compatible',
+        label: 'LM Studio',
+        base_url: `http://127.0.0.1:${port}/v1`,
+        api_key_env: 'LMSTUDIO_API_KEY',
+        models: [{ id: 'qwen3.5-9b', label: 'Qwen3.5 9B Local', role: 'flash' }],
+      },
+    },
+    defaults: { flash: { provider: 'lmstudio', model: 'qwen3.5-9b', timeout_ms: 1000 } },
+  };
+}
+
 function runCli(args: string[], cwd: string, localAppData?: string) {
   const env: Record<string, string | undefined> = { ...process.env };
   delete env.VIBECODE_PROVIDER;
@@ -46,6 +149,7 @@ function runCli(args: string[], cwd: string, localAppData?: string) {
   delete env.VIBECODE_FLASH_BASE_URL;
   delete env.OPENROUTER_API_KEY;
   delete env.DEEPSEEK_API_KEY;
+  delete env.LMSTUDIO_API_KEY;
   if (localAppData) env.LOCALAPPDATA = localAppData;
   return spawnSync(process.execPath, [binPath, ...args], { cwd, encoding: 'utf8', timeout: 60000, env });
 }
@@ -64,6 +168,15 @@ function makeAppData(withConfig: boolean, withEnv: boolean) {
   if (withEnv) {
     fs.writeFileSync(path.join(dir, '.env'), `OPENROUTER_API_KEY=${SECRET}\n`, 'utf8');
   }
+  return appData;
+}
+
+function makeAppDataWithRegistry(registry: unknown, envLines: string[]) {
+  const appData = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-config-cli-appdata-'));
+  const dir = path.join(appData, 'vibecodelight');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config.yaml'), YAML.stringify(registry), 'utf8');
+  fs.writeFileSync(path.join(dir, '.env'), `${envLines.join('\n')}\n`, 'utf8');
   return appData;
 }
 
@@ -145,6 +258,68 @@ describe('config CLI', () => {
     expect(payload.ok).toBe(true);
     const openrouter = payload.data.providers.find((p: { id: string }) => p.id === 'openrouter');
     expect(openrouter.models.map((m: { id: string }) => m.id)).toEqual(['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner']);
+  });
+
+  test('config providers/models include LM Studio and never print its dummy key', () => {
+    const appData = makeAppDataWithRegistry(LMSTUDIO_REGISTRY, [`LMSTUDIO_API_KEY=${LMSTUDIO_DUMMY_KEY}`]);
+    cleanup.push(appData);
+
+    const providersResult = runCli(['config', 'providers', '--repo', tmpRepo, '--json'], tmpRepo, appData);
+    expect(providersResult.status).toBe(0);
+    expect(providersResult.stdout).not.toContain(LMSTUDIO_DUMMY_KEY);
+    const providersPayload = JSON.parse(providersResult.stdout.trim());
+    expect(providersPayload.ok).toBe(true);
+    expect(providersPayload.data.active_provider).toBe('lmstudio');
+    const lmstudio = providersPayload.data.providers.find((p: { id: string }) => p.id === 'lmstudio');
+    expect(lmstudio.label).toBe('LM Studio');
+    expect(lmstudio.type).toBe('openai-compatible');
+    expect(lmstudio.baseUrl_host).toBe('127.0.0.1');
+    expect(lmstudio.api_key_env).toBe('LMSTUDIO_API_KEY');
+    expect(lmstudio.has_api_key).toBe(true);
+
+    const modelsResult = runCli(['config', 'models', '--provider', 'lmstudio', '--repo', tmpRepo, '--json'], tmpRepo, appData);
+    expect(modelsResult.status).toBe(0);
+    expect(modelsResult.stdout).not.toContain(LMSTUDIO_DUMMY_KEY);
+    const modelsPayload = JSON.parse(modelsResult.stdout.trim());
+    const lmstudioModels = modelsPayload.data.providers.find((p: { id: string }) => p.id === 'lmstudio');
+    expect(lmstudioModels.models).toEqual([{ id: 'qwen3.5-9b', label: 'Qwen3.5 9B Local', role: 'flash' }]);
+  });
+
+  test('prompt --live --flash-provider lmstudio uses the live adapter and not mock', async () => {
+    const server = await startFakeOpenAiServer();
+    const appData = makeAppDataWithRegistry(lmstudioRegistryForPort(server.port), [`LMSTUDIO_API_KEY=${LMSTUDIO_DUMMY_KEY}`]);
+    cleanup.push(appData);
+    fs.writeFileSync(path.join(tmpRepo, 'README.md'), '# fixture\n', 'utf8');
+
+    try {
+      const result = runCli(
+        ['prompt', 'lmstudio CLI live fixture', '--repo', tmpRepo, '--live', '--flash-provider', 'lmstudio', '--flash-model', 'qwen3.5-9b', '--json'],
+        tmpRepo,
+        appData,
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain(LMSTUDIO_DUMMY_KEY);
+      const payload = JSON.parse(result.stdout.trim());
+      expect(payload.ok).toBe(true);
+      const runDir = payload.data.runDir;
+      const meta = JSON.parse(fs.readFileSync(path.join(runDir, 'flash', 'flash_output_meta.json'), 'utf8'));
+      expect(meta.live).toBe(true);
+      expect(meta.provider).toBe('lmstudio');
+      expect(meta.model).toBe('qwen3.5-9b');
+      expect(meta.baseUrl_host).toBe('127.0.0.1');
+      expect(JSON.stringify(meta)).not.toContain(LMSTUDIO_DUMMY_KEY);
+      const resolution = JSON.parse(fs.readFileSync(path.join(runDir, 'config_resolution.json'), 'utf8'));
+      expect(resolution.provider).toBe('lmstudio');
+      expect(resolution.model).toBe('qwen3.5-9b');
+      expect(JSON.stringify(resolution)).not.toContain(LMSTUDIO_DUMMY_KEY);
+      expect(fs.existsSync(path.join(runDir, 'flash', 'flash_output.md'))).toBe(true);
+      expect(fs.existsSync(path.join(runDir, 'output', 'context_pack.md'))).toBe(true);
+      expect(fs.existsSync(path.join(runDir, 'output', 'final_prompt.md'))).toBe(true);
+      expect(fs.existsSync(path.join(runDir, 'after'))).toBe(false);
+      expect(fs.existsSync(path.join(runDir, 'terminal_context.json'))).toBe(false);
+    } finally {
+      server.child.kill();
+    }
   });
 
   test('config init-local creates a local registry config from global', () => {

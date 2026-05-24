@@ -7,8 +7,9 @@ import YAML from 'yaml';
 import { OpenAiCompatibleAdapter } from '../../src/adapters/llm/openai_compatible_adapter.js';
 import { runPromptPipeline } from '../../src/core/prompting/pipeline.js';
 
-const SECRET_OPENROUTER = 'sk-openrouter-live-secret';
-const SECRET_DEEPSEEK = 'sk-deepseek-live-secret';
+const SECRET_OPENROUTER = 'sk-ope...cret';
+const SECRET_DEEPSEEK = 'sk-dee...cret';
+const LMSTUDIO_DUMMY_KEY = 'not-needed';
 
 const REGISTRY = {
   version: 1,
@@ -26,6 +27,13 @@ const REGISTRY = {
       base_url: 'https://api.deepseek.com',
       api_key_env: 'DEEPSEEK_API_KEY',
       models: [{ id: 'deepseek-chat', label: 'DeepSeek Chat', role: 'flash' }],
+    },
+    lmstudio: {
+      type: 'openai-compatible',
+      label: 'LM Studio',
+      base_url: 'http://127.0.0.1:1234/v1',
+      api_key_env: 'LMSTUDIO_API_KEY',
+      models: [{ id: 'qwen3.5-9b', label: 'Qwen3.5 9B Local', role: 'flash' }],
     },
   },
   defaults: { flash: { provider: 'openrouter', model: 'deepseek/deepseek-chat' } },
@@ -157,6 +165,51 @@ describe('live flash provider metadata in run artifacts', () => {
       expect(resolution.model).toBe('deepseek-chat');
       expect(resolution.api_key_env).toBe('DEEPSEEK_API_KEY');
       expect(JSON.stringify(resolution)).not.toContain(SECRET_DEEPSEEK);
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+      fs.rmSync(appData, { recursive: true, force: true });
+    }
+  });
+
+  test('prompt live with fake LM Studio provider writes live local metadata and no dummy key', async () => {
+    const appData = makeAppData([`LMSTUDIO_API_KEY=${LMSTUDIO_DUMMY_KEY}`]);
+    const repoRoot = makeRepo();
+    process.env.LOCALAPPDATA = appData;
+    const adapter = new OpenAiCompatibleAdapter(
+      { provider: 'lmstudio', apiKey: LMSTUDIO_DUMMY_KEY, baseUrl: 'http://127.0.0.1:1234/v1', model: 'qwen3.5-9b', live: true },
+      fakeLiveFetch() as typeof fetch,
+    );
+
+    try {
+      const result = await runPromptPipeline({
+        task: 'lmstudio provider metadata',
+        repoRoot,
+        mock: false,
+        live: true,
+        adapter,
+        flashProvider: 'lmstudio',
+        flashModel: 'qwen3.5-9b',
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const meta = JSON.parse(fs.readFileSync(path.join(result.runDir, 'flash', 'flash_output_meta.json'), 'utf8'));
+      expect(meta.provider).toBe('lmstudio');
+      expect(meta.provider_label).toBe('LM Studio');
+      expect(meta.model).toBe('qwen3.5-9b');
+      expect(meta.model_label).toBe('Qwen3.5 9B Local');
+      expect(meta.live).toBe(true);
+      expect(meta.baseUrl_host).toBe('127.0.0.1');
+      expect(JSON.stringify(meta)).not.toContain(LMSTUDIO_DUMMY_KEY);
+
+      const resolution = JSON.parse(fs.readFileSync(path.join(result.runDir, 'config_resolution.json'), 'utf8'));
+      expect(resolution.provider).toBe('lmstudio');
+      expect(resolution.model).toBe('qwen3.5-9b');
+      expect(resolution.api_key_env).toBe('LMSTUDIO_API_KEY');
+      expect(resolution.api_key_source).toBe('global-env:LMSTUDIO_API_KEY');
+      expect(JSON.stringify(resolution)).not.toContain(LMSTUDIO_DUMMY_KEY);
+      expect(fs.existsSync(path.join(result.runDir, 'after'))).toBe(false);
+      expect(fs.existsSync(path.join(result.runDir, 'terminal_context.json'))).toBe(false);
     } finally {
       fs.rmSync(repoRoot, { recursive: true, force: true });
       fs.rmSync(appData, { recursive: true, force: true });

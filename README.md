@@ -530,6 +530,16 @@ Global `config.yaml` shape:
 version: 1
 
 providers:
+  lmstudio:
+    type: openai-compatible
+    label: LM Studio
+    base_url: http://127.0.0.1:1234/v1
+    api_key_env: LMSTUDIO_API_KEY
+    models:
+      - id: qwen3.5-9b
+        label: Qwen3.5 9B Local
+        role: flash
+
   openrouter:
     type: openai-compatible
     label: OpenRouter
@@ -562,11 +572,28 @@ defaults:
     temperature: 0.1
 ```
 
-Provider and model ids are editable config values, not hardcoded — add or rename providers/models freely.
+Provider and model ids are editable config values, not hardcoded — add or rename providers/models freely. LM Studio can be added as provider `lmstudio` under the existing Live mode; there is no separate Local/Cloud GUI mode. LM Studio is just another Live provider backed by the same OpenAI-compatible provider registry/config service. Before setting the LM Studio model id, query the running server and copy the exact returned id (the `qwen3.5-9b` example is editable and may not match every LM Studio model):
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:1234/v1/models
+```
+
+After editing `%LOCALAPPDATA%\vibecodelight\config.yaml`, sync global → local for this repo:
+
+```powershell
+pnpm vibecode config sync --from-global --repo C:\DATA\PROJECTS\VibecodeLight --json
+```
+
+For a local live smoke, use the exact model id returned by `/v1/models`:
+
+```powershell
+pnpm vibecode prompt "local LM Studio flash smoke" --live --flash-provider lmstudio --flash-model qwen3.5-9b --json
+```
 
 `.env` shape (credentials only, referenced by `api_key_env` name):
 
 ```text
+LMSTUDIO_API_KEY=not-needed
 OPENROUTER_API_KEY=...
 DEEPSEEK_API_KEY=...
 ```

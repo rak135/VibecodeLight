@@ -12,6 +12,7 @@ import {
 } from '../../../src/core/config/config_service.js';
 
 const SECRET = 'sk-do-not-leak-1234567890';
+const LMSTUDIO_DUMMY_KEY = 'not-needed';
 
 const REGISTRY = {
   version: 1,
@@ -40,6 +41,20 @@ const REGISTRY = {
   defaults: {
     flash: { provider: 'openrouter', model: 'deepseek/deepseek-chat', timeout_ms: 30000, max_tokens: 4096, temperature: 0.1 },
   },
+};
+
+const LMSTUDIO_REGISTRY = {
+  version: 1,
+  providers: {
+    lmstudio: {
+      type: 'openai-compatible',
+      label: 'LM Studio',
+      base_url: 'http://127.0.0.1:1234/v1',
+      api_key_env: 'LMSTUDIO_API_KEY',
+      models: [{ id: 'qwen3.5-9b', label: 'Qwen3.5 9B Local', role: 'flash' }],
+    },
+  },
+  defaults: { flash: { provider: 'lmstudio', model: 'qwen3.5-9b' } },
 };
 
 function clone<T>(value: T): T {
@@ -177,6 +192,31 @@ describe('resolveFlashConfig (provider registry)', () => {
     expect(providerConfig?.baseUrl).toBe('https://api.deepseek.com');
   });
 
+  test('LM Studio resolves as an arbitrary OpenAI-compatible live provider with a dummy key', () => {
+    writeYaml(localConfigPath, LMSTUDIO_REGISTRY);
+    writeEnv(globalEnvPath, [`LMSTUDIO_API_KEY=${LMSTUDIO_DUMMY_KEY}`]);
+
+    const { resolution, providerConfig, error } = resolve({ live: true });
+
+    expect(error).toBeUndefined();
+    expect(resolution.provider).toBe('lmstudio');
+    expect(resolution.provider_label).toBe('LM Studio');
+    expect(resolution.provider_type).toBe('openai-compatible');
+    expect(resolution.model).toBe('qwen3.5-9b');
+    expect(resolution.model_label).toBe('Qwen3.5 9B Local');
+    expect(resolution.baseUrl_host).toBe('127.0.0.1');
+    expect(resolution.api_key_env).toBe('LMSTUDIO_API_KEY');
+    expect(resolution.api_key_source).toBe('global-env:LMSTUDIO_API_KEY');
+    expect(resolution.has_api_key).toBe(true);
+    expect(JSON.stringify(resolution)).not.toContain(LMSTUDIO_DUMMY_KEY);
+    expect(providerConfig?.provider).toBe('lmstudio');
+    expect(providerConfig?.baseUrl).toBe('http://127.0.0.1:1234/v1');
+    expect(providerConfig?.apiKey).toBe(LMSTUDIO_DUMMY_KEY);
+    expect(providerConfig?.apiKeyEnv).toBe('LMSTUDIO_API_KEY');
+    expect(providerConfig?.model).toBe('qwen3.5-9b');
+    expect(providerConfig?.live).toBe(true);
+  });
+
   test('missing provider api_key_env fails with PROVIDER_API_KEY_ENV_MISSING', () => {
     writeYaml(localConfigPath, {
       providers: { noenv: { type: 'openai-compatible', base_url: 'https://noenv.invalid/v1', models: [{ id: 'm1', role: 'flash' }] } },
@@ -250,6 +290,17 @@ describe('resolveFlashConfig (provider registry)', () => {
     const written = fs.readFileSync(artifactPath, 'utf8');
     expect(written).not.toContain(SECRET);
     expect(path.basename(artifactPath)).toBe('config_resolution.json');
+  });
+
+  test('minimal local config template documents LM Studio as a Live provider example without secrets', () => {
+    const result = ensureLocalConfig({ repoRoot: path.join(root, 'repo'), env: {}, globalConfigPath, localConfigPath });
+    const written = fs.readFileSync(result.localConfigPath, 'utf8');
+
+    expect(written).toContain('lmstudio:');
+    expect(written).toContain('base_url: http://127.0.0.1:1234/v1');
+    expect(written).toContain('api_key_env: LMSTUDIO_API_KEY');
+    expect(written).toContain('model id must match /v1/models');
+    expect(written).not.toContain(LMSTUDIO_DUMMY_KEY);
   });
 
   test('records baseUrl host only, never a credentialed URL', () => {
