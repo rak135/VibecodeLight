@@ -318,6 +318,17 @@ function inferResponsibility(name: string): string {
   return map[name] ?? 'Repository subsystem.';
 }
 
+function headingText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value !== 'object' || value === null) return '';
+  const record = value as Record<string, unknown>;
+  if (typeof record.text === 'string') return record.text;
+  if (typeof record.title === 'string') return record.title;
+  if (typeof record.heading === 'string') return record.heading;
+  if (typeof record.name === 'string') return record.name;
+  return '';
+}
+
 function renderRepoAtlas(opts: BuildCompactFlashContextOptions): string {
   const allPaths = collectInventoryPaths(opts.runDir);
   const topLevel = new Map<string, number>();
@@ -378,7 +389,13 @@ function docExcerpt(runDir: string, docPath: string): string {
   ];
   const doc = sources.find((record) => getPath(record) === docPath);
   if (!doc) return '';
-  const headings = Array.isArray(doc.headings) ? doc.headings.slice(0, 8).join(', ') : '';
+  const headings = Array.isArray(doc.headings)
+    ? doc.headings
+      .slice(0, 8)
+      .map((heading) => headingText(heading))
+      .filter(Boolean)
+      .join(', ')
+    : '';
   const excerpt = truncate(getString(doc, 'excerpt') || getString(doc, 'summary') || getString(doc, 'content'), 1000);
   return [headings ? `headings: ${headings}` : '', excerpt].filter(Boolean).join(' — ');
 }

@@ -108,6 +108,46 @@ describe('compact Repo Atlas + Task Slice flash input', () => {
     fs.rmSync(fixture.repoRoot, { recursive: true, force: true });
   });
 
+  test('renders doc headings text when scan docs headings are objects instead of leaking [object Object]', () => {
+    const fixture = makeRunFixture();
+    fs.writeFileSync(
+      path.join(fixture.runDir, 'scan', 'docs.json'),
+      JSON.stringify({
+        docs: [
+          {
+            path: 'docs/CONTEXT.md',
+            headings: [
+              { text: 'VibecodeLight Context Architecture', level: 1 },
+              { text: 'Purpose', level: 2 },
+            ],
+            excerpt: 'Context architecture excerpt.',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const manifest = buildFlashInputManifest({
+      run_id: fixture.runId,
+      task: 'Render doc headings correctly',
+      repo_root: fixture.repoRoot,
+      runDir: fixture.runDir,
+    });
+    buildFlashInput({
+      run_id: fixture.runId,
+      task: 'Render doc headings correctly',
+      repo_root: fixture.repoRoot,
+      runDir: fixture.runDir,
+      manifest,
+    });
+
+    const taskSlice = fs.readFileSync(path.join(fixture.flashDir, 'task_slice.md'), 'utf8');
+    expect(taskSlice).toContain('VibecodeLight Context Architecture, Purpose');
+    expect(taskSlice).not.toContain('[object Object]');
+
+    fs.rmSync(fixture.repoRoot, { recursive: true, force: true });
+  });
+
   test('writes relevance_selection.json with scores, reasons, selected symbol and import counts', () => {
     const { fixture } = buildFixtureInput();
     const selection = JSON.parse(fs.readFileSync(path.join(fixture.flashDir, 'relevance_selection.json'), 'utf8'));
