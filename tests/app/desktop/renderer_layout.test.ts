@@ -116,13 +116,27 @@ describe('desktop renderer Elegant Dark shell', () => {
 
     // add-terminal is now a real control and must not carry the marker.
     expect(html).not.toMatch(/id="add-terminal"[^>]*class="[^"]*design-only/);
-    // auto-approve is still a UI-only toggle.
-    expect(html).toMatch(/id="auto-approve"[^>]*class="[^"]*design-only/);
+    // auto-approve is now a real, wired control and must not carry the marker.
+    expect(html).not.toMatch(/id="auto-approve"[^>]*class="[^"]*design-only/);
 
     // No status-disclaimer labels leak into the UI for design-only features.
     expect(html).not.toMatch(/not implemented/i);
     expect(html).not.toMatch(/coming soon/i);
     expect(html).not.toMatch(/not yet available/i);
+  });
+
+  test('wires auto-approve as a real toggle that auto-sends after a successful build', () => {
+    const html = readHtml();
+    // The toggle lives in the prompt/task action area, next to the Build context control.
+    const taskActions = html.match(/<div class="ov-task-actions">[\s\S]*?<\/div>\s*<\/div>/);
+    expect(taskActions).not.toBeNull();
+    expect(taskActions![0]).toMatch(/id="auto-approve"/);
+    // A helper reflects the toggle state and is consulted by the send path.
+    expect(html).toMatch(/function autoApproveEnabled/);
+    // The send call forwards the auto-approve flag through the composer bridge.
+    expect(html).toMatch(/sendPreview\([^)]*autoApproveEnabled\(\)/);
+    // A successful build triggers an automatic send when auto-approve is on.
+    expect(html).toMatch(/autoApproveEnabled\(\)[\s\S]{0,80}sendToTerminal\(\)/);
   });
 
   test('wires the New terminal button through the multi-terminal controller', () => {

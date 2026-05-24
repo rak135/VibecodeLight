@@ -1,0 +1,117 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+import { runPromptCommand, type PromptSendTerminal } from '../../../src/app/cli/index.js';
+import { BRACKETED_PASTE_START, BRACKETED_PASTE_END } from '../../../src/core/terminal/send_prompt.js';
+
+function makeRepo(prefix = 'vibecode-cli-auto-approve-'): string {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.writeFileSync(path.join(repoRoot, 'README.md'), '# Fixture repo\n', 'utf8');
+  fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'src', 'fixture.ts'), 'export const fixture = true;\n', 'utf8');
+  return repoRoot;
+}
+
+function makeWriter() {
+  let text = '';
+  return {
+    writer: { write: (chunk: string) => { text += chunk; return true; } },
+    get text() { return text; },
+  };
+}
+
+function makeFakeTerminal(repoRoot: string): { terminal: PromptSendTerminal; writes: string[]; closed: () => boolean } {
+  const writes: string[] = [];
+  let closedFlag = false;
+  return {
+    writes,
+    closed: () => closedFlag,
+    terminal: {
+      writer: {
+        sessionId: 'cli-auto-approve-test',
+        cwd: repoRoot,
+        write: (data: string) => { writes.push(data); },
+      },
+      close: () => { closedFlag = true; },
+    },
+  };
+}
+
+describe('prompt --auto-approve CLI behavior', () => {
+  test('sends final_prompt.md and records auto_approve=true in send_metadata.json', async () => {
+    const repoRoot = makeRepo();
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+    const fake = makeFakeTerminal(repoRoot);
+    try {
+      const result = await runPromptCommand({
+        task: 'cli auto approve sends prompt',
+        repoRoot,
+        mock: true,
+        live: false,
+        json: true,
+        autoApprove: true,
+        sendTerminal: fake.terminal,
+        stdout: stdout.writer,
+        stderr: stderr.writer,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      // The exact saved final_prompt.md is what was pasted (bracketed + Enter).
+      const finalPrompt = fs.readFileSync(result.finalPromptPath, 'utf8');
+      const pasteWrites = fake.writes.slice(0, -1);
+      expect(fake.writes.at(-1)).toBe('\r');
+      expect(pasteWrites.join('')).toBe(BRACKETED_PASTE_START + finalPrompt + BRACKETED_PASTE_END);
+      expect(fake.closed()).toBe(true);
+
+      // send_metadata.json is written with auto_approve = true.
+      const metaPath = path.join(repoRoot, '.vibecode', 'runs', result.run_id, 'terminal', 'send_metadata.json');
+      expect(fs.existsSync(metaPath)).toBe(true);
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      expect(meta.auto_approve).toBe(true);
+
+      // Current mirror is written only after a successful send.
+      expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'current', 'send_metadata.json'))).toBe(true);
+
+      // JSON envelope reports the auto-approved send.
+      const envelope = JSON.parse(stdout.text.trim());
+      expect(envelope.ok).toBe(true);
+      expect(envelope.data.auto_approve).toBe(true);
+      expect(envelope.data.send.ok).toBe(true);
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('without --auto-approve, no terminal send happens and no send_metadata.json is written', async () => {
+    const repoRoot = makeRepo();
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+    const fake = makeFakeTerminal(repoRoot);
+    try {
+      const result = await runPromptCommand({
+        task: 'cli without auto approve does not send',
+        repoRoot,
+        mock: true,
+        live: false,
+        json: false,
+        sendTerminal: fake.terminal,
+        stdout: stdout.writer,
+        stderr: stderr.writer,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(fake.writes).toEqual([]);
+      const metaPath = path.join(repoRoot, '.vibecode', 'runs', result.run_id, 'terminal', 'send_metadata.json');
+      expect(fs.existsSync(metaPath)).toBe(false);
+      expect(stdout.text).toContain('no terminal send');
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+});

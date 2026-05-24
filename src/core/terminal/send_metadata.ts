@@ -12,7 +12,7 @@ export interface SendMetadata {
   terminal_session_id: string;
   sent_file: string;
   sent_at: string;
-  auto_approve: false;
+  auto_approve: boolean;
   byte_count: number;
   char_count: number;
   bytes: number;
@@ -40,6 +40,8 @@ export interface BuildSendMetadataInput {
   chunk_size: number;
   enter_sent_after_paste: boolean;
   terminal_cwd?: string;
+  /** True when the prompt was sent without a manual approval click. Defaults to false. */
+  auto_approve?: boolean;
 }
 
 export function buildSendMetadata(input: BuildSendMetadataInput): SendMetadata {
@@ -51,7 +53,7 @@ export function buildSendMetadata(input: BuildSendMetadataInput): SendMetadata {
     terminal_session_id: input.terminal_session_id,
     sent_file: FINAL_PROMPT_RELATIVE_PATH,
     sent_at: input.sentAt,
-    auto_approve: false,
+    auto_approve: input.auto_approve ?? false,
     byte_count: Buffer.byteLength(input.content, 'utf8'),
     char_count: input.content.length,
     bytes: Buffer.byteLength(input.content, 'utf8'),

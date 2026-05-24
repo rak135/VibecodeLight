@@ -52,7 +52,7 @@ export interface ComposerSendIpcResult {
     terminal_session_id: string;
     sent_file: string;
     sent_at: string;
-    auto_approve: false;
+    auto_approve: boolean;
     byte_count: number;
     char_count: number;
     bytes: number;
@@ -205,7 +205,7 @@ export interface VibecodePreloadApi {
   composer: {
     generatePreview(task: string): Promise<ComposerPreviewIpcResult>;
     generatePreviewLive(task: string, flashProvider?: string, flashModel?: string): Promise<ComposerPreviewIpcResult>;
-    sendPreview(runId: string, targetSessionId?: string): Promise<ComposerSendIpcResult>;
+    sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean): Promise<ComposerSendIpcResult>;
     onProgress(callback: (event: PipelineProgressEvent) => void): () => void;
   };
   runs: {
@@ -271,8 +271,8 @@ export function createVibecodeApi(): VibecodePreloadApi {
       generatePreviewLive(task: string, flashProvider?: string, flashModel?: string) {
         return ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel) as Promise<ComposerPreviewIpcResult>;
       },
-      sendPreview(runId: string, targetSessionId?: string) {
-        return ipcRenderer.invoke('composer:sendPreview', runId, targetSessionId) as Promise<ComposerSendIpcResult>;
+      sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean) {
+        return ipcRenderer.invoke('composer:sendPreview', runId, targetSessionId, Boolean(autoApprove)) as Promise<ComposerSendIpcResult>;
       },
       onProgress(callback: (event: PipelineProgressEvent) => void) {
         const listener = (_event: unknown, progressEvent: PipelineProgressEvent) => callback(progressEvent);

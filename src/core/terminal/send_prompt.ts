@@ -59,6 +59,11 @@ export interface SendPromptOptions {
    * basename of runDir (matches the workspace layout).
    */
   runId?: string;
+  /**
+   * Records whether this send was auto-approved (sent without a manual approval
+   * click). Honestly captured in send_metadata.json; defaults to false.
+   */
+  autoApprove?: boolean;
 }
 
 export interface SendPromptError {
@@ -218,6 +223,7 @@ export async function sendFinalPrompt(opts: SendPromptOptions): Promise<SendProm
     chunk_size: plan.chunkSize,
     enter_sent_after_paste: plan.enterWrite !== undefined,
     terminal_cwd: opts.writer.cwd,
+    auto_approve: opts.autoApprove ?? false,
   });
 
   const metadataPath = writeSendMetadata(opts.runDir, meta);

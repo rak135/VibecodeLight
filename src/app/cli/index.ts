@@ -41,7 +41,15 @@ import {
 } from '../../core/context/index.js';
 import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
 import type { PipelineEvent, PromptPipelineResult } from '../../core/prompting/index.js';
-import { runTerminalDemo } from '../../core/terminal/index.js';
+import {
+  closeSession,
+  runTerminalDemo,
+  sendFinalPrompt,
+  startTerminalSession,
+  type SendPromptError,
+  type SendPromptSuccess,
+  type TerminalSendWriter,
+} from '../../core/terminal/index.js';
 import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
 
 export const BAD_PROVIDER_RESPONSE_TIP = 'Tip: This indicates an API endpoint, auth, model, or provider configuration error. Check pnpm vibecode config show for your current provider configuration.';
@@ -76,6 +84,16 @@ export function writePromptProgressEvent(event: PipelineEvent, stderr: TextWrite
   if (line) stderr.write(`${line}\n`);
 }
 
+/**
+ * A terminal target for an auto-approved send. The CLI spawns a real PTY by
+ * default; tests inject a fake writer so the auto-approve path stays
+ * deterministic and never starts a shell.
+ */
+export interface PromptSendTerminal {
+  writer: TerminalSendWriter;
+  close?: () => void | Promise<void>;
+}
+
 export interface PromptCommandOptions {
   task: string;
   repoRoot: string;
@@ -87,6 +105,26 @@ export interface PromptCommandOptions {
   stdout?: TextWriter;
   stderr?: TextWriter;
   adapter?: LlmAdapter;
+  /**
+   * When true, the rendered final_prompt.md is sent into a terminal without a
+   * separate approval step and send_metadata.json records auto_approve=true.
+   */
+  autoApprove?: boolean;
+  /** Test seam: provide the send target instead of spawning a real PTY. */
+  sendTerminal?: PromptSendTerminal;
+}
+
+function createCliSendTerminal(repoRoot: string): PromptSendTerminal {
+  const session = startTerminalSession({ cwd: repoRoot, cols: 120, rows: 30 });
+  const writer: TerminalSendWriter = {
+    sessionId: `cli-${session.metadata.pid}`,
+    cwd: session.metadata.cwd,
+    write: (data: string) => session.pty.write(data),
+  };
+  return {
+    writer,
+    close: () => closeSession(session),
+  };
 }
 
 export async function runPromptCommand(options: PromptCommandOptions): Promise<PromptPipelineResult> {
@@ -120,6 +158,43 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
     return result;
   }
 
+  // Auto-approve: skip the separate approval step and send the saved
+  // final_prompt.md straight into a terminal. The artifact is the truth — the
+  // exact rendered file is what is sent — and send_metadata.json records that
+  // this was an auto-approved send.
+  let sendInfo: SendPromptSuccess | undefined;
+  let sendError: SendPromptError | undefined;
+  if (options.autoApprove) {
+    const vibecodePath = getWorkspacePaths(options.repoRoot).vibecode;
+    const terminal = options.sendTerminal ?? createCliSendTerminal(options.repoRoot);
+    try {
+      const sendResult = await sendFinalPrompt({
+        runDir: result.runDir,
+        writer: terminal.writer,
+        vibecodePath,
+        runId: result.run_id,
+        appendNewline: '\r',
+        autoApprove: true,
+      });
+      if (sendResult.ok) sendInfo = sendResult;
+      else sendError = sendResult.error;
+    } finally {
+      await terminal.close?.();
+    }
+  }
+
+  const sendEnvelope = options.autoApprove
+    ? sendInfo
+      ? {
+          ok: true as const,
+          send_metadata: sendInfo.metadataPath,
+          current_send_metadata: sendInfo.currentMetadataPath ?? null,
+          sent_at: sendInfo.metadata.sent_at,
+          auto_approve: sendInfo.metadata.auto_approve,
+        }
+      : { ok: false as const, error: sendError ?? { code: 'SEND_FAILED', message: 'auto-approve send failed', details: [] } }
+    : undefined;
+
   if (options.json) {
     stdout.write(`${JSON.stringify({
       ok: true,
@@ -135,6 +210,8 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
         estimated_tokens: result.estimatedTokens,
         hard_max_tokens: result.hardMaxTokens,
         provider_called: result.providerCalled,
+        auto_approve: Boolean(options.autoApprove),
+        ...(sendEnvelope ? { send: sendEnvelope } : {}),
       },
       artifacts: result.artifacts,
       warnings: result.warnings,
@@ -149,7 +226,15 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
   for (const artifact of result.artifacts) {
     stdout.write(`  ${artifact}\n`);
   }
-  stdout.write('note: no terminal send in this checkpoint\n');
+  if (options.autoApprove) {
+    if (sendInfo) {
+      stdout.write(`auto-approve: sent final_prompt.md (send_metadata: ${sendInfo.metadataPath})\n`);
+    } else {
+      stderr.write(`auto-approve send failed: ${sendError?.code ?? 'SEND_FAILED'} ${sendError?.message ?? ''}\n`);
+    }
+  } else {
+    stdout.write('note: no terminal send in this checkpoint\n');
+  }
   return result;
 }
 
@@ -1501,8 +1586,9 @@ export function createCli(): Command {
     .option('--live', 'Use configured live flash provider')
     .option('--flash-provider <id>', 'Override the active flash provider id')
     .option('--flash-model <id>', 'Override the active flash model id')
+    .option('--auto-approve', 'Send the rendered final_prompt.md into a terminal without a separate approval step')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; autoApprove?: boolean; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -1526,6 +1612,7 @@ export function createCli(): Command {
         live: options.live === true,
         flashProvider: options.flashProvider,
         flashModel: options.flashModel,
+        autoApprove: options.autoApprove === true,
         json: options.json,
       });
       if (result.ok === false) process.exitCode = 1;

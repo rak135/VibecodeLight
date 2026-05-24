@@ -62,4 +62,11 @@ describe('CLI basics', () => {
     // run ID format: YYYYMMDD-HHMMSS-XXXX
     expect(output).toMatch(/^\d{8}-\d{6}-[A-Z0-9]{4}$/);
   });
+
+  test('vibecode prompt --help advertises the --auto-approve flag', () => {
+    const result = runCli(['prompt', '--help']);
+    expect(result.status).toBe(0);
+    const output = `${result.stdout}${result.stderr}`;
+    expect(output).toContain('--auto-approve');
+  });
 });

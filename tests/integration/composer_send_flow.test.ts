@@ -183,6 +183,50 @@ describe('composer preview -> send integration flow', () => {
     expect(fs.existsSync(path.join(preview.runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
   });
 
+  test('composer:sendPreview forwards the autoApprove flag into send_metadata', async () => {
+    const preview = await generatePromptPreview({ task: 'integration: auto approve send', repoRoot: tmpRepo });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const service = createFakeService({ sessionId: 'desktop-int-auto', cwd: tmpRepo, pid: 3030, shell: 'pwsh' });
+    const ipcMain = createFakeIpcMain();
+    registerDesktopComposerIpcHandlers(ipcMain, {
+      getRepoPath: () => tmpRepo,
+      getTerminalService: () => service as DesktopTerminalServiceLike,
+    });
+
+    const send = await ipcMain.invoke('composer:sendPreview', preview.run_id, 'desktop-int-auto', true) as Awaited<
+      ReturnType<typeof sendFinalPromptForRun>
+    >;
+
+    expect(send.ok).toBe(true);
+    if (!send.ok) return;
+    expect(send.metadata.auto_approve).toBe(true);
+    const meta = JSON.parse(fs.readFileSync(send.sendMetadataPath, 'utf8'));
+    expect(meta.auto_approve).toBe(true);
+  });
+
+  test('composer:sendPreview defaults auto_approve to false when the flag is absent', async () => {
+    const preview = await generatePromptPreview({ task: 'integration: manual approve send', repoRoot: tmpRepo });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const service = createFakeService({ sessionId: 'desktop-int-manual', cwd: tmpRepo, pid: 3031, shell: 'pwsh' });
+    const ipcMain = createFakeIpcMain();
+    registerDesktopComposerIpcHandlers(ipcMain, {
+      getRepoPath: () => tmpRepo,
+      getTerminalService: () => service as DesktopTerminalServiceLike,
+    });
+
+    const send = await ipcMain.invoke('composer:sendPreview', preview.run_id) as Awaited<
+      ReturnType<typeof sendFinalPromptForRun>
+    >;
+
+    expect(send.ok).toBe(true);
+    if (!send.ok) return;
+    expect(send.metadata.auto_approve).toBe(false);
+  });
+
   test('desktop send appends \r after bracketed paste payload and file on disk is not mutated', async () => {
     const preview = await generatePromptPreview({ task: 'integration: approve and send appends enter', repoRoot: tmpRepo });
     expect(preview.ok).toBe(true);

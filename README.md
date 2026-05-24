@@ -93,6 +93,7 @@ final prompt renderer
 real PTY terminal (node-pty)
 Electron shell + composer preview
 send final prompt into terminal (send_metadata.json)
+auto-approve send (desktop composer auto-send after build, and CLI `vibecode prompt --auto-approve`; send_metadata.auto_approve)
 per-run git commit
 ```
 
@@ -102,7 +103,6 @@ Deferred / not yet implemented:
 follow-up terminal context (terminal_excerpt_after.md — explicitly deferred in 32bfb8f)
 schemas/ JSON Schema files (placeholder directory; see JSON Schema Strategy debt below)
 src/core/validation/ (placeholder directory; TypeScript types and Pydantic models exist but JSON Schema cross-language contracts not yet written)
-auto-approve mode
 post-run after/ artifacts
 terminal-mode detection (Hermes/OpenCode/Codex)
 ```
@@ -802,12 +802,13 @@ Run the complete mock prompt pipeline without Electron:
 ```powershell
 pnpm vibecode prompt "task" --mock
 pnpm vibecode prompt "task" --mock --json
+pnpm vibecode prompt "task" --mock --auto-approve
 pnpm vibecode runs list
 pnpm vibecode runs show latest
 pnpm vibecode runs show latest --json
 ```
 
-`prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. It does not send anything to a terminal in this checkpoint, so no `terminal/send_metadata.json` or `after/` post-run artifacts are created.
+`prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. By default it does not send anything to a terminal, so no `terminal/send_metadata.json` is created. Adding `--auto-approve` sends the saved `output/final_prompt.md` into a terminal without a separate approval step and writes `terminal/send_metadata.json` with `auto_approve: true` (still no `after/` post-run artifacts). The artifact is the truth — the exact rendered file is what is sent.
 
 ### Internal scanner CLI
 

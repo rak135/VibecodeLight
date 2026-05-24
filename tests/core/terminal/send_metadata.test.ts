@@ -60,6 +60,39 @@ describe('send_metadata module', () => {
     expect(meta.terminal_cwd).toBe('C:/repo');
   });
 
+  test('buildSendMetadata records auto_approve=true when the send was auto-approved', () => {
+    const meta = buildSendMetadata({
+      run_id: 'r-auto',
+      terminal_session_id: 's',
+      content: 'auto me',
+      payload: '[200~auto me[201~\r',
+      sentAt: '2026-05-20T12:00:00.000Z',
+      newline_appended: true,
+      lines: 1,
+      chunk_count: 1,
+      chunk_size: 2048,
+      enter_sent_after_paste: true,
+      auto_approve: true,
+    });
+    expect(meta.auto_approve).toBe(true);
+  });
+
+  test('buildSendMetadata defaults auto_approve to false when omitted', () => {
+    const meta = buildSendMetadata({
+      run_id: 'r-default',
+      terminal_session_id: 's',
+      content: 'manual',
+      payload: '[200~manual[201~',
+      sentAt: '2026-05-20T12:00:00.000Z',
+      newline_appended: false,
+      lines: 1,
+      chunk_count: 1,
+      chunk_size: 2048,
+      enter_sent_after_paste: false,
+    });
+    expect(meta.auto_approve).toBe(false);
+  });
+
   test('buildSendMetadata reports newline_appended=false when payload has no trailing Enter', () => {
     const text = 'identical bytes';
     const meta = buildSendMetadata({

@@ -116,6 +116,10 @@
                           <span id="composer-flash-key" class="ov-flash-key"></span>
                         </span>
                         <span class="spacer"></span>
+                        <button id="auto-approve" class="toggle" type="button" role="switch" aria-checked="false" title="Auto-approve: send final_prompt.md automatically after the context build, without a manual Send click">
+                          <span class="sw"></span>
+                          auto-approve
+                        </button>
                         <button id="generate-preview" class="btn primary" type="button">
                           <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
                           Build context
@@ -172,10 +176,6 @@
 
                 <div class="ov-foot">
                   <div class="hint" id="ov-hint">review, then send into <span style="color:var(--text-2)" id="ov-hint-scope">~/main</span></div>
-                  <button id="auto-approve" class="toggle design-only" type="button" title="Auto-approve sending">
-                    <span class="sw"></span>
-                    auto-approve
-                  </button>
                   <span class="spacer"></span>
                   <span class="send-status" id="send-status" aria-live="polite"></span>
                   <button id="cancel-composer" class="btn ghost" type="button">Cancel</button>
@@ -370,6 +370,13 @@
         return terminals.count() > 0;
       }
 
+      // Auto-approve is a real toggle: when on, a successful context build sends
+      // final_prompt.md straight into the origin terminal with no manual Send
+      // click. The exact saved final_prompt.md is still what is sent.
+      function autoApproveEnabled() {
+        return autoApprove.classList.contains('on');
+      }
+
       function refreshSendButton() {
         const ready = terminalReady();
         const canSend = Boolean(currentPreview && currentPreview.ok && ready);
@@ -479,7 +486,7 @@
             rpRow('CWD', escapeHtml(sessionState.cwd)) +
             rpRow('Status', escapeHtml(sessionState.status)) +
             rpRow('PID', sessionState.pid == null ? '—' : escapeHtml(sessionState.pid)) +
-            rpRow('Auto-approve', 'off') +
+            rpRow('Auto-approve', autoApproveEnabled() ? 'on' : 'off') +
             '</div>' +
             '<div class="rp-section design-only"><h4>Lifetime</h4>' +
             rpRow('Started', '—') + rpRow('Idle for', '—') + rpRow('Runs in session', '—') +
@@ -656,7 +663,11 @@
       // ---- Composer controls ----
       closeComposerBtn.addEventListener('click', closeOverlay);
       cancelComposerBtn.addEventListener('click', closeOverlay);
-      autoApprove.addEventListener('click', () => autoApprove.classList.toggle('on'));
+      autoApprove.addEventListener('click', () => {
+        const on = autoApprove.classList.toggle('on');
+        autoApprove.setAttribute('aria-checked', on ? 'true' : 'false');
+        if (activePanel === 'session') renderPanel('session');
+      });
       finalHead.addEventListener('click', () => finalWrap.classList.toggle('open'));
 
       window.addEventListener('keydown', (event) => {
@@ -838,6 +849,12 @@
           finalWrap.classList.add('open');
           setStep('ready');
           if (activePanel === 'artifacts' || activePanel === 'context') renderPanel(activePanel);
+          // Auto-approve: skip the manual Send click and deliver final_prompt.md
+          // straight into the origin terminal. sendToTerminal still re-checks the
+          // live session and surfaces a visible error if it has closed.
+          if (autoApproveEnabled()) {
+            void sendToTerminal();
+          }
         } catch (error) {
           renderErrorSummary({ code: 'EXCEPTION', message: error instanceof Error ? error.message : String(error) });
           setStep('compose');
@@ -864,7 +881,7 @@
         sendButton.disabled = true;
         setSendStatus('Sending final_prompt.md…');
         try {
-          const send = await window.vibecodeAPI.composer.sendPreview(currentPreview.run_id, composerOriginSessionId);
+          const send = await window.vibecodeAPI.composer.sendPreview(currentPreview.run_id, composerOriginSessionId, autoApproveEnabled());
           if (!send || send.ok !== true) {
             const err = (send && send.error) || { code: 'UNKNOWN', message: 'unknown error' };
             setSendStatus(err.code + ' — ' + err.message, 'error');

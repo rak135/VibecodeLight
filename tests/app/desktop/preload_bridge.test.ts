@@ -139,10 +139,30 @@ describe('desktop preload bridge boundary', () => {
     await import('../../../src/app/desktop/preload.js');
 
     const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
-    const composer = api.composer as { sendPreview: (runId: string, targetSessionId?: string) => Promise<unknown> };
+    const composer = api.composer as { sendPreview: (runId: string, targetSessionId?: string, autoApprove?: boolean) => Promise<unknown> };
     await composer.sendPreview('2026-05-20_001');
 
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001', undefined);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001', undefined, false);
+  });
+
+  test('composer.sendPreview forwards the autoApprove flag over IPC', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const composer = api.composer as { sendPreview: (runId: string, targetSessionId?: string, autoApprove?: boolean) => Promise<unknown> };
+    await composer.sendPreview('2026-05-20_001', 'origin-tile', true);
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001', 'origin-tile', true);
   });
 
   test('runs.list invokes runs:list IPC channel only', async () => {

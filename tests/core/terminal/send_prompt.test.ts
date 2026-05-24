@@ -100,6 +100,32 @@ describe('sendFinalPrompt', () => {
     expect(meta.enter_sent_after_paste).toBe(false);
   });
 
+  test('records auto_approve=true in send_metadata when the autoApprove option is set', async () => {
+    const content = 'auto approved\n';
+    const { runDir } = makeRun(tmpRoot, 'r-auto', content);
+    const writer = createWriter();
+
+    const result = await sendFinalPrompt({ runDir, writer, autoApprove: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.metadata.auto_approve).toBe(true);
+    const meta = JSON.parse(fs.readFileSync(result.metadataPath, 'utf8'));
+    expect(meta.auto_approve).toBe(true);
+  });
+
+  test('defaults auto_approve to false when the autoApprove option is omitted', async () => {
+    const content = 'manual send\n';
+    const { runDir } = makeRun(tmpRoot, 'r-manual', content);
+    const writer = createWriter();
+
+    const result = await sendFinalPrompt({ runDir, writer });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.metadata.auto_approve).toBe(false);
+  });
+
   test('mirrors metadata to .vibecode/current/send_metadata.json only when vibecodePath provided and only after success', async () => {
     const content = 'mirror me';
     const { runDir, vibecodePath } = makeRun(tmpRoot, 'r3', content);

@@ -165,6 +165,41 @@ describe('DesktopPromptSendService', () => {
     expect(fs.existsSync(path.join(runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
   });
 
+  test('forwards autoApprove into the recorded send metadata', async () => {
+    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
+    const content = '# Task\nauto\n';
+    makeFinalizedRun(tmpRepo, 'r-auto', content);
+    const service = createFakeService({ sessionId: 'desktop-auto', cwd: tmpRepo, pid: 5, shell: 'pwsh' });
+
+    const result = await sendFinalPromptForRun({
+      runId: 'r-auto',
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+      autoApprove: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.metadata.auto_approve).toBe(true);
+  });
+
+  test('defaults send metadata auto_approve to false when autoApprove is omitted', async () => {
+    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
+    const content = '# Task\nmanual\n';
+    makeFinalizedRun(tmpRepo, 'r-manual', content);
+    const service = createFakeService({ sessionId: 'desktop-manual', cwd: tmpRepo, pid: 6, shell: 'pwsh' });
+
+    const result = await sendFinalPromptForRun({
+      runId: 'r-manual',
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.metadata.auto_approve).toBe(false);
+  });
+
   test('targetSessionId routes the paste to the named session, not the active one', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const content = '# Task\n';

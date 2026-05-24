@@ -45,6 +45,8 @@ export interface SendPromptForRunRequest {
   repoRoot: string;
   terminalService: DesktopTerminalServiceLike;
   targetSessionId?: string;
+  /** When true, the send was auto-approved (no manual approval click). Defaults to false. */
+  autoApprove?: boolean;
 }
 
 function errorResult(code: string, message: string, pathValue?: string, details: string[] = []): SendPromptIpcError {
@@ -123,6 +125,7 @@ export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promi
     vibecodePath,
     runId,
     appendNewline: '\r',
+    autoApprove: req.autoApprove ?? false,
   });
 
   if (!result.ok) {
