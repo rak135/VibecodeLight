@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { LlmAdapter } from '../../adapters/llm/base.js';
+import { LlmAdapterError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
 import {
@@ -51,6 +52,7 @@ export interface PromptPipelineError {
     message: string;
     path?: string;
     details: string[];
+    artifacts?: string[];
   };
 }
 
@@ -300,6 +302,11 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     };
   } catch (error) {
     const diagnostic = contextFinalizeErrorToDiagnostic(error, scan.runDir);
+    const errorArtifacts: string[] = [];
+    if (error instanceof LlmAdapterError && error.code === 'FLASH_PROVIDER_BAD_RESPONSE') {
+      const providerErrorPath = path.join(flashDir, 'provider_error.json');
+      if (fs.existsSync(providerErrorPath)) errorArtifacts.push(providerErrorPath);
+    }
     emitProgress({
       phase: 'failed',
       message: redactSecrets(`${diagnostic.code}: ${diagnostic.message}`, [resolved.providerConfig?.apiKey]),
@@ -312,6 +319,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
         message: diagnostic.message,
         path: diagnostic.path,
         details: diagnostic.details,
+        ...(errorArtifacts.length > 0 ? { artifacts: errorArtifacts } : {}),
       },
     };
   }

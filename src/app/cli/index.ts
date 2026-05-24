@@ -5,6 +5,7 @@ import { spawnSync } from 'child_process';
 import { Command } from 'commander';
 import YAML from 'yaml';
 
+import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
@@ -39,8 +40,110 @@ import {
   parseFlashOutput,
 } from '../../core/context/index.js';
 import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
+import type { PipelineEvent, PromptPipelineResult } from '../../core/prompting/index.js';
 import { runTerminalDemo } from '../../core/terminal/index.js';
 import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
+
+export const BAD_PROVIDER_RESPONSE_TIP = 'Tip: This indicates an API endpoint, auth, model, or provider configuration error. Check pnpm vibecode config show for your current provider configuration.';
+
+type TextWriter = { write(chunk: string): unknown };
+
+export function formatPromptProgressEvent(event: PipelineEvent): string | undefined {
+  const messages: Partial<Record<PipelineEvent['phase'], string>> = {
+    scan_started: 'Scanning repository...',
+    scan_completed: 'Repository scanned',
+    flash_input_built: 'Flash input built',
+    flash_request_started: 'Calling flash provider...',
+    flash_response_received: 'Flash response received',
+    flash_output_validated: 'Flash output validated',
+    context_pack_written: 'Context pack written',
+    final_prompt_written: 'Final prompt rendered',
+  };
+
+  if (event.phase === 'provider_resolved') {
+    const provider = event.provider_id ?? 'unknown';
+    const modelSuffix = event.model_id ? ` / ${event.model_id}` : '';
+    return `[vibecode] ${event.phase}: Using provider ${provider}${modelSuffix}`;
+  }
+
+  const message = messages[event.phase];
+  if (!message) return undefined;
+  return `[vibecode] ${event.phase}: ${message}`;
+}
+
+export function writePromptProgressEvent(event: PipelineEvent, stderr: TextWriter = process.stderr): void {
+  const line = formatPromptProgressEvent(event);
+  if (line) stderr.write(`${line}\n`);
+}
+
+export interface PromptCommandOptions {
+  task: string;
+  repoRoot: string;
+  mock: boolean;
+  live?: boolean;
+  flashProvider?: string;
+  flashModel?: string;
+  json?: boolean;
+  stdout?: TextWriter;
+  stderr?: TextWriter;
+  adapter?: LlmAdapter;
+}
+
+export async function runPromptCommand(options: PromptCommandOptions): Promise<PromptPipelineResult> {
+  const stdout = options.stdout ?? process.stdout;
+  const stderr = options.stderr ?? process.stderr;
+  const result = await runPromptPipeline({
+    task: options.task,
+    repoRoot: options.repoRoot,
+    mock: options.mock,
+    live: options.live,
+    flashProvider: options.flashProvider,
+    flashModel: options.flashModel,
+    adapter: options.adapter,
+    onProgress: options.json ? undefined : (event) => writePromptProgressEvent(event, stderr),
+  });
+
+  if (result.ok === false) {
+    const error = {
+      code: result.error.code,
+      message: result.error.message,
+      path: result.error.path ?? '',
+      details: result.error.details,
+      ...(result.error.artifacts ? { artifacts: result.error.artifacts } : {}),
+    };
+    if (options.json) {
+      stdout.write(`${JSON.stringify({ ok: false, error })}\n`);
+    } else {
+      stderr.write(`prompt failed: ${error.message}\n`);
+      if (error.code === 'FLASH_PROVIDER_BAD_RESPONSE') stderr.write(`${BAD_PROVIDER_RESPONSE_TIP}\n`);
+    }
+    return result;
+  }
+
+  if (options.json) {
+    stdout.write(`${JSON.stringify({
+      ok: true,
+      data: {
+        run_id: result.run_id,
+        runDir: result.runDir,
+        finalPromptPath: result.finalPromptPath,
+      },
+      artifacts: result.artifacts,
+      warnings: result.warnings,
+    })}\n`);
+    return result;
+  }
+
+  stdout.write(`run: ${result.run_id}\n`);
+  stdout.write(`runDir: ${result.runDir}\n`);
+  stdout.write(`final_prompt: ${result.finalPromptPath}\n`);
+  stdout.write('artifacts:\n');
+  for (const artifact of result.artifacts) {
+    stdout.write(`  ${artifact}\n`);
+  }
+  stdout.write('note: no terminal send in this checkpoint\n');
+  return result;
+}
 
 function pythonAvailable(): boolean {
   const result = spawnSync('python', ['--version'], { encoding: 'utf8' });
@@ -1408,50 +1511,16 @@ export function createCli(): Command {
       }
 
       const repoRoot = path.resolve(options.repo);
-      const result = await runPromptPipeline({
+      const result = await runPromptCommand({
         task,
         repoRoot,
         mock: options.mock === true,
         live: options.live === true,
         flashProvider: options.flashProvider,
         flashModel: options.flashModel,
+        json: options.json,
       });
-
-      if (result.ok === false) {
-        const error = {
-          code: result.error.code,
-          message: result.error.message,
-          path: result.error.path ?? '',
-          details: result.error.details,
-        };
-        if (options.json) console.log(JSON.stringify({ ok: false, error }));
-        else console.error(`prompt failed: ${error.message}`);
-        process.exitCode = 1;
-        return;
-      }
-
-      if (options.json) {
-        console.log(JSON.stringify({
-          ok: true,
-          data: {
-            run_id: result.run_id,
-            runDir: result.runDir,
-            finalPromptPath: result.finalPromptPath,
-          },
-          artifacts: result.artifacts,
-          warnings: result.warnings,
-        }));
-        return;
-      }
-
-      console.log(`run: ${result.run_id}`);
-      console.log(`runDir: ${result.runDir}`);
-      console.log(`final_prompt: ${result.finalPromptPath}`);
-      console.log('artifacts:');
-      for (const artifact of result.artifacts) {
-        console.log(`  ${artifact}`);
-      }
-      console.log('note: no terminal send in this checkpoint');
+      if (result.ok === false) process.exitCode = 1;
     });
 
   prompt
