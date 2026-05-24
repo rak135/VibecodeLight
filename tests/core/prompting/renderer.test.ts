@@ -292,4 +292,44 @@ describe('renderFinalPrompt', () => {
     expect(content).toMatch(/^# Validation Expectations/m);
     expect(content).toMatch(/^# Output Requirements/m);
   });
+
+  test('renders without crash when commands.json has object-shaped commands (real scanner format)', () => {
+    // The Python scanner writes commands as an object { install:[...], run:[...], test:[...] }
+    // not a flat array. The renderer must handle this gracefully without crashing.
+    const runDir = makeRunDir(tmpDir);
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    const objectShapedCommands = {
+      commands: {
+        install: [{ command: 'pnpm install', source: 'package.json' }],
+        run: [],
+        test: [{ command: 'pnpm test', source: 'package.json' }],
+      },
+    };
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'commands.json'),
+      JSON.stringify(objectShapedCommands, null, 2) + '\n',
+      'utf8',
+    );
+    const result = renderFinalPrompt(runDir);
+    expect(result.ok).toBe(true);
+  });
+
+  test('renders without crash when repo_instructions.json has object-shaped entries (real scanner format)', () => {
+    // The Python scanner writes repo_instructions as an array of objects {path, content, headings}
+    // not a flat string array. The renderer must handle this gracefully.
+    const runDir = makeRunDir(tmpDir);
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    const objectShapedInstructions = {
+      repo_instructions: [
+        { path: 'AGENTS.md', content: '# AGENTS', headings: [] },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'repo_instructions.json'),
+      JSON.stringify(objectShapedInstructions, null, 2) + '\n',
+      'utf8',
+    );
+    const result = renderFinalPrompt(runDir);
+    expect(result.ok).toBe(true);
+  });
 });

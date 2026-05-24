@@ -169,11 +169,21 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
 
     const flashMeta = readOptionalMeta(flashMetaPath);
 
-    const scanCommandsJson = readOptionalJson<{ commands?: string[] }>(scanCommandsPath);
-    const scanCommands = scanCommandsJson?.commands ?? [];
+    const scanCommandsJson = readOptionalJson<{ commands?: unknown }>(scanCommandsPath);
+    // The Python scanner may write commands as a categorised object {install,run,test}
+    // or as a flat string array. Guard with Array.isArray so we never call .map on an object.
+    const scanCommands = Array.isArray(scanCommandsJson?.commands) ? (scanCommandsJson.commands as string[]) : [];
 
-    const repoInstructionsJson = readOptionalJson<{ files?: string[] }>(repoInstructionsPath);
-    const repoInstructionFiles = repoInstructionsJson?.files ?? [];
+    // repo_instructions.json may have { files: string[] } or { repo_instructions: Array<{path,content}> }
+    // The Python scanner writes the latter format; accept both shapes gracefully.
+    const repoInstructionsJson = readOptionalJson<{ files?: unknown; repo_instructions?: unknown }>(repoInstructionsPath);
+    const repoInstructionFiles: string[] = Array.isArray(repoInstructionsJson?.files)
+      ? (repoInstructionsJson.files as string[])
+      : Array.isArray(repoInstructionsJson?.repo_instructions)
+        ? (repoInstructionsJson.repo_instructions as Array<{ path?: string }>)
+            .map((r) => r.path ?? '')
+            .filter(Boolean)
+        : [];
 
     // --- Render ---
     const content = buildFinalPrompt({
