@@ -37,7 +37,9 @@ from .tooling_scan import run_tooling_scan
 
 SCANNER_VERSION = "0.5.0"
 
-ALWAYS_EXCLUDED = [".git", ".vibecode"]
+# Generated/external state that must never be scanned as source repository
+# content. `.codegraph/` is external CodeGraph index state, like `.git`/`.vibecode`.
+ALWAYS_EXCLUDED = [".git", ".vibecode", ".codegraph"]
 
 # Language detection map by extension
 LANGUAGE_MAP: dict[str, str] = {

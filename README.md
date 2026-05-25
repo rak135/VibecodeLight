@@ -375,6 +375,14 @@ Canonical current files:
 
 Generated `.vibecode/` artifacts are not committed.
 
+### Optional CodeGraph (detect-only)
+
+CodeGraph is an optional, off-by-default code-intelligence tool. VibecodeLight currently only **detects** it — it never runs `codegraph init`, `index`, `sync`, or `watch`, and never creates `.codegraph/`.
+
+- `.codegraph/` is external generated index state (like `.vibecode/`). It is ignored by git and excluded from repository scans — it is never scanned as source content.
+- Each scan records detection only in `.vibecode/runs/<run_id>/scan/external_tools.json` (whether the `codegraph` command is available and whether `.codegraph/` is initialized). A missing command or missing `.codegraph/` is a warning, never a scan failure.
+- MCP integration and context enrichment are future/deferred work.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ---
@@ -412,6 +420,7 @@ Canonical run layout:
     keyword_hits.json
     recent_history.json
     previous_run_summary.json
+    external_tools.json
 
   skills/
     skills_catalog.json

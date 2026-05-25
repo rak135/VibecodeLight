@@ -83,6 +83,30 @@ class TestRepoTree:
         tree = (out_dir / "repo_tree.txt").read_text()
         assert ".vibecode" not in tree, ".vibecode/ must be excluded from repo_tree.txt"
 
+    def test_repo_tree_excludes_codegraph_dir(self, tmp_path):
+        """.codegraph/ is external generated state and must not be scanned."""
+        codegraph_dir = tmp_path / ".codegraph"
+        codegraph_dir.mkdir()
+        (codegraph_dir / "codegraph.db").write_text("binary")
+        (tmp_path / "src.py").write_text("x=1")
+        out_dir = tmp_path / "scan"
+        run_scanner(["--repo", str(tmp_path), "--task", "test", "--out", str(out_dir)])
+        tree = (out_dir / "repo_tree.txt").read_text()
+        assert ".codegraph" not in tree, ".codegraph/ must be excluded from repo_tree.txt"
+        assert "codegraph.db" not in tree, ".codegraph contents must be excluded"
+
+    def test_file_inventory_excludes_codegraph_dir(self, tmp_path):
+        codegraph_dir = tmp_path / ".codegraph"
+        codegraph_dir.mkdir()
+        (codegraph_dir / "codegraph.db").write_text("binary")
+        (tmp_path / "src.py").write_text("x=1")
+        out_dir = tmp_path / "scan"
+        run_scanner(["--repo", str(tmp_path), "--task", "test", "--out", str(out_dir)])
+        inv = json.loads((out_dir / "file_inventory.json").read_text())
+        paths = [e["path"] for e in inv]
+        assert not any(".codegraph" in p for p in paths), ".codegraph/ must not appear in file_inventory.json"
+        assert any("src.py" in p for p in paths)
+
     def test_repo_tree_respects_gitignore(self, tmp_path):
         (tmp_path / ".gitignore").write_text("ignored_file.txt\n")
         (tmp_path / "ignored_file.txt").write_text("secret")

@@ -37,6 +37,31 @@ describe('workspace init', () => {
     expect(gitignore).toContain('.vibecode/');
   });
 
+  test('initWorkspace adds .codegraph/ to .gitignore (external generated state)', async () => {
+    const root = tempDir();
+    await initWorkspace(root);
+    const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    expect(gitignore).toContain('.codegraph/');
+  });
+
+  test('initWorkspace .codegraph/ ignore entry is idempotent', async () => {
+    const root = tempDir();
+    await initWorkspace(root);
+    await initWorkspace(root);
+    const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    const occurrences = gitignore.split('\n').filter((line) => line.trim() === '.codegraph/').length;
+    expect(occurrences).toBe(1);
+  });
+
+  test('initWorkspace preserves an existing .codegraph/ ignore entry without duplicating', async () => {
+    const root = tempDir();
+    fs.writeFileSync(path.join(root, '.gitignore'), 'node_modules/\n.codegraph/\n', 'utf8');
+    await initWorkspace(root);
+    const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    const occurrences = gitignore.split('\n').filter((line) => line.trim() === '.codegraph/').length;
+    expect(occurrences).toBe(1);
+  });
+
   test('initWorkspace does not overwrite existing config.yaml', async () => {
     const root = tempDir();
     const configPath = path.join(root, 'config.yaml');

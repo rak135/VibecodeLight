@@ -63,10 +63,18 @@ export async function initWorkspace(root: string): Promise<InitResult> {
     pushUnique(created, '.gitignore');
   }
 
-  if (!gitignoreContent.includes('.vibecode/')) {
-    const trimmed = gitignoreContent.trimEnd();
-    const nextContent = `${trimmed}${trimmed ? '\n' : ''}.vibecode/\n`;
-    fs.writeFileSync(paths.gitignore, nextContent, 'utf8');
+  // Generated/external state that must be ignored by git. `.codegraph/` is
+  // external CodeGraph index state, ignored alongside `.vibecode/`. Each entry
+  // is appended only when missing, so re-running init is idempotent.
+  let nextGitignore = gitignoreContent;
+  for (const entry of ['.vibecode/', '.codegraph/']) {
+    if (!nextGitignore.split(/\r?\n/).some((line) => line.trim() === entry)) {
+      const trimmed = nextGitignore.trimEnd();
+      nextGitignore = `${trimmed}${trimmed ? '\n' : ''}${entry}\n`;
+    }
+  }
+  if (nextGitignore !== gitignoreContent) {
+    fs.writeFileSync(paths.gitignore, nextGitignore, 'utf8');
   }
 
   return { created, existing };

@@ -6,6 +6,8 @@ import { RunManifest } from '../models/index.js';
 import { buildSkillsCatalog, writeSkillsCatalog } from '../skills/catalog.js';
 import { getWorkspacePaths } from '../workspace/paths.js';
 import { formatScannerFailureDiagnostic } from '../scanning/scanner_subprocess.js';
+import { writeExternalToolsArtifact } from '../scanning/external_tools.js';
+import { detectCodeGraph } from '../../adapters/codegraph/codegraph_cli.js';
 import { updateCurrent } from './current.js';
 import { createRun } from './run_store.js';
 
@@ -140,6 +142,19 @@ export async function performScanPhase(opts: {
     } catch {
       // ignore
     }
+  }
+
+  // TypeScript-owned external-tool detection (detect-only). Records optional
+  // CodeGraph availability/initialization without running it or scanning
+  // `.codegraph/`. Detection failures become warnings, never a scan failure.
+  try {
+    const detection = await detectCodeGraph(opts.repoRoot);
+    const externalToolsPath = writeExternalToolsArtifact(scanDir, detection);
+    artifacts = { ...artifacts, external_tools: externalToolsPath };
+    warnings = [...warnings, ...detection.warnings];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings = [...warnings, `EXTERNAL_TOOLS_DETECTION_FAILED: ${message}`];
   }
 
   return {

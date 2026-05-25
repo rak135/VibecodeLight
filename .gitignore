@@ -1,6 +1,9 @@
 # VibecodeLight generated workspace
 .vibecode/
 
+# CodeGraph external generated index state (optional, detect-only)
+.codegraph/
+
 # Dependencies
 node_modules/
 
