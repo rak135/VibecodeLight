@@ -116,7 +116,13 @@ export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promi
   const writer = {
     sessionId: target.sessionId,
     cwd: target.cwd,
-    write: (data: string) => req.terminalService.writeInput(target.sessionId, data),
+    write: (data: string) => {
+      const stillAvailable = req.terminalService.getSession?.(target.sessionId);
+      if (req.terminalService.getSession && !stillAvailable) {
+        throw new Error(`target terminal session ${target.sessionId} is no longer available`);
+      }
+      req.terminalService.writeInput(target.sessionId, data);
+    },
   };
 
   const result: SendPromptResult = await sendFinalPrompt({

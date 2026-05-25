@@ -114,4 +114,54 @@ describe('prompt --auto-approve CLI behavior', () => {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }
   });
+
+  test('auto-approve reports a structured send failure when the CLI terminal cannot start', async () => {
+    const repoRoot = makeRepo('vibecode-cli-auto-approve-fail-');
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    try {
+      vi.resetModules();
+      const { PtyError } = await import('../../../src/adapters/pty/index.js');
+      vi.doMock('../../../src/core/terminal/index.js', async () => {
+        const actual = await vi.importActual<typeof import('../../../src/core/terminal/index.js')>(
+          '../../../src/core/terminal/index.js',
+        );
+        return {
+          ...actual,
+          startTerminalSession: () => {
+            throw new PtyError('TERMINAL_START_FAILED', 'simulated PTY startup failure');
+          },
+        };
+      });
+
+      const { runPromptCommand: runPromptCommandFresh } = await import('../../../src/app/cli/index.js');
+      const result = await runPromptCommandFresh({
+        task: 'cli auto approve reports terminal startup failure',
+        repoRoot,
+        mock: true,
+        live: false,
+        json: true,
+        autoApprove: true,
+        stdout: stdout.writer,
+        stderr: stderr.writer,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const envelope = JSON.parse(stdout.text.trim());
+      expect(envelope.ok).toBe(true);
+      expect(envelope.data.auto_approve).toBe(true);
+      expect(envelope.data.send.ok).toBe(false);
+      expect(envelope.data.send.error.code).toBe('TERMINAL_START_FAILED');
+      expect(envelope.data.send.error.message).toContain('simulated PTY startup failure');
+      expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'current', 'send_metadata.json'))).toBe(false);
+      expect(stderr.text).toBe('');
+    } finally {
+      vi.doUnmock('../../../src/core/terminal/index.js');
+      vi.resetModules();
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
 });

@@ -165,9 +165,10 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
   let sendInfo: SendPromptSuccess | undefined;
   let sendError: SendPromptError | undefined;
   if (options.autoApprove) {
-    const vibecodePath = getWorkspacePaths(options.repoRoot).vibecode;
-    const terminal = options.sendTerminal ?? createCliSendTerminal(options.repoRoot);
+    let terminal: PromptSendTerminal | undefined;
     try {
+      const vibecodePath = getWorkspacePaths(options.repoRoot).vibecode;
+      terminal = options.sendTerminal ?? createCliSendTerminal(options.repoRoot);
       const sendResult = await sendFinalPrompt({
         runDir: result.runDir,
         writer: terminal.writer,
@@ -178,8 +179,18 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
       });
       if (sendResult.ok) sendInfo = sendResult;
       else sendError = sendResult.error;
+    } catch (error) {
+      sendError = {
+        code: error instanceof ProviderNotConfiguredError || error instanceof LlmAdapterError
+          ? error.code
+          : (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
+            ? (error as { code: string }).code
+            : 'SEND_FAILED'),
+        message: error instanceof Error ? error.message : String(error),
+        details: [],
+      };
     } finally {
-      await terminal.close?.();
+      await terminal?.close?.();
     }
   }
 

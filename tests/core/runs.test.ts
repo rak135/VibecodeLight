@@ -64,6 +64,36 @@ describe('run store', () => {
     expect(fs.existsSync(result.scanDir)).toBe(true);
   });
 
+  test('createRun preserves both runs when called back-to-back', async () => {
+    const root = tempDir();
+    const vibecodePath = path.join(root, '.vibecode');
+    fs.mkdirSync(vibecodePath, { recursive: true });
+
+    const first = await createRun({ vibecodePath, task: 'first task', repoRoot: root });
+    const second = await createRun({ vibecodePath, task: 'second task', repoRoot: root });
+
+    expect(second.run_id).not.toBe(first.run_id);
+    expect(fs.existsSync(first.runDir)).toBe(true);
+    expect(fs.existsSync(second.runDir)).toBe(true);
+    expect(fs.readFileSync(path.join(first.runDir, 'user_prompt.md'), 'utf8')).toContain('first task');
+    expect(fs.readFileSync(path.join(second.runDir, 'user_prompt.md'), 'utf8')).toContain('second task');
+  });
+
+  test('createRun keeps run paths inside the workspace .vibecode directory', async () => {
+    const root = tempDir();
+    const vibecodePath = path.join(root, '.vibecode');
+    fs.mkdirSync(vibecodePath, { recursive: true });
+
+    const result = await createRun({ vibecodePath, task: 'path containment', repoRoot: root });
+    const runRelative = path.relative(vibecodePath, result.runDir);
+    const scanRelative = path.relative(vibecodePath, result.scanDir);
+
+    expect(runRelative).not.toMatch(/^\.\.(?:[\\/]|$)/);
+    expect(scanRelative).not.toMatch(/^\.\.(?:[\\/]|$)/);
+    expect(path.isAbsolute(result.runDir)).toBe(true);
+    expect(path.isAbsolute(result.scanDir)).toBe(true);
+  });
+
   test('updateCurrent writes .vibecode/current/run_manifest.json', async () => {
     const root = tempDir();
     const vibecodePath = path.join(root, '.vibecode');

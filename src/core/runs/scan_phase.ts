@@ -82,7 +82,19 @@ export async function performScanPhase(opts: {
   });
 
   const runManifestPath = path.join(runDir, 'run_manifest.json');
-  const manifest: RunManifest = JSON.parse(fs.readFileSync(runManifestPath, 'utf8'));
+  let manifest: RunManifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(runManifestPath, 'utf8')) as RunManifest;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const diagnostic = [
+      `RUN_MANIFEST_INVALID: failed to read run manifest at ${runManifestPath}`,
+      `repoRoot=${opts.repoRoot}`,
+      `runDir=${runDir}`,
+      `error=${message}`,
+    ].join('\n');
+    return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic };
+  }
 
   if (result.status !== 0) {
     const errorManifest: RunManifest = {

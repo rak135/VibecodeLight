@@ -223,6 +223,56 @@ describe('DesktopPromptSendService', () => {
     expect(result.metadata.terminal_session_id).toBe(origin.sessionId);
   });
 
+  test('fails cleanly when the origin terminal closes after target resolution and does not retarget the active session', async () => {
+    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
+    const content = '# Task\norigin closed during send\n';
+    makeFinalizedRun(tmpRepo, 'r-origin-race', content);
+
+    const liveActive: ActiveSession = { sessionId: 'live-active', cwd: tmpRepo, pid: 100, shell: 'pwsh' };
+    const origin: ActiveSession = { sessionId: 'origin-race', cwd: tmpRepo, pid: 200, shell: 'pwsh' };
+    const writes: Array<{ sessionId: string; data: string }> = [];
+    let firstOriginLookup = true;
+    const service = {
+      active: liveActive,
+      sessions: new Map<string, ActiveSession>([
+        [liveActive.sessionId, liveActive],
+        [origin.sessionId, origin],
+      ]),
+      writes,
+      writeInput(sessionId: string, data: string) {
+        writes.push({ sessionId, data });
+      },
+      getActiveSessionInfo() {
+        return liveActive;
+      },
+      getSession(sessionId: string) {
+        if (sessionId !== origin.sessionId) return this.sessions.get(sessionId);
+        if (firstOriginLookup) {
+          firstOriginLookup = false;
+          this.sessions.delete(origin.sessionId);
+          return origin;
+        }
+        return undefined;
+      },
+    };
+
+    const result = await sendFinalPromptForRun({
+      runId: 'r-origin-race',
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+      targetSessionId: origin.sessionId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('TERMINAL_WRITE_FAILED');
+    expect(result.error.message).toContain(origin.sessionId);
+    expect(result.error.message).toContain('no longer available');
+    expect(writes).toEqual([]);
+    expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'runs', 'r-origin-race', 'terminal', 'send_metadata.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'current', 'send_metadata.json'))).toBe(false);
+  });
+
   test('uses the existing active terminal session and never spawns a new process', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const content = 'send me\n';

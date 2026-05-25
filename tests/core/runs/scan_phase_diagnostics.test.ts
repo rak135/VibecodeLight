@@ -143,4 +143,37 @@ describe('scanner diagnostics', () => {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }
   });
+
+  test('performScanPhase returns a structured diagnostic instead of throwing when run_manifest.json is unreadable', async () => {
+    const repoRoot = makeRepo();
+    mockedSpawnSync.mockReturnValue({
+      status: 0,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      pid: 4321,
+      output: ['', '', ''],
+    } as unknown as ReturnType<typeof spawnSync>);
+
+    const originalReadFileSync = fs.readFileSync.bind(fs);
+    const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(((filePath: fs.PathOrFileDescriptor, options?: unknown) => {
+      if (typeof filePath === 'string' && filePath.endsWith(`${path.sep}run_manifest.json`)) {
+        return '{ invalid json';
+      }
+      return originalReadFileSync(filePath, options as Parameters<typeof fs.readFileSync>[1]);
+    }) as typeof fs.readFileSync);
+
+    try {
+      const result = await performScanPhase({ task: 'manifest diagnostic task', repoRoot });
+      expect(result.status).toBe('error');
+      if (result.status === 'ok') return;
+      expect(result.diagnostic).toContain('RUN_MANIFEST_INVALID');
+      expect(result.diagnostic).toContain('run_manifest.json');
+      expect(result.diagnostic).toContain(`repoRoot=${repoRoot}`);
+      expect(result.diagnostic).toContain('failed to read run manifest');
+    } finally {
+      readSpy.mockRestore();
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
 });
