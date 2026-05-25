@@ -6,7 +6,7 @@ import { ToolAccessError } from './errors.js';
 
 export interface FlashToolRunnerOptions {
   workspaceRoot: string;
-  runId: string;
+  runDir: string;
 }
 
 export interface SearchTextResult {
@@ -38,7 +38,7 @@ export class FlashToolRunner {
 
   constructor(opts: FlashToolRunnerOptions) {
     this.workspaceRoot = path.resolve(opts.workspaceRoot);
-    this.runDir = path.join(this.workspaceRoot, '.vibecode', 'runs', opts.runId);
+    this.runDir = path.resolve(opts.runDir);
   }
 
   getToolCalls(): ToolCallRecord[] {
@@ -185,7 +185,6 @@ export class FlashToolRunner {
     this.toolCalls.push(record);
   }
 
-  // eslint-disable-next-line no-unused-vars
   private walkWorkspace(dir: string, onFile: (_filePath: string) => void): void {
     let entries: fs.Dirent[];
     try {

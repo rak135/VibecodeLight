@@ -44,8 +44,8 @@ function buildMockMarkdown(runId: string, flashInputMd: string): string {
 
 export class MockFlashAdapter implements LlmAdapter {
   async run(input: FlashInput): Promise<FlashAdapterResult> {
-    const runDir = path.join(path.resolve(input.workspaceRoot), '.vibecode', 'runs', input.runId);
-    const flashDir = path.join(runDir, 'flash');
+    const flashDir = path.resolve(input.flashDir);
+    const runDir = path.dirname(flashDir);
     const flashInputPath = path.join(flashDir, 'flash_input.md');
 
     if (!fs.existsSync(flashInputPath)) {
@@ -56,7 +56,7 @@ export class MockFlashAdapter implements LlmAdapter {
       });
     }
 
-    const tools = new FlashToolRunner({ workspaceRoot: input.workspaceRoot, runId: input.runId });
+    const tools = new FlashToolRunner({ workspaceRoot: input.workspaceRoot, runDir });
     const savedFlashInput = tools.readArtifact('flash/flash_input.md');
     const flashInputMd = savedFlashInput || input.flashInputMd;
     const flashOutputMd = buildMockMarkdown(input.runId, flashInputMd);

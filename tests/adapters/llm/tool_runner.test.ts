@@ -17,10 +17,10 @@ function makeWorkspace() {
 
 describe('FlashToolRunner', () => {
   let workspaceRoot: string;
-  let runId: string;
+  let runDir: string;
 
   beforeEach(() => {
-    ({ workspaceRoot, runId } = makeWorkspace());
+    ({ workspaceRoot, runDir } = makeWorkspace());
   });
 
   afterEach(() => {
@@ -28,7 +28,7 @@ describe('FlashToolRunner', () => {
   });
 
   test('read_file can read a repo file inside workspace', () => {
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     const content = tools.readFile('README.md');
 
@@ -36,14 +36,14 @@ describe('FlashToolRunner', () => {
   });
 
   test('read_file refuses path traversal outside workspace', () => {
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     expect(() => tools.readFile('../../etc/passwd')).toThrow(/outside workspace|refused/i);
     expect(tools.getToolCalls().at(-1)?.status).toBe('refused');
   });
 
   test('list_dir lists workspace directory entries', () => {
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     const entries = tools.listDir('.');
 
@@ -52,7 +52,7 @@ describe('FlashToolRunner', () => {
   });
 
   test('read_artifact reads allowed run artifacts', () => {
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     const content = tools.readArtifact('scan/scan_manifest.json');
 
@@ -60,7 +60,7 @@ describe('FlashToolRunner', () => {
   });
 
   test('search_text finds text inside allowed workspace files', () => {
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     const results = tools.searchText('needle');
 
@@ -69,7 +69,7 @@ describe('FlashToolRunner', () => {
 
   test('all tools are read-only and do not write files', () => {
     const before = new Set(fs.readdirSync(workspaceRoot, { recursive: true }).map(String));
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     tools.readFile('README.md');
     tools.listDir('.');
@@ -82,7 +82,7 @@ describe('FlashToolRunner', () => {
   });
 
   test('tool call log records successful calls', () => {
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     tools.readFile('README.md');
 
@@ -94,7 +94,7 @@ describe('FlashToolRunner', () => {
   });
 
   test('tool call log records failed/refused calls', () => {
-    const tools = new FlashToolRunner({ workspaceRoot, runId });
+    const tools = new FlashToolRunner({ workspaceRoot, runDir });
 
     expect(() => tools.readFile('missing.txt')).toThrow();
     expect(() => tools.readFile('../../etc/passwd')).toThrow();

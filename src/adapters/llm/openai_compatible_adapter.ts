@@ -161,8 +161,7 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
       });
     }
 
-    const runDir = path.join(path.resolve(input.workspaceRoot), '.vibecode', 'runs', input.runId);
-    const flashDir = path.join(runDir, 'flash');
+    const flashDir = path.resolve(input.flashDir);
     const flashInputPath = path.join(flashDir, 'flash_input.md');
 
     // Read the saved flash_input.md (the canonical input)

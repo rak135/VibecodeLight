@@ -54,9 +54,14 @@ function nonJsonFetch(body: string, opts: { status?: number; contentType?: strin
   } as unknown as Response);
 }
 
-async function captureError(adapter: OpenAiCompatibleAdapter, runId: string, workspaceRoot: string): Promise<LlmAdapterError> {
+async function captureError(adapter: OpenAiCompatibleAdapter, args: { flashDir: string; runId: string; workspaceRoot: string }): Promise<LlmAdapterError> {
   try {
-    await adapter.run({ flashInputMd: '', runId, workspaceRoot });
+    await adapter.run({
+      flashInputMd: '',
+      flashDir: args.flashDir,
+      runId: args.runId,
+      workspaceRoot: args.workspaceRoot,
+    });
   } catch (error) {
     expect(error).toBeInstanceOf(LlmAdapterError);
     return error as LlmAdapterError;
@@ -66,11 +71,11 @@ async function captureError(adapter: OpenAiCompatibleAdapter, runId: string, wor
 
 describe('OpenAiCompatibleAdapter provider diagnostics', () => {
   test('non-JSON response returns FLASH_PROVIDER_BAD_RESPONSE with clarified message', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     try {
       const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch('<html>not json</html>') as typeof fetch);
 
-      const error = await captureError(adapter, runId, workspaceRoot);
+      const error = await captureError(adapter, { flashDir, runId, workspaceRoot });
 
       expect(error.code).toBe('FLASH_PROVIDER_BAD_RESPONSE');
       expect(error.message).toBe(CLARIFIED_NON_JSON_MESSAGE);
@@ -80,7 +85,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
   });
 
   test('timeout diagnostic reports the resolved timeoutMs and never leaks the api key', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     try {
       const adapter = new OpenAiCompatibleAdapter(
         config({ timeoutMs: 180000 }),
@@ -89,7 +94,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
         },
       );
 
-      const error = await captureError(adapter, runId, workspaceRoot);
+      const error = await captureError(adapter, { flashDir, runId, workspaceRoot });
       expect(error.code).toBe('FLASH_PROVIDER_TIMEOUT');
       expect(error.message).toContain('180000ms');
       expect(error.details).toContain('timeoutMs: 180000');
@@ -100,7 +105,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
   });
 
   test('non-JSON response diagnostic includes http_status, content_type, and body_excerpt_redacted', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     const html = '<html><body>diagnostic body</body></html>';
     try {
       const adapter = new OpenAiCompatibleAdapter(
@@ -108,7 +113,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
         nonJsonFetch(html, { status: 502, contentType: 'text/html; charset=utf-8', requestId: 'req_test_123', cfRay: 'ray_test_456' }) as typeof fetch,
       );
 
-      const error = await captureError(adapter, runId, workspaceRoot);
+      const error = await captureError(adapter, { flashDir, runId, workspaceRoot });
 
       expect(error.diagnostic).toMatchObject({
         provider_id: 'openrouter',
@@ -126,11 +131,11 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
   });
 
   test('non-JSON response message says non-JSON HTTP response and Markdown-first', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     try {
       const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch('<html>not json</html>') as typeof fetch);
 
-      const error = await captureError(adapter, runId, workspaceRoot);
+      const error = await captureError(adapter, { flashDir, runId, workspaceRoot });
 
       expect(error.message).toContain('non-JSON HTTP response');
       expect(error.message).toContain('Markdown-first');
@@ -140,11 +145,11 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
   });
 
   test('non-JSON response diagnostic does NOT include api key value', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     try {
       const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch(`<html>${TEST_API_KEY}</html>`) as typeof fetch);
 
-      const error = await captureError(adapter, runId, workspaceRoot);
+      const error = await captureError(adapter, { flashDir, runId, workspaceRoot });
       const serializedDiagnostic = JSON.stringify(error.diagnostic);
 
       expect(serializedDiagnostic).not.toContain(TEST_API_KEY);
@@ -155,12 +160,12 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
   });
 
   test('HTML body_excerpt is truncated at 800 chars', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     const html = `<html>${'x'.repeat(900)}</html>`;
     try {
       const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch(html) as typeof fetch);
 
-      const error = await captureError(adapter, runId, workspaceRoot);
+      const error = await captureError(adapter, { flashDir, runId, workspaceRoot });
 
       expect(error.diagnostic?.body_excerpt_redacted).toHaveLength(800);
       expect(error.diagnostic?.body_excerpt_redacted).toBe(html.slice(0, 800));
@@ -170,7 +175,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
   });
 
   test('No choices response returns FLASH_PROVIDER_BAD_RESPONSE', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     try {
       const adapter = new OpenAiCompatibleAdapter(
         config(),
@@ -183,7 +188,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
         } as unknown as Response),
       );
 
-      const error = await captureError(adapter, runId, workspaceRoot);
+      const error = await captureError(adapter, { flashDir, runId, workspaceRoot });
 
       expect(error.code).toBe('FLASH_PROVIDER_BAD_RESPONSE');
       expect(error.message).toContain('Provider API returned a bad response');
@@ -198,10 +203,29 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
     try {
       const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch('<html>not json</html>') as typeof fetch);
 
-      await captureError(adapter, runId, workspaceRoot);
+      await captureError(adapter, { flashDir, runId, workspaceRoot });
 
       expect(fs.existsSync(path.join(flashDir, 'provider_error.json'))).toBe(true);
       expect(fs.existsSync(path.join(flashDir, 'flash_output.md'))).toBe(false);
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('provider_error.json uses the orchestration-supplied flashDir', async () => {
+    const runId = '20260524-000000-supplied-diagnostics';
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-openai-diagnostics-'));
+    const flashDir = path.join(workspaceRoot, 'run-package', 'flash');
+    fs.mkdirSync(flashDir, { recursive: true });
+    fs.writeFileSync(path.join(flashDir, 'flash_input.md'), '# Flash Input\n\nDiagnostics fixture input\n', 'utf8');
+
+    try {
+      const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch('<html>not json</html>') as typeof fetch);
+
+      await captureError(adapter, { flashDir, runId, workspaceRoot });
+
+      expect(fs.existsSync(path.join(flashDir, 'provider_error.json'))).toBe(true);
+      expect(fs.existsSync(path.join(workspaceRoot, '.vibecode', 'runs', runId, 'flash', 'provider_error.json'))).toBe(false);
     } finally {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
@@ -212,7 +236,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
     try {
       const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch(`<html>${TEST_API_KEY}</html>`) as typeof fetch);
 
-      await captureError(adapter, runId, workspaceRoot);
+      await captureError(adapter, { flashDir, runId, workspaceRoot });
       const json = JSON.parse(fs.readFileSync(path.join(flashDir, 'provider_error.json'), 'utf8'));
       const serializedArtifact = JSON.stringify(json);
 
@@ -229,7 +253,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
     try {
       const adapter = new OpenAiCompatibleAdapter(config(), nonJsonFetch('<html>not json</html>') as typeof fetch);
 
-      await captureError(adapter, runId, workspaceRoot);
+      await captureError(adapter, { flashDir, runId, workspaceRoot });
       const serializedArtifact = fs.readFileSync(path.join(flashDir, 'provider_error.json'), 'utf8');
 
       expect(serializedArtifact).not.toMatch(/authorization/i);
@@ -248,7 +272,7 @@ describe('OpenAiCompatibleAdapter provider diagnostics', () => {
         nonJsonFetch(html, { status: 401, contentType: 'text/html', requestId: 'req_structured', cfRay: 'ray_structured' }) as typeof fetch,
       );
 
-      await captureError(adapter, runId, workspaceRoot);
+      await captureError(adapter, { flashDir, runId, workspaceRoot });
       const json = JSON.parse(fs.readFileSync(path.join(flashDir, 'provider_error.json'), 'utf8'));
 
       expect(json).toMatchObject({

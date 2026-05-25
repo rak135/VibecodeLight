@@ -1,10 +1,10 @@
 export interface LlmAdapter {
-  // eslint-disable-next-line no-unused-vars
   run(_input: FlashInput): Promise<FlashAdapterResult>;
 }
 
 export interface FlashInput {
   flashInputMd: string;
+  flashDir: string;
   runId: string;
   workspaceRoot: string;
 }

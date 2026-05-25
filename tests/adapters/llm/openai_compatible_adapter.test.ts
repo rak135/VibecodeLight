@@ -42,6 +42,15 @@ function makeWorkspace() {
   return { workspaceRoot, runId, flashDir };
 }
 
+function flashInput(args: { flashDir: string; runId: string; workspaceRoot: string }, flashInputMd = '') {
+  return {
+    flashInputMd,
+    flashDir: args.flashDir,
+    runId: args.runId,
+    workspaceRoot: args.workspaceRoot,
+  };
+}
+
 function readJson(filePath: string) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
@@ -93,6 +102,7 @@ describe('OpenAiCompatibleAdapter', () => {
 
       const result = await adapter.run({
         flashInputMd: 'ignored because adapter reads the saved file',
+        flashDir,
         runId,
         workspaceRoot,
       });
@@ -142,7 +152,7 @@ describe('OpenAiCompatibleAdapter', () => {
   });
 
   test('rejects missing apiKey with FLASH_PROVIDER_NOT_CONFIGURED', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
 
     try {
       const adapter = new OpenAiCompatibleAdapter({
@@ -151,7 +161,7 @@ describe('OpenAiCompatibleAdapter', () => {
         live: true,
       } as never);
 
-      await expect(adapter.run({ flashInputMd: '', runId, workspaceRoot })).rejects.toMatchObject({
+      await expect(adapter.run(flashInput({ flashDir, runId, workspaceRoot }))).rejects.toMatchObject({
         code: 'FLASH_PROVIDER_NOT_CONFIGURED',
       });
     } finally {
@@ -160,7 +170,7 @@ describe('OpenAiCompatibleAdapter', () => {
   });
 
   test('rejects missing baseUrl with FLASH_PROVIDER_NOT_CONFIGURED', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
 
     try {
       const adapter = new OpenAiCompatibleAdapter({
@@ -169,7 +179,7 @@ describe('OpenAiCompatibleAdapter', () => {
         live: true,
       } as never);
 
-      await expect(adapter.run({ flashInputMd: '', runId, workspaceRoot })).rejects.toMatchObject({
+      await expect(adapter.run(flashInput({ flashDir, runId, workspaceRoot }))).rejects.toMatchObject({
         code: 'FLASH_PROVIDER_NOT_CONFIGURED',
       });
     } finally {
@@ -178,7 +188,7 @@ describe('OpenAiCompatibleAdapter', () => {
   });
 
   test('uses a default model when none is provided', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     let capturedBody = '';
 
     const fakeFetch = async (_url: string | URL, init?: RequestInit) => {
@@ -201,7 +211,7 @@ describe('OpenAiCompatibleAdapter', () => {
         fakeFetch as typeof fetch,
       );
 
-      await adapter.run({ flashInputMd: '', runId, workspaceRoot });
+      await adapter.run(flashInput({ flashDir, runId, workspaceRoot }));
       expect(JSON.parse(capturedBody).model).toBe('gpt-4o-mini');
     } finally {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
@@ -209,7 +219,7 @@ describe('OpenAiCompatibleAdapter', () => {
   });
 
   test('times out with FLASH_PROVIDER_TIMEOUT', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
 
     try {
       const adapter = new OpenAiCompatibleAdapter(
@@ -225,7 +235,7 @@ describe('OpenAiCompatibleAdapter', () => {
         }),
       );
 
-      await expect(adapter.run({ flashInputMd: '', runId, workspaceRoot })).rejects.toMatchObject({
+      await expect(adapter.run(flashInput({ flashDir, runId, workspaceRoot }))).rejects.toMatchObject({
         code: 'FLASH_PROVIDER_TIMEOUT',
       });
     } finally {
@@ -234,7 +244,7 @@ describe('OpenAiCompatibleAdapter', () => {
   });
 
   test('uses the provided timeoutMs in the live adapter request path', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
     let seenAbortSignal: AbortSignal | undefined;
 
     try {
@@ -256,7 +266,7 @@ describe('OpenAiCompatibleAdapter', () => {
         },
       );
 
-      const result = await adapter.run({ flashInputMd: '', runId, workspaceRoot });
+      const result = await adapter.run(flashInput({ flashDir, runId, workspaceRoot }));
       expect(result.meta).toMatchObject({ provider: 'openrouter', live: true });
       expect(seenAbortSignal).toBeDefined();
       expect(seenAbortSignal?.aborted).toBe(false);
@@ -266,7 +276,7 @@ describe('OpenAiCompatibleAdapter', () => {
   });
 
   test('maps non-2xx responses to FLASH_PROVIDER_REQUEST_FAILED with status details', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
 
     try {
       const adapter = new OpenAiCompatibleAdapter(
@@ -283,7 +293,7 @@ describe('OpenAiCompatibleAdapter', () => {
         } as Response),
       );
 
-      await expect(adapter.run({ flashInputMd: '', runId, workspaceRoot })).rejects.toMatchObject({
+      await expect(adapter.run(flashInput({ flashDir, runId, workspaceRoot }))).rejects.toMatchObject({
         code: 'FLASH_PROVIDER_REQUEST_FAILED',
         details: expect.arrayContaining(['status: 503']),
       });
@@ -310,7 +320,7 @@ describe('OpenAiCompatibleAdapter', () => {
         } as Response),
       );
 
-      await expect(adapter.run({ flashInputMd: '', runId, workspaceRoot })).rejects.toMatchObject({
+      await expect(adapter.run(flashInput({ flashDir, runId, workspaceRoot }))).rejects.toMatchObject({
         code: 'FLASH_OUTPUT_INVALID',
       });
 
@@ -324,7 +334,7 @@ describe('OpenAiCompatibleAdapter', () => {
   });
 
   test('rejects bad provider payloads with FLASH_PROVIDER_BAD_RESPONSE', async () => {
-    const { workspaceRoot, runId } = makeWorkspace();
+    const { workspaceRoot, runId, flashDir } = makeWorkspace();
 
     try {
       const adapter = new OpenAiCompatibleAdapter(
@@ -341,7 +351,7 @@ describe('OpenAiCompatibleAdapter', () => {
         } as Response),
       );
 
-      await expect(adapter.run({ flashInputMd: '', runId, workspaceRoot })).rejects.toMatchObject({
+      await expect(adapter.run(flashInput({ flashDir, runId, workspaceRoot }))).rejects.toMatchObject({
         code: 'FLASH_PROVIDER_BAD_RESPONSE',
       });
     } finally {

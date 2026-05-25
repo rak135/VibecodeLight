@@ -546,10 +546,10 @@ export async function runFlash(opts: {
       }
 
       const liveAdapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
-      adapterResult = await liveAdapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
+      adapterResult = await liveAdapter.run({ flashInputMd, flashDir, runId, workspaceRoot: opts.repoRoot });
     } else {
       const adapter = new MockFlashAdapter();
-      adapterResult = await adapter.run({ flashInputMd, runId, workspaceRoot: opts.repoRoot });
+      adapterResult = await adapter.run({ flashInputMd, flashDir, runId, workspaceRoot: opts.repoRoot });
     }
 
     const configResolutionPath = writeConfigResolution(runDir, resolved.resolution);

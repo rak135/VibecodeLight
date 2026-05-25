@@ -163,6 +163,19 @@ describe('architecture boundary characterization', () => {
     assertNoViolations('LLM adapter source mentioned non-flash artifact ownership:', violations);
   });
 
+  test('flash provider adapters do not reconstruct run artifact paths from .vibecode layout', () => {
+    const adapterFiles = [
+      path.join(llmRoot, 'mock_flash.ts'),
+      path.join(llmRoot, 'openai_compatible_adapter.ts'),
+    ];
+
+    const violations = adapterFiles
+      .filter((file) => /\.vibecode/.test(read(file)))
+      .map(repoPath);
+
+    assertNoViolations('Flash provider adapters hardcoded generated run layout:', violations);
+  });
+
   test('terminal send flow reads the saved final_prompt artifact and does not rebuild prompt content', () => {
     const sendSource = read(path.join(repoRoot, 'src', 'core', 'terminal', 'send_prompt.ts'));
     // Reads the saved artifact (via the shared path constant) instead of rebuilding prompt content.

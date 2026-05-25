@@ -245,7 +245,12 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       message: 'Flash request started.',
       run_id: scan.run_id,
     });
-    const adapterResult = await adapter2.run({ flashInputMd: compactResult.flashInput, runId: scan.run_id, workspaceRoot: opts.repoRoot });
+    const adapterResult = await adapter2.run({
+      flashInputMd: compactResult.flashInput,
+      flashDir,
+      runId: scan.run_id,
+      workspaceRoot: opts.repoRoot,
+    });
     markFlashInputProviderCalled(scan.runDir, true);
     emitProgress({
       phase: 'flash_response_received',
