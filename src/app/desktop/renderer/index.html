@@ -96,6 +96,14 @@
                     <span class="cg-dot muted" id="composer-cg-dot"></span>
                     <span id="composer-cg-chip-text">CodeGraph: …</span>
                   </span>
+                  <!-- CodeGraph action buttons: always Refresh; Initialize when not initialized; Sync+Re-index when ready -->
+                  <span id="composer-cg-actions" style="margin-left:6px;display:inline-flex;gap:4px;align-items:center;">
+                    <button class="cg-action-btn" id="cg-btn-refresh" title="Refresh CodeGraph status (detect-only, no mutation)" style="display:none">Refresh</button>
+                    <button class="cg-action-btn" id="cg-btn-init" title="Initialize CodeGraph for this repo (codegraph init -i)" style="display:none">Initialize</button>
+                    <button class="cg-action-btn" id="cg-btn-sync" title="Sync CodeGraph index (codegraph sync)" style="display:none">Sync</button>
+                    <button class="cg-action-btn" id="cg-btn-reindex" title="Full re-index (codegraph index --force) — may take longer" style="display:none">Re-index</button>
+                  </span>
+                  <span id="cg-action-msg" style="margin-left:6px;font-size:11px;color:var(--muted,#888);display:none"></span>
                   <span class="ov-step">
                     <span id="ov-step-label" style="margin-right:4px">step 01 · compose</span>
                     <span class="pip on" data-pip="0"></span>
@@ -425,6 +433,7 @@
         // Show the optional CodeGraph detect-only status immediately, from the
         // latest run. A build later refreshes it from that run's own status.
         void refreshComposerCodeGraphChip();
+        bindCgActionButtons();
       }
       function closeOverlay() {
         if (composerHostTile) {
@@ -700,9 +709,103 @@
           const result = await window.vibecodeAPI.runs.list();
           const runs = result && result.ok && Array.isArray(result.runs) ? result.runs : [];
           renderCodeGraphChip(runs.length > 0 ? runs[0].codegraph : null);
+          const latestCg = runs.length > 0 ? runs[0].codegraph : null;
+          updateCgActionButtons(latestCg ? latestCg.state : null);
         } catch (_error) {
           renderCodeGraphChip(null);
         }
+      }
+
+      // ---- CodeGraph action buttons wiring ----
+      // Buttons are shown/hidden based on CodeGraph state. Mutating actions
+      // (init, sync, reindex) run only on explicit user click — never automatically.
+
+      let _cgCurrentState = null;
+
+      function setCgActionMsg(text, isError) {
+        const el = $('cg-action-msg');
+        if (!el) return;
+        if (!text) { el.style.display = 'none'; el.textContent = ''; return; }
+        el.style.display = 'inline';
+        el.style.color = isError ? 'var(--warn,#e8a87c)' : 'var(--muted,#888)';
+        el.textContent = text;
+      }
+
+      function updateCgActionButtons(state) {
+        _cgCurrentState = state;
+        const btnRefresh = $('cg-btn-refresh');
+        const btnInit = $('cg-btn-init');
+        const btnSync = $('cg-btn-sync');
+        const btnReindex = $('cg-btn-reindex');
+        // Always show Refresh once we have a state (or null = unknown)
+        if (btnRefresh) btnRefresh.style.display = 'inline-block';
+        if (btnInit) btnInit.style.display = (state === 'installed-not-initialized') ? 'inline-block' : 'none';
+        if (btnSync) btnSync.style.display = (state === 'ready') ? 'inline-block' : 'none';
+        if (btnReindex) btnReindex.style.display = (state === 'ready') ? 'inline-block' : 'none';
+      }
+
+      async function cgRefreshStatus() {
+        setCgActionMsg('Refreshing…', false);
+        try {
+          if (!window.vibecodeAPI || !window.vibecodeAPI.codegraph) {
+            setCgActionMsg('CodeGraph API unavailable', true);
+            return;
+          }
+          const result = await window.vibecodeAPI.codegraph.status();
+          if (result && result.ok) {
+            const state = result.initialized ? 'ready' : (result.available ? 'installed-not-initialized' : 'not-installed');
+            const label = state === 'ready' ? 'CodeGraph: ready' :
+                          state === 'installed-not-initialized' ? 'CodeGraph: installed, not initialized' :
+                          'CodeGraph: not installed (optional)';
+            renderCodeGraphChip({ state, label, mode: 'detect-only', usageNote: 'Use in context: detect-only (future phase).' });
+            updateCgActionButtons(state);
+            setCgActionMsg('', false);
+          } else {
+            setCgActionMsg('Status refresh failed', true);
+          }
+        } catch (_err) {
+          setCgActionMsg('Status refresh error', true);
+        }
+      }
+
+      async function cgRunAction(channel, label, requireConfirm) {
+        if (requireConfirm) {
+          if (!window.confirm('Run ' + label + '? This may take a while.')) return;
+        }
+        setCgActionMsg(label + '…', false);
+        // Disable all action buttons during the operation
+        const btns = ['cg-btn-refresh','cg-btn-init','cg-btn-sync','cg-btn-reindex'];
+        btns.forEach(id => { const b = $(id); if (b) b.disabled = true; });
+        try {
+          if (!window.vibecodeAPI || !window.vibecodeAPI.codegraph) {
+            setCgActionMsg('CodeGraph API unavailable', true);
+            return;
+          }
+          const result = await window.vibecodeAPI.codegraph[channel]();
+          if (result && result.ok) {
+            setCgActionMsg(label + ' succeeded', false);
+            // Refresh status after a successful mutating action
+            await cgRefreshStatus();
+          } else {
+            const detail = (result && result.error && result.error.message) ? result.error.message : 'unknown error';
+            setCgActionMsg(label + ' failed: ' + detail.slice(0, 120), true);
+          }
+        } catch (err) {
+          setCgActionMsg(label + ' error: ' + (err && err.message ? err.message.slice(0, 80) : String(err)), true);
+        } finally {
+          btns.forEach(id => { const b = $(id); if (b) b.disabled = false; });
+        }
+      }
+
+      function bindCgActionButtons() {
+        const btnRefresh = $('cg-btn-refresh');
+        const btnInit = $('cg-btn-init');
+        const btnSync = $('cg-btn-sync');
+        const btnReindex = $('cg-btn-reindex');
+        if (btnRefresh) btnRefresh.addEventListener('click', () => { void cgRefreshStatus(); });
+        if (btnInit) btnInit.addEventListener('click', () => { void cgRunAction('init', 'Initialize', false); });
+        if (btnSync) btnSync.addEventListener('click', () => { void cgRunAction('sync', 'Sync', false); });
+        if (btnReindex) btnReindex.addEventListener('click', () => { void cgRunAction('reindex', 'Re-index', true); });
       }
 
       // ---- Context panel (real flash context via run artifacts) ----

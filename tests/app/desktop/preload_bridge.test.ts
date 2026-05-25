@@ -5,6 +5,7 @@ type ExposedApi = {
   runs: Record<string, unknown>;
   config: Record<string, unknown>;
   artifacts: Record<string, unknown>;
+  codegraph: Record<string, unknown>;
 };
 
 function collectKeys(value: unknown): string[] {
@@ -40,7 +41,7 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['artifacts', 'composer', 'config', 'runs', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'runs', 'terminal', 'workspace']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'list', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);

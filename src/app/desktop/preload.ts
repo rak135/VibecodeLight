@@ -202,6 +202,23 @@ export interface RunsShowIpc {
   error?: { code: string; message: string; path?: string; details: string[] };
 }
 
+/** IPC result shapes for CodeGraph action channels (Phase 1.6). */
+export interface CodeGraphStatusIpcResult {
+  ok: boolean;
+  available: boolean;
+  initialized: boolean;
+  version?: string;
+  warnings: string[];
+  error?: { message: string };
+}
+
+export interface CodeGraphActionIpcResult {
+  ok: boolean;
+  stdoutSummary?: string;
+  stderrSummary?: string;
+  error?: { message: string; details?: string };
+}
+
 export interface VibecodePreloadApi {
   terminal: {
     start(repoPath: string, cols: number, rows: number): Promise<{ pid: number; cwd: string; shell: string; sessionId: string }>;
@@ -244,6 +261,12 @@ export interface VibecodePreloadApi {
     readClipboard(): Promise<string>;
     openPath(p: string): Promise<{ ok: boolean; error?: string }>;
     readRunArtifact(runId: string, relativePath: string): Promise<{ ok: boolean; content?: string; error?: string }>;
+  };
+  codegraph: {
+    status(): Promise<CodeGraphStatusIpcResult>;
+    init(): Promise<CodeGraphActionIpcResult>;
+    sync(): Promise<CodeGraphActionIpcResult>;
+    reindex(): Promise<CodeGraphActionIpcResult>;
   };
 }
 
@@ -343,6 +366,20 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       readRunArtifact(runId: string, relativePath: string) {
         return ipcRenderer.invoke('artifacts:readRunArtifact', runId, relativePath) as Promise<{ ok: boolean; content?: string; error?: string }>;
+      },
+    },
+    codegraph: {
+      status() {
+        return ipcRenderer.invoke('codegraph:status') as Promise<CodeGraphStatusIpcResult>;
+      },
+      init() {
+        return ipcRenderer.invoke('codegraph:init') as Promise<CodeGraphActionIpcResult>;
+      },
+      sync() {
+        return ipcRenderer.invoke('codegraph:sync') as Promise<CodeGraphActionIpcResult>;
+      },
+      reindex() {
+        return ipcRenderer.invoke('codegraph:reindex') as Promise<CodeGraphActionIpcResult>;
       },
     },
   };

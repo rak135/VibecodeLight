@@ -9,6 +9,7 @@ import { registerDesktopComposerIpcHandlers } from './composer_bridge.js';
 import { registerDesktopConfigIpcHandlers } from './config_bridge.js';
 import { registerDesktopRunsIpcHandlers } from './runs_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
+import { registerCodeGraphBridge } from './codegraph_bridge.js';
 
 let mainWindow: BrowserWindow | undefined;
 let ipcRegistered = false;
@@ -56,6 +57,13 @@ function createWindow(): void {
     registerDesktopConfigIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopRunsIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopArtifactIpcHandlers(ipcMain, { getRepoPath });
+    registerCodeGraphBridge(ipcMain, {
+      getRepoRoot: async () => {
+        const root = getRepoPath();
+        if (!root) throw new Error('No repository root resolved');
+        return root;
+      },
+    });
 
     // Open the global config directory in the OS file explorer (no secrets read).
     ipcMain.handle('config:openDir', async () => {
