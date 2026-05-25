@@ -166,4 +166,49 @@ describe('detectCodeGraph', () => {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }
   });
+
+  test.runIf(process.platform === 'win32')(
+    'default probe falls back to codegraph.cmd on Windows when the bare command returns ENOENT',
+    async () => {
+      const repoRoot = tempRepo();
+      try {
+        mockedSpawnSync
+          .mockReturnValueOnce({
+            status: null,
+            signal: null,
+            stdout: '',
+            stderr: '',
+            error: Object.assign(new Error('spawnSync codegraph ENOENT'), { code: 'ENOENT' }),
+            pid: 0,
+            output: ['', '', ''],
+          } as unknown as ReturnType<typeof spawnSync>)
+          .mockReturnValueOnce({
+            status: 0,
+            signal: null,
+            stdout: '0.9.4\n',
+            stderr: '',
+            pid: 123,
+            output: ['', '0.9.4\n', ''],
+          } as unknown as ReturnType<typeof spawnSync>);
+
+        const detection = await detectCodeGraph(repoRoot);
+        expect(detection.available).toBe(true);
+        expect(detection.version).toBe('0.9.4');
+        expect(mockedSpawnSync).toHaveBeenNthCalledWith(
+          1,
+          'codegraph',
+          ['--version'],
+          { encoding: 'utf8', timeout: 10000 },
+        );
+        expect(mockedSpawnSync).toHaveBeenNthCalledWith(
+          2,
+          process.env.ComSpec ?? 'cmd.exe',
+          ['/d', '/s', '/c', 'codegraph.cmd --version'],
+          { encoding: 'utf8', timeout: 10000 },
+        );
+      } finally {
+        fs.rmSync(repoRoot, { recursive: true, force: true });
+      }
+    },
+  );
 });

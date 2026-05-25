@@ -36,31 +36,71 @@ function parseVersion(stdout: string | undefined): string | undefined {
   return text.split(/\r?\n/)[0].trim() || undefined;
 }
 
+function isEnoentError(error: unknown): boolean {
+  if (!error) return false;
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+  if (code.toUpperCase() === 'ENOENT') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /ENOENT/i.test(message);
+}
+
+function probeCandidates(command: string): string[] {
+  if (process.platform !== 'win32') return [command];
+  if (path.extname(command)) return [command];
+  return [command, `${command}.cmd`];
+}
+
+function runVersionProbe(candidate: string): ReturnType<typeof spawnSync> {
+  if (process.platform === 'win32' && path.extname(candidate).toLowerCase() === '.cmd') {
+    const shell = process.env.ComSpec ?? 'cmd.exe';
+    return spawnSync(shell, ['/d', '/s', '/c', `${candidate} --version`], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+  }
+  return spawnSync(candidate, ['--version'], { encoding: 'utf8', timeout: 10000 });
+}
+
 /**
  * Default read-only probe. Runs `codegraph --version` only. This never mutates
  * the repository and never triggers init/index/sync/watch.
  */
 export function defaultVersionProbe(command: string): CodeGraphVersionProbeResult {
-  let result: ReturnType<typeof spawnSync>;
-  try {
-    result = spawnSync(command, ['--version'], { encoding: 'utf8', timeout: 10000 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { found: false, warning: message };
+  const candidates = probeCandidates(command);
+  let lastWarning: string | undefined;
+
+  for (const candidate of candidates) {
+    let result: ReturnType<typeof spawnSync>;
+    try {
+      result = runVersionProbe(candidate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (candidate !== candidates[candidates.length - 1] && isEnoentError(error)) {
+        lastWarning = message;
+        continue;
+      }
+      return { found: false, warning: message };
+    }
+
+    if (result.error) {
+      if (candidate !== candidates[candidates.length - 1] && isEnoentError(result.error)) {
+        lastWarning = result.error.message;
+        continue;
+      }
+      return { found: false, warning: result.error.message };
+    }
+    if (result.status === 0) {
+      const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout?.toString();
+      return { found: true, version: parseVersion(stdout) };
+    }
+    // Command spawned but the version probe failed: it exists, but version unknown.
+    return {
+      found: true,
+      warning: `codegraph --version exited with status ${result.status ?? 'null'}`,
+    };
   }
 
-  if (result.error) {
-    return { found: false, warning: result.error.message };
-  }
-  if (result.status === 0) {
-    const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout?.toString();
-    return { found: true, version: parseVersion(stdout) };
-  }
-  // Command spawned but the version probe failed: it exists, but version unknown.
-  return {
-    found: true,
-    warning: `codegraph --version exited with status ${result.status ?? 'null'}`,
-  };
+  return { found: false, warning: lastWarning ?? 'codegraph command was not found or not callable' };
 }
 
 /**
