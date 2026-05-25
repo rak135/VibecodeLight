@@ -85,6 +85,26 @@ describe('desktop smoke', () => {
     expect(fs.existsSync(path.join(tmpDir, 'output', 'final_prompt.md'))).toBe(false);
   });
 
+  test('runDesktopSmoke still succeeds when PTY emits AttachConsole noise before the marker', async () => {
+    const fakePty = createFakePty();
+    const originalWrite = fakePty.write.bind(fakePty);
+    fakePty.write = function patchedWrite(data: string) {
+      if (data.includes('VIBECODE_ELECTRON_PTY_OK')) {
+        setTimeout(() => this.emitData('Error: AttachConsole failed\r\n'), 1);
+      }
+      originalWrite(data);
+    };
+
+    const { runDesktopSmoke } = await import('../../../src/app/desktop/desktop_smoke.js');
+    const result = await runDesktopSmoke({ repo: tmpDir, ptyFactory: () => fakePty });
+
+    expect(result.ok).toBe(true);
+    expect(result.marker_seen).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.excerpt).toContain('VIBECODE_ELECTRON_PTY_OK');
+    expect(fakePty.closed).toBe(true);
+  });
+
   test('runDesktopSmoke uses DesktopTerminalService from terminal_bridge', async () => {
     const src = fs.readFileSync(
       path.join(__dirname, '../../../src/app/desktop/desktop_smoke.ts'),
