@@ -155,6 +155,31 @@ describe('DesktopPromptPreviewService', () => {
     expect(result.runDir).toContain(path.join(tmpRepo, '.vibecode', 'runs'));
   });
 
+  test('attaches the core-derived CodeGraph detect-only status (informational, not used for context)', async () => {
+    const { generatePromptPreview } = await import('../../../src/app/desktop/prompt_preview_service.js');
+    const { readRunCodeGraphStatus } = await import('../../../src/core/scanning/codegraph_status.js');
+
+    const result = await generatePromptPreview({ task: 'codegraph status surfaced in composer', repoRoot: tmpRepo });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The status is present and equals the shared core reader's view of the same
+    // run — the service does not re-derive or re-detect anything itself.
+    expect(result.codegraph).toBeDefined();
+    expect(result.codegraph).toEqual(readRunCodeGraphStatus(result.runDir));
+
+    // Detection always records detect-only mode; state is one of the known states.
+    expect(result.codegraph.mode).toBe('detect-only');
+    expect(['ready', 'installed-not-initialized', 'not-installed', 'unknown']).toContain(result.codegraph.state);
+
+    // Informational only: the status must make clear CodeGraph is NOT used to build
+    // the context/final prompt in this phase, and must never imply an active toggle.
+    expect(result.codegraph.usageNote.toLowerCase()).toContain('not implemented');
+    expect(Object.keys(result.codegraph)).not.toContain('enabled');
+    expect(Object.keys(result.codegraph)).not.toContain('using');
+  });
+
   test('error result includes providerErrorPath when provider_error.json exists in artifacts list', async () => {
     const providerErrorPath = path.join(tmpRepo, '.vibecode', 'runs', '2026-05-24_001', 'flash', 'provider_error.json');
     vi.doMock('../../../src/core/prompting/pipeline.js', () => ({

@@ -4,6 +4,7 @@ import path from 'path';
 import { runPromptPipeline } from '../../core/prompting/pipeline.js';
 import type { PipelineEvent, PipelineProgressCallback } from '../../core/prompting/pipeline_events.js';
 import { readRunContextSummary, RunContextSummary } from '../../core/context/run_context_summary.js';
+import { readRunCodeGraphStatus, CodeGraphStatus } from '../../core/scanning/codegraph_status.js';
 
 export interface PromptPreviewRequest {
   task: string;
@@ -48,6 +49,12 @@ export interface PromptPreviewSuccess {
   flashOutputContent?: string;
   providerErrorPath?: string;
   context: RunContextSummary;
+  /**
+   * Optional CodeGraph detect-only status for this run, derived in core from
+   * scan/external_tools.json. Informational only: CodeGraph is not used to build
+   * the context/final prompt in this phase (see CodeGraphStatus.usageNote).
+   */
+  codegraph: CodeGraphStatus;
   terminalSend: 'not_sent';
   /** The flash mode that was used for this run: mock or live. */
   flash_mode: 'mock' | 'live';
@@ -180,6 +187,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     ...(flashOutputContent !== undefined ? { flashOutputContent } : {}),
     ...(providerErrorPath ? { providerErrorPath } : {}),
     context: readRunContextSummary(pipelineResult.runDir),
+    codegraph: readRunCodeGraphStatus(pipelineResult.runDir),
     terminalSend: 'not_sent',
     flash_mode: request.flashMode ?? 'mock',
     warnings: pipelineResult.warnings ?? [],

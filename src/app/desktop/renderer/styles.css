@@ -478,6 +478,20 @@ input, textarea, select { font: inherit; color: inherit; }
 .cg-status .cg-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
 .cg-status .cg-muted { font-style: italic; }
 
+/* Compact CodeGraph chip in the composer header — neutral detect-only indicator.
+   The dot colour reflects detection state; missing CodeGraph stays grey (optional,
+   not an error). */
+.cg-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-2);
+  padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface);
+}
+.cg-chip .cg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.cg-chip .cg-dot.ready { background: var(--success); }
+.cg-chip .cg-dot.warn { background: var(--warn); }
+.cg-chip .cg-dot.muted { background: var(--muted); }
+
 /* ------------- Per-tile prompt overlay (translucent) ------------- */
 .overlay-layer {
   position: absolute;

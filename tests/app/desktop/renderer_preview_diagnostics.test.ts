@@ -16,4 +16,25 @@ describe('desktop renderer preview diagnostics', () => {
     expect(html).toContain('flash_input_budget.json');
     expect(html).toContain('FLASH_INPUT_BUDGET_EXCEEDED');
   });
+
+  test('composer surfaces optional CodeGraph status chip sourced from core (no renderer detection)', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+
+    // A persistent chip in the composer header (visible before any build).
+    expect(html).toContain('id="composer-cg-chip"');
+    expect(html).toContain('id="composer-cg-dot"');
+    expect(html).toContain('id="composer-cg-chip-text"');
+
+    // Status comes from core-derived data: latest run on open (runs.list) and the
+    // build result afterwards. The renderer must not run detection or fetch/parse
+    // the external_tools.json artifact itself.
+    expect(html).toContain('refreshComposerCodeGraphChip');
+    expect(html).toContain('renderCodeGraphChip(result.codegraph)');
+    expect(html).toContain('window.vibecodeAPI.runs.list()');
+    expect(html).not.toContain('detectCodeGraph');
+    expect(html).not.toMatch(/readRunArtifact[^;]*external_tools/);
+
+    // The summary makes "used or not" explicit: detect-only, not used for context.
+    expect(html).toContain("['codegraph used', result.codegraph ? 'no — detect-only (future phase)' : '—']");
+  });
 });

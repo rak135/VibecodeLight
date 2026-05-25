@@ -21,6 +21,8 @@ export interface ComposerPreviewIpcResult {
   providerErrorPath?: string;
   artifacts?: string[];
   context?: ContextSummaryIpc;
+  /** Optional CodeGraph detect-only status for this run (informational only). */
+  codegraph?: CodeGraphStatusIpc;
   terminalSend?: 'not_sent';
   /** The flash mode used: mock or live. */
   flash_mode?: 'mock' | 'live';

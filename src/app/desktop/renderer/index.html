@@ -87,6 +87,15 @@
                 <div class="ov-head">
                   <span class="title">prompt composer</span>
                   <span class="scope" id="ov-scope">~/main</span>
+                  <!-- Optional CodeGraph detect-only indicator. Status is derived in core
+                       (runs:list / composer build result); the renderer never runs
+                       detection. Dot: green=ready, amber=installed-not-initialized,
+                       grey=not-installed/unknown. Missing CodeGraph is optional, not an error. -->
+                  <span class="cg-chip" id="composer-cg-chip" style="margin-left:10px"
+                        title="Optional CodeGraph detection (detect-only; not used to build context yet).">
+                    <span class="cg-dot muted" id="composer-cg-dot"></span>
+                    <span id="composer-cg-chip-text">CodeGraph: …</span>
+                  </span>
                   <span class="ov-step">
                     <span id="ov-step-label" style="margin-right:4px">step 01 · compose</span>
                     <span class="pip on" data-pip="0"></span>
@@ -413,6 +422,9 @@
         if (hintScope) hintScope.textContent = scopeLabel;
         setTimeout(() => { try { taskInput.focus(); } catch (_e) {} }, 120);
         refreshSendButton();
+        // Show the optional CodeGraph detect-only status immediately, from the
+        // latest run. A build later refreshes it from that run's own status.
+        void refreshComposerCodeGraphChip();
       }
       function closeOverlay() {
         if (composerHostTile) {
@@ -645,6 +657,54 @@
         return html;
       }
 
+      // Neutral status dot for the composer CodeGraph chip. Missing CodeGraph is
+      // optional, so it shows grey (not red); only an unhealthy/uninitialised index
+      // gets amber and a fully ready one gets green.
+      function codeGraphDotClass(state) {
+        if (state === 'ready') return 'cg-dot ready';
+        if (state === 'installed-not-initialized') return 'cg-dot warn';
+        return 'cg-dot muted';
+      }
+
+      // Render the compact CodeGraph chip in the composer header from a core-derived
+      // status object (never re-detected here). A null status (no scan yet / API
+      // unavailable) shows a neutral "unknown" chip.
+      function renderCodeGraphChip(cg) {
+        const dot = $('composer-cg-dot');
+        const text = $('composer-cg-chip-text');
+        const chip = $('composer-cg-chip');
+        if (!cg) {
+          if (dot) dot.className = 'cg-dot muted';
+          if (text) text.textContent = 'CodeGraph: unknown';
+          if (chip) chip.title = 'Optional CodeGraph detection — run a scan first. Detect-only; not used to build context yet.';
+          return;
+        }
+        if (dot) dot.className = codeGraphDotClass(cg.state);
+        if (text) text.textContent = cg.label || 'CodeGraph: unknown';
+        if (chip) {
+          const bits = [];
+          if (cg.mode) bits.push('Mode: ' + cg.mode);
+          if (cg.usageNote) bits.push(cg.usageNote);
+          chip.title = bits.length ? bits.join(' · ') : 'Optional CodeGraph detection (detect-only).';
+        }
+      }
+
+      // Populate the chip on composer open from the latest run's core-derived status
+      // (runs:list, newest first). Best-effort: any failure falls back to "unknown".
+      async function refreshComposerCodeGraphChip() {
+        if (!window.vibecodeAPI || !window.vibecodeAPI.runs || !window.vibecodeAPI.runs.list) {
+          renderCodeGraphChip(null);
+          return;
+        }
+        try {
+          const result = await window.vibecodeAPI.runs.list();
+          const runs = result && result.ok && Array.isArray(result.runs) ? result.runs : [];
+          renderCodeGraphChip(runs.length > 0 ? runs[0].codegraph : null);
+        } catch (_error) {
+          renderCodeGraphChip(null);
+        }
+      }
+
       // ---- Context panel (real flash context via run artifacts) ----
       function rpListSection(title, items) {
         if (!items || items.length === 0) {
@@ -778,6 +838,14 @@
         window.vibecodeAPI.composer.onProgress((event) => appendProgressItem(event));
       }
 
+      // Compact "ready · detect-only" value for the summary grid, without the
+      // redundant "CodeGraph:" prefix already shown on the row label.
+      function codeGraphSummaryValue(cg) {
+        if (!cg) return '—';
+        const state = (cg.label || '').replace(/^CodeGraph:\s*/i, '') || cg.state || 'unknown';
+        return cg.mode ? state + ' · ' + cg.mode : state;
+      }
+
       function renderSummary(result) {
         const rowsHtml = [
           ['run_id', result.run_id || '—'],
@@ -790,6 +858,10 @@
           ['repo atlas', result.repoAtlasPath || '—'],
           ['task_slice.md', result.taskSlicePath || '—'],
           ['flash_input_budget.json', result.flashInputBudgetPath || '—'],
+          // Optional CodeGraph: report detection state and, explicitly, that it
+          // was NOT used to build this context (detect-only in this phase).
+          ['codegraph', codeGraphSummaryValue(result.codegraph)],
+          ['codegraph used', result.codegraph ? 'no — detect-only (future phase)' : '—'],
         ];
         summaryElement.innerHTML = rowsHtml
           .map(([k, v]) => '<div class="k">' + k + '</div><div class="v">' + escapeHtml(v) + '</div>')
@@ -860,6 +932,7 @@
           currentPreview = result;
           summaryTs.textContent = 'ready';
           renderSummary(result);
+          renderCodeGraphChip(result.codegraph);
           await populateArtifactTabs(result);
           finalMeta.textContent = '· ' + (result.finalPrompt || '').length + ' chars';
           finalSection.style.display = '';
