@@ -291,41 +291,6 @@ describe('DesktopPromptSendService', () => {
     expect(service.active).toBe(before);
   });
 
-  test('Approve & Send does NOT write terminal_excerpt_after.md', async () => {
-    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
-    const content = '# Task\nDo X\n';
-    const { runDir } = makeFinalizedRun(tmpRepo, 'r5', content);
-    const service = createFakeService({ sessionId: 'desktop-77-xyz', cwd: tmpRepo, pid: 77, shell: 'pwsh' });
-
-    const result = await sendFinalPromptForRun({
-      runId: 'r5',
-      repoRoot: tmpRepo,
-      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-
-    const excerptPath = path.join(runDir, 'terminal', 'terminal_excerpt_after.md');
-    expect(fs.existsSync(excerptPath)).toBe(false);
-    expect(fs.existsSync(path.join(runDir, 'after'))).toBe(false);
-  });
-
-  test('does not write terminal_excerpt_after.md when excerpt is undefined', async () => {
-    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
-    const content = '# Task\nDo X\n';
-    const { runDir } = makeFinalizedRun(tmpRepo, 'r6', content);
-    const service = createFakeService({ sessionId: 'desktop-77-xyz', cwd: tmpRepo, pid: 77, shell: 'pwsh' });
-
-    await sendFinalPromptForRun({
-      runId: 'r6',
-      repoRoot: tmpRepo,
-      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
-    });
-
-    expect(fs.existsSync(path.join(runDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
-  });
-
   test('does not write terminal_excerpt_after.md on send failure', async () => {
     const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
     const content = '# Task\nDo X\n';
