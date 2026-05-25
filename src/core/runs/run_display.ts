@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { CodeGraphStatus, readRunCodeGraphStatus } from '../scanning/codegraph_status.js';
+
 export interface RunInfo {
   run_id: string;
   task: string;
@@ -20,6 +22,8 @@ export interface RunInfo {
   };
   has_final_prompt: boolean;
   has_send_metadata: boolean;
+  /** Optional CodeGraph detect-only status, derived from scan/external_tools.json. */
+  codegraph: CodeGraphStatus;
 }
 
 function readJson<T>(filePath: string): T | undefined {
@@ -67,6 +71,7 @@ export function getRunInfo(runDir: string): RunInfo {
     artifacts,
     has_final_prompt: artifacts.final_prompt !== undefined,
     has_send_metadata: artifacts.send_metadata !== undefined,
+    codegraph: readRunCodeGraphStatus(runDir),
   };
 }
 

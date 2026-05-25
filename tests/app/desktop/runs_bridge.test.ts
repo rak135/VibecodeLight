@@ -97,6 +97,49 @@ describe('desktop runs bridge', () => {
     expect(result.run?.artifacts.final_prompt).toBeDefined();
   });
 
+  test('runs:show surfaces the core-derived CodeGraph status (renderer does not parse it)', async () => {
+    const runsDir = path.join(repoRoot, '.vibecode', 'runs');
+    writeRun(runsDir, '2026-05-25_001', { withFinalPrompt: true, createdAt: '2026-05-25T10:00:00.000Z', task: 'cg task' });
+    const scanDir = path.join(runsDir, '2026-05-25_001', 'scan');
+    fs.mkdirSync(scanDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(scanDir, 'external_tools.json'),
+      `${JSON.stringify({ tools: { codegraph: { available: true, initialized: true, mode: 'detect-only', warnings: [] } } })}\n`,
+      'utf8',
+    );
+
+    const { registerDesktopRunsIpcHandlers } = await import('../../../src/app/desktop/runs_bridge.js');
+    const ipc = createFakeIpc();
+    registerDesktopRunsIpcHandlers(ipc, { getRepoPath: () => repoRoot });
+
+    const result = (await ipc.invoke('runs:show', '2026-05-25_001')) as {
+      ok: boolean;
+      run?: { codegraph?: { state: string; label: string; mode: string | null; usageNote: string } };
+    };
+    expect(result.ok).toBe(true);
+    expect(result.run?.codegraph?.state).toBe('ready');
+    expect(result.run?.codegraph?.label).toBe('CodeGraph: ready');
+    expect(result.run?.codegraph?.mode).toBe('detect-only');
+    // Informational only: no active "use CodeGraph" affordance is implied.
+    expect(result.run?.codegraph?.usageNote.toLowerCase()).toContain('not implemented');
+  });
+
+  test('runs:show returns a neutral unknown CodeGraph status when no scan artifact exists', async () => {
+    const runsDir = path.join(repoRoot, '.vibecode', 'runs');
+    writeRun(runsDir, '2026-05-25_002', { withFinalPrompt: false, createdAt: '2026-05-25T10:00:00.000Z', task: 'no scan' });
+
+    const { registerDesktopRunsIpcHandlers } = await import('../../../src/app/desktop/runs_bridge.js');
+    const ipc = createFakeIpc();
+    registerDesktopRunsIpcHandlers(ipc, { getRepoPath: () => repoRoot });
+
+    const result = (await ipc.invoke('runs:show', '2026-05-25_002')) as {
+      ok: boolean;
+      run?: { codegraph?: { state: string } };
+    };
+    expect(result.ok).toBe(true);
+    expect(result.run?.codegraph?.state).toBe('unknown');
+  });
+
   test('runs:show returns RUN_NOT_FOUND for a missing run', async () => {
     const { registerDesktopRunsIpcHandlers } = await import('../../../src/app/desktop/runs_bridge.js');
     const ipc = createFakeIpc();

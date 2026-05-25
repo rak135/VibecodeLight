@@ -611,11 +611,13 @@
           return;
         }
         const items = runArtifactItems(result.run).filter((entry) => Boolean(entry[1]));
+        let html = codeGraphStatusHtml(result.run.codegraph);
         if (items.length === 0) {
-          target.innerHTML = '<div class="rp-empty">No artifacts on disk for this run.</div>';
+          html += '<div class="rp-empty">No artifacts on disk for this run.</div>';
+          target.innerHTML = html;
           return;
         }
-        let html = '<div class="rp-list">';
+        html += '<div class="rp-list">';
         for (const entry of items) {
           const name = entry[0];
           const p = entry[1];
@@ -627,6 +629,20 @@
         html += '</div>';
         target.innerHTML = html;
         bindArtifactOpeners(target);
+      }
+
+      // Neutral, informational CodeGraph status block. Missing CodeGraph is shown
+      // as optional text, never an error. Status is derived in core (run-display)
+      // from scan/external_tools.json; the renderer only displays it. There is no
+      // active "Use CodeGraph" toggle in this phase.
+      function codeGraphStatusHtml(cg) {
+        if (!cg) return '';
+        let html = '<div class="cg-status">';
+        html += '<div class="cg-label">' + escapeHtml(cg.label || 'CodeGraph: unknown') + '</div>';
+        if (cg.mode) html += '<div class="cg-sub">Mode: ' + escapeHtml(cg.mode) + '</div>';
+        if (cg.usageNote) html += '<div class="cg-sub cg-muted">' + escapeHtml(cg.usageNote) + '</div>';
+        html += '</div>';
+        return html;
       }
 
       // ---- Context panel (real flash context via run artifacts) ----

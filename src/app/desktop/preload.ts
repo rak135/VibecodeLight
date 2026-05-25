@@ -152,6 +152,20 @@ export interface ConfigRememberLiveSelectionIpc {
   error?: { code: string; message: string; details?: string[] };
 }
 
+/**
+ * Mirror of the core `CodeGraphStatus` shape (detect-only, informational). The
+ * renderer reads this from `runs:show`; it never parses external_tools.json or
+ * runs detection itself.
+ */
+export interface CodeGraphStatusIpc {
+  state: 'not-installed' | 'installed-not-initialized' | 'ready' | 'unknown';
+  label: string;
+  mode: string | null;
+  detail: string;
+  warnings: string[];
+  usageNote: string;
+}
+
 export interface RunInfoIpc {
   run_id: string;
   task: string;
@@ -171,6 +185,7 @@ export interface RunInfoIpc {
   };
   has_final_prompt: boolean;
   has_send_metadata: boolean;
+  codegraph: CodeGraphStatusIpc;
 }
 
 export interface RunsListIpc {

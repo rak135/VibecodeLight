@@ -1572,6 +1572,8 @@ export function createCli(): Command {
       console.log(`runDir: ${info.runDir}`);
       console.log(`final_prompt: ${info.artifacts.final_prompt ?? 'not found'}`);
       console.log(`send_metadata: ${info.artifacts.send_metadata ?? 'not present'}`);
+      console.log(info.codegraph.label);
+      if (info.codegraph.mode) console.log(`mode: ${info.codegraph.mode}`);
       console.log('artifacts:');
       const artifactLines: Array<[string, string | undefined]> = [
         ['user_prompt.md', info.artifacts.user_prompt],

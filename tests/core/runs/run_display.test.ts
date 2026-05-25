@@ -71,6 +71,40 @@ describe('run display', () => {
     expect(info.artifacts.final_prompt).toBe(path.join(pipeline.runDir, 'output', 'final_prompt.md'));
   });
 
+  test('getRunInfo derives a neutral CodeGraph status from scan/external_tools.json', () => {
+    const runDir = path.join(tmpRepo, '.vibecode', 'runs', '2026-05-25_001');
+    const scanDir = path.join(runDir, 'scan');
+    fs.mkdirSync(scanDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'run_manifest.json'),
+      `${JSON.stringify({ run_id: '2026-05-25_001', task: 'cg', created_at: '2026-05-25T00:00:00.000Z' })}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(scanDir, 'external_tools.json'),
+      `${JSON.stringify({ tools: { codegraph: { available: false, initialized: false, mode: 'detect-only', warnings: ['CODEGRAPH_NOT_FOUND'] } } })}\n`,
+      'utf8',
+    );
+
+    const info = getRunInfo(runDir);
+    expect(info.codegraph.state).toBe('not-installed');
+    expect(info.codegraph.label).toBe('CodeGraph: not installed (optional)');
+    expect(info.codegraph.mode).toBe('detect-only');
+  });
+
+  test('getRunInfo reports unknown CodeGraph status when no scan artifact exists', () => {
+    const runDir = path.join(tmpRepo, '.vibecode', 'runs', '2026-05-25_002');
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'run_manifest.json'),
+      `${JSON.stringify({ run_id: '2026-05-25_002', task: 'cg', created_at: '2026-05-25T00:00:00.000Z' })}\n`,
+      'utf8',
+    );
+
+    const info = getRunInfo(runDir);
+    expect(info.codegraph.state).toBe('unknown');
+  });
+
   test('runs show latest --json returns canonical envelope', async () => {
     const pipeline = await runPromptPipeline({ task: 'runs show latest json', repoRoot: tmpRepo, mock: true });
     expect(pipeline.ok).toBe(true);
