@@ -379,6 +379,108 @@ describe('writeCodeGraphContextArtifacts', () => {
     }
   });
 
+  test('repo atlas extraction filters pseudo-paths and non-repo paths using deterministic scanner inventory when available', () => {
+    const { runDir } = tempRun();
+    try {
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'file_inventory.json'),
+        JSON.stringify({
+          files: [
+            { path: 'src/core/terminal/terminal_demo.ts' },
+            { path: 'src/core/scanning/python/tests/test_docs_scan.py' },
+          ],
+        }),
+        'utf8',
+      );
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: [
+          '# CodeGraph Context',
+          '- src/core/terminal/terminal_demo.ts — real repo file',
+          '- src/core/scanning/python/tests/test_docs_scan.py — real repo file',
+          'if (candidates.length > 1 && /ENOENT/i.test(msg) && candidate !== candidates[candidates.length - 1]) {',
+          '"# Readme/n/nIntro./n", encoding="utf-8"',
+          'entry = _entry_by_path(data["docs"], "docs/GUIDE.md")',
+        ].join('\n'),
+        warnings: [],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8'));
+      const atlasPaths = [
+        ...atlasJson.sections.likely_relevant_areas.map((item: { path: string }) => item.path),
+        ...atlasJson.sections.candidate_entry_points.map((item: { path: string }) => item.path),
+        ...atlasJson.sections.related_files_to_inspect.map((item: { path: string }) => item.path),
+        ...atlasJson.sections.possible_risk_areas.map((item: { path: string }) => item.path),
+      ];
+
+      expect(atlas).toContain('src/core/terminal/terminal_demo.ts');
+      expect(atlas).toContain('src/core/scanning/python/tests/test_docs_scan.py');
+      expect(atlas).not.toContain('ENOENT/i.test');
+      expect(atlas).not.toContain('Readme/n/nIntro./n');
+      expect(atlas).not.toContain('docs/GUIDE.md');
+      expect(atlasPaths).toEqual([
+        'src/core/terminal/terminal_demo.ts',
+        'src/core/scanning/python/tests/test_docs_scan.py',
+      ]);
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('repo atlas extraction filters pseudo-paths using list-root file inventory from real scanner output', () => {
+    const { runDir } = tempRun();
+    try {
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'file_inventory.json'),
+        JSON.stringify([
+          { path: 'src/core/terminal/terminal_demo.ts' },
+          { path: 'src/core/scanning/python/tests/test_docs_scan.py' },
+        ]),
+        'utf8',
+      );
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: [
+          '# CodeGraph Context',
+          '- src/core/terminal/terminal_demo.ts — real repo file',
+          '- src/core/scanning/python/tests/test_docs_scan.py — real repo file',
+          'if (candidates.length > 1 && /ENOENT/i.test(msg) && candidate !== candidates[candidates.length - 1]) {',
+          'entry = _entry_by_path(data["docs"], "docs/GUIDE.md")',
+        ].join('\n'),
+        warnings: [],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8'));
+      const atlasPaths = [
+        ...atlasJson.sections.likely_relevant_areas.map((item: { path: string }) => item.path),
+        ...atlasJson.sections.candidate_entry_points.map((item: { path: string }) => item.path),
+        ...atlasJson.sections.related_files_to_inspect.map((item: { path: string }) => item.path),
+        ...atlasJson.sections.possible_risk_areas.map((item: { path: string }) => item.path),
+      ];
+
+      expect(atlasPaths).toEqual([
+        'src/core/terminal/terminal_demo.ts',
+        'src/core/scanning/python/tests/test_docs_scan.py',
+      ]);
+      expect(atlas).not.toContain('ENOENT/i.test');
+      expect(atlas).not.toContain('docs/GUIDE.md');
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
   test('repo atlas extraction dedupes paths, preserves warnings, provenance, and hard bounds', () => {
     const { runDir } = tempRun();
     try {

@@ -81,6 +81,12 @@ interface RepoAtlasJson {
   warnings: string[];
 }
 
+interface RepoAtlasBuildOptions {
+  contextMarkdown: string;
+  warnings: string[];
+  knownRepoPaths?: Set<string>;
+}
+
 const DEFAULT_MAX_BYTES = 32 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CONTEXT_RELATIVE_ARTIFACT = 'scan/codegraph_context.md';
@@ -326,6 +332,29 @@ function pathMatches(line: string): string[] {
   return matches.map(normalizeRepoPath).filter((item): item is string => Boolean(item));
 }
 
+function readKnownRepoPaths(runDir: string): Set<string> | undefined {
+  const inventoryPath = relToAbs(runDir, 'scan/file_inventory.json');
+  if (!fs.existsSync(inventoryPath)) return undefined;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(inventoryPath, 'utf8')) as unknown;
+    const records = Array.isArray(parsed)
+      ? parsed
+      : (typeof parsed === 'object' && parsed !== null
+        ? ((parsed as { files?: Array<{ path?: unknown }>; file_inventory?: Array<{ path?: unknown }> }).files
+          ?? (parsed as { files?: Array<{ path?: unknown }>; file_inventory?: Array<{ path?: unknown }> }).file_inventory
+          ?? [])
+        : []);
+    const known = new Set(
+      records
+        .map((record) => (typeof record?.path === 'string' ? record.path.replace(/\\/g, '/') : ''))
+        .filter((item): item is string => item.length > 0),
+    );
+    return known.size > 0 ? known : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function symbolNearPath(line: string, filePath: string): string | undefined {
   const after = line.slice(line.indexOf(filePath) + filePath.length);
   const match = after.match(/\s*(?:::|#|->|→)\s*([A-Za-z_$][A-Za-z0-9_$.:-]*)/);
@@ -364,13 +393,16 @@ function emptyRepoAtlasSections(): RepoAtlasJson['sections'] {
   };
 }
 
-function buildRepoAtlasFromCodeGraphContext(input: { contextMarkdown: string; warnings: string[] }): RepoAtlasJson {
+function buildRepoAtlasFromCodeGraphContext(input: RepoAtlasBuildOptions): RepoAtlasJson {
   const sections = emptyRepoAtlasSections();
   const seen = new Set<string>();
   const lines = input.contextMarkdown.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 400);
 
   for (const line of lines) {
-    const paths = pathMatches(line);
+    const paths = pathMatches(line).filter((filePath) => {
+      if (!input.knownRepoPaths) return true;
+      return input.knownRepoPaths.has(filePath);
+    });
     if (paths.length === 0) continue;
     const bucket = classifyAtlasLine(line);
     for (const filePath of paths) {
@@ -509,7 +541,11 @@ export function writeCodeGraphContextArtifacts(input: {
     const contextMarkdown = `${header.join('\n')}\n${input.result.outputText.trim()}\n`;
     fs.writeFileSync(contextArtifact, contextMarkdown, 'utf8');
 
-    const atlas = buildRepoAtlasFromCodeGraphContext({ contextMarkdown, warnings: input.result.warnings });
+    const atlas = buildRepoAtlasFromCodeGraphContext({
+      contextMarkdown,
+      warnings: input.result.warnings,
+      knownRepoPaths: readKnownRepoPaths(input.runDir),
+    });
     repoAtlasArtifact = relToAbs(input.runDir, REPO_ATLAS_RELATIVE_ARTIFACT);
     repoAtlasJsonArtifact = relToAbs(input.runDir, REPO_ATLAS_JSON_RELATIVE_ARTIFACT);
     fs.writeFileSync(repoAtlasArtifact, `${renderRepoAtlasMarkdown(atlas).trim()}\n`, 'utf8');
