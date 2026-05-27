@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import type { CodeGraphToolEntry } from '../../../src/core/scanning/external_tools.js';
 import {
   CODEGRAPH_USAGE_NOTE,
+  formatCodeGraphWarning,
   readRunCodeGraphStatus,
   summarizeCodeGraphStatus,
 } from '../../../src/core/scanning/codegraph_status.js';
@@ -180,6 +181,103 @@ describe('readRunCodeGraphStatus', () => {
       fs.writeFileSync(path.join(scanDir, 'external_tools.json'), '{ not json', 'utf8');
       const status = readRunCodeGraphStatus(runDir);
       expect(status.state).toBe('unknown');
+    } finally {
+      fs.rmSync(runDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('formatCodeGraphWarning', () => {
+  // Stale-index warning gets neutral, action-oriented wording — never red/fatal.
+  test('CODEGRAPH_INDEX_STALE maps to neutral text suggesting Sync', () => {
+    const text = formatCodeGraphWarning(
+      'CODEGRAPH_INDEX_STALE: pending changes reported by codegraph status --json; using existing index without automatic sync',
+    );
+    expect(text).toBe('Index may be stale. Existing index was used. Run Sync to update it.');
+    // Neutral language: no error/failed framing.
+    expect(text.toLowerCase()).not.toContain('error');
+    expect(text.toLowerCase()).not.toContain('failed');
+    expect(text.toLowerCase()).not.toContain('fatal');
+  });
+
+  test('known codes produce stable neutral text', () => {
+    expect(formatCodeGraphWarning('CODEGRAPH_OUTPUT_TRUNCATED: 32768 bytes')).toContain('truncated');
+    expect(formatCodeGraphWarning('CODEGRAPH_STATUS_FAILED: boom')).toContain('status check failed');
+    expect(formatCodeGraphWarning('CODEGRAPH_CONTEXT_FAILED: boom')).toContain('context command failed');
+    expect(formatCodeGraphWarning('CODEGRAPH_NOT_INSTALLED')).toContain('not installed');
+    expect(formatCodeGraphWarning('CODEGRAPH_NOT_INITIALIZED')).toContain('not initialized');
+  });
+
+  test('unknown code falls back to the message portion or raw text', () => {
+    expect(formatCodeGraphWarning('SOME_NEW_CODE: details here')).toBe('details here');
+    expect(formatCodeGraphWarning('a bare string')).toBe('a bare string');
+  });
+
+  test('empty input returns empty', () => {
+    expect(formatCodeGraphWarning('')).toBe('');
+    expect(formatCodeGraphWarning('   ')).toBe('');
+  });
+});
+
+describe('CodeGraphStatus.displayWarnings', () => {
+  test('detect-only ready status has empty displayWarnings', () => {
+    const status = summarizeCodeGraphStatus(entry({ available: true, initialized: true, warnings: [] }));
+    expect(status.displayWarnings).toEqual([]);
+  });
+
+  test('readRunCodeGraphStatus surfaces formatted warnings from codegraph_usage.json', () => {
+    const runDir = tempRun();
+    try {
+      writeExternalTools(runDir, {
+        available: true,
+        initialized: true,
+        mode: 'use-existing',
+        used_for_context: true,
+        context_artifact: 'scan/codegraph_context.md',
+        warnings: [],
+        codegraph_dir: '.codegraph',
+      });
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'codegraph_usage.json'),
+        JSON.stringify({
+          mode: 'use-existing',
+          used: true,
+          reason: 'EXISTING_INDEX',
+          artifact: 'scan/codegraph_context.md',
+          warnings: [
+            'CODEGRAPH_INDEX_STALE: pending changes reported by codegraph status --json; using existing index without automatic sync',
+          ],
+        }, null, 2),
+        'utf8',
+      );
+      const status = readRunCodeGraphStatus(runDir);
+      // Use-existing succeeded; warning is informational, not a failure.
+      expect(status.usedForContext).toBe(true);
+      expect(status.usageNote).toBe('CodeGraph used: yes — existing index.');
+      // Raw and display warnings are both present; renderer can use either.
+      expect(status.warnings.some((w) => w.startsWith('CODEGRAPH_INDEX_STALE'))).toBe(true);
+      expect(status.displayWarnings).toEqual([
+        'Index may be stale. Existing index was used. Run Sync to update it.',
+      ]);
+    } finally {
+      fs.rmSync(runDir, { recursive: true, force: true });
+    }
+  });
+
+  test('detect-only run never carries warnings even when external_tools listed some', () => {
+    const runDir = tempRun();
+    try {
+      // detect-only scan with no usage file recorded.
+      writeExternalTools(runDir, {
+        available: true,
+        initialized: true,
+        mode: 'detect-only',
+        warnings: [],
+        codegraph_dir: '.codegraph',
+      });
+      const status = readRunCodeGraphStatus(runDir);
+      expect(status.mode).toBe('detect-only');
+      expect(status.displayWarnings).toEqual([]);
     } finally {
       fs.rmSync(runDir, { recursive: true, force: true });
     }

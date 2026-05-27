@@ -30,6 +30,12 @@ export interface CodeGraphStatus {
   detail: string;
   /** Pass-through detection warnings (may be empty). Never rendered as errors. */
   warnings: string[];
+  /**
+   * Neutral, display-ready text for each entry of `warnings`, computed in core
+   * so the renderer never has to parse warning codes. Same length and order as
+   * `warnings`. Empty when there are no warnings.
+   */
+  displayWarnings: string[];
   /** Informational note describing whether CodeGraph was used for context. */
   usageNote: string;
   /** True only when a use-existing run successfully included CodeGraph context. */
@@ -45,6 +51,42 @@ export interface CodeGraphStatus {
  * a future phase; there is intentionally no enabled toggle in Phase 1.5.
  */
 export const CODEGRAPH_USAGE_NOTE = 'CodeGraph used: no — detect-only.';
+
+/**
+ * Map a raw CodeGraph warning string (typically `CODE: details`) to neutral,
+ * user-facing text safe to show in the GUI summary. Unknown codes fall through
+ * with the prefix stripped; bare strings are returned unchanged. Kept here in
+ * core so the renderer stays thin and tests cover the wording in one place.
+ *
+ * Wording is intentionally neutral — CodeGraph is optional and warnings are
+ * not failures (the build still succeeds with the existing index).
+ */
+export function formatCodeGraphWarning(warning: string): string {
+  const trimmed = warning.trim();
+  if (trimmed.length === 0) return trimmed;
+  const colon = trimmed.indexOf(':');
+  const code = colon > 0 ? trimmed.slice(0, colon).trim() : trimmed;
+  switch (code) {
+    case 'CODEGRAPH_INDEX_STALE':
+      return 'Index may be stale. Existing index was used. Run Sync to update it.';
+    case 'CODEGRAPH_OUTPUT_TRUNCATED':
+      return 'CodeGraph output was truncated to stay within the configured size limit.';
+    case 'CODEGRAPH_STATUS_FAILED':
+      return 'CodeGraph status check failed; existing index was not used.';
+    case 'CODEGRAPH_CONTEXT_FAILED':
+      return 'CodeGraph context command failed; existing index was not used.';
+    case 'CODEGRAPH_NOT_INSTALLED':
+      return 'CodeGraph is not installed; existing index was not used.';
+    case 'CODEGRAPH_NOT_INITIALIZED':
+      return 'CodeGraph is not initialized for this repository; existing index was not used.';
+    default:
+      return colon > 0 ? trimmed.slice(colon + 1).trim() || trimmed : trimmed;
+  }
+}
+
+function toDisplayWarnings(warnings: string[]): string[] {
+  return warnings.map(formatCodeGraphWarning);
+}
 
 function normalizeWarnings(warnings: unknown): string[] {
   return Array.isArray(warnings)
@@ -63,6 +105,7 @@ function unknownStatus(): CodeGraphStatus {
     mode: null,
     detail: 'Run a scan or context build to record CodeGraph detection status.',
     warnings: [],
+    displayWarnings: [],
     usageNote: CODEGRAPH_USAGE_NOTE,
     usedForContext: false,
     usageReason: 'detect-only',
@@ -95,9 +138,10 @@ export function summarizeCodeGraphStatus(
       detail:
         'CodeGraph is optional and was not found on PATH. VibecodeLight runs normally without it.',
       warnings,
+      displayWarnings: toDisplayWarnings(warnings),
       usageNote: CODEGRAPH_USAGE_NOTE,
-    usedForContext: false,
-    usageReason: 'detect-only',
+      usedForContext: false,
+      usageReason: 'detect-only',
     };
   }
 
@@ -109,9 +153,10 @@ export function summarizeCodeGraphStatus(
       detail:
         'The codegraph command is available but this repository has no .codegraph/ index yet.',
       warnings,
+      displayWarnings: toDisplayWarnings(warnings),
       usageNote: CODEGRAPH_USAGE_NOTE,
-    usedForContext: false,
-    usageReason: 'detect-only',
+      usedForContext: false,
+      usageReason: 'detect-only',
     };
   }
 
@@ -121,6 +166,7 @@ export function summarizeCodeGraphStatus(
     mode,
     detail: 'CodeGraph is installed and this repository is initialized.',
     warnings,
+    displayWarnings: toDisplayWarnings(warnings),
     usageNote: CODEGRAPH_USAGE_NOTE,
     usedForContext: false,
     usageReason: 'detect-only',
@@ -142,13 +188,15 @@ function applyUsage(status: CodeGraphStatus, usage: unknown): CodeGraphStatus {
   const artifact = typeof record.artifact === 'string' ? record.artifact : status.contextArtifact;
   const usageReason = used ? 'existing index' : (mode === 'use-existing' && rawReason ? `skipped: ${rawReason}` : 'detect-only');
   const warnings = normalizeWarnings(record.warnings);
+  const mergedWarnings = Array.from(new Set([...status.warnings, ...warnings]));
   return {
     ...status,
     mode,
     usedForContext: used,
     usageReason,
     usageNote: usageNote(mode, used, rawReason),
-    warnings: Array.from(new Set([...status.warnings, ...warnings])),
+    warnings: mergedWarnings,
+    displayWarnings: toDisplayWarnings(mergedWarnings),
     ...(artifact ? { contextArtifact: artifact } : {}),
   };
 }

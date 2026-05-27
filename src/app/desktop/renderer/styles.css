@@ -477,6 +477,15 @@ input, textarea, select { font: inherit; color: inherit; }
 .cg-status .cg-label { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); }
 .cg-status .cg-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
 .cg-status .cg-muted { font-style: italic; }
+/* CodeGraph warnings are informational, not failures — neutral text colour,
+   never red. A subtle left border keeps them visually distinct from the
+   plain status lines without implying an error. */
+.cg-status .cg-warning {
+  color: var(--text-2);
+  border-left: 2px solid var(--border);
+  padding-left: 6px;
+  margin-top: 2px;
+}
 
 /* Compact CodeGraph chip in the composer header — neutral detect-only indicator.
    The dot colour reflects detection state; missing CodeGraph stays grey (optional,

@@ -670,6 +670,19 @@
         html += '<div class="cg-label">' + escapeHtml(cg.label || 'CodeGraph: unknown') + '</div>';
         if (cg.mode) html += '<div class="cg-sub">Mode: ' + escapeHtml(cg.mode) + '</div>';
         if (cg.usageNote) html += '<div class="cg-sub cg-muted">' + escapeHtml(cg.usageNote) + '</div>';
+        // Neutral, bounded warning list. CodeGraph warnings are not errors and the
+        // run still succeeded — surface them quietly under the status. Pre-formatted
+        // by core (cg.displayWarnings); the renderer never parses warning codes.
+        const warnings = Array.isArray(cg.displayWarnings)
+          ? cg.displayWarnings
+          : (Array.isArray(cg.warnings) ? cg.warnings : []);
+        const MAX_WARNINGS_SHOWN = 3;
+        for (let i = 0; i < Math.min(warnings.length, MAX_WARNINGS_SHOWN); i++) {
+          html += '<div class="cg-sub cg-warning">' + escapeHtml(String(warnings[i])) + '</div>';
+        }
+        if (warnings.length > MAX_WARNINGS_SHOWN) {
+          html += '<div class="cg-sub cg-muted">+' + (warnings.length - MAX_WARNINGS_SHOWN) + ' more warning(s)</div>';
+        }
         html += '</div>';
         return html;
       }
@@ -702,6 +715,13 @@
           const bits = [];
           if (cg.mode) bits.push('Mode: ' + cg.mode);
           if (cg.usageNote) bits.push(cg.usageNote);
+          const warnings = Array.isArray(cg.displayWarnings)
+            ? cg.displayWarnings
+            : (Array.isArray(cg.warnings) ? cg.warnings : []);
+          if (warnings.length > 0) {
+            const head = String(warnings[0]);
+            bits.push(warnings.length === 1 ? 'Warning: ' + head : 'Warning: ' + head + ' (+' + (warnings.length - 1) + ' more)');
+          }
           chip.title = bits.length ? bits.join(' · ') : 'Optional CodeGraph detection (detect-only).';
         }
       }
@@ -976,8 +996,24 @@
         return 'no — detect-only';
       }
 
+      // Compact warning value for the summary grid. CodeGraph warnings are
+      // informational (the run still succeeded); detect-only runs never emit
+      // them so the row stays hidden in the common case. Returns empty string
+      // when nothing should be shown, so renderSummary() can skip the row.
+      // Pre-formatted text comes from core (cg.displayWarnings).
+      function codeGraphWarningSummaryValue(cg) {
+        if (!cg) return '';
+        const warnings = Array.isArray(cg.displayWarnings)
+          ? cg.displayWarnings
+          : (Array.isArray(cg.warnings) ? cg.warnings : []);
+        if (warnings.length === 0) return '';
+        const first = String(warnings[0]);
+        if (warnings.length === 1) return first;
+        return first + ' (+' + (warnings.length - 1) + ' more)';
+      }
+
       function renderSummary(result) {
-        const rowsHtml = [
+        const rows = [
           ['run_id', result.run_id || '—'],
           ['run dir', result.runDir || '—'],
           ['context_pack.md', result.contextPackPath || '—'],
@@ -991,7 +1027,11 @@
           ['codegraph', codeGraphSummaryValue(result.codegraph)],
           ['codegraph used', codeGraphUsedSummaryValue(result.codegraph)],
         ];
-        summaryElement.innerHTML = rowsHtml
+        const warningValue = codeGraphWarningSummaryValue(result.codegraph);
+        if (warningValue) {
+          rows.push(['codegraph warning', warningValue]);
+        }
+        summaryElement.innerHTML = rows
           .map(([k, v]) => '<div class="k">' + k + '</div><div class="v">' + escapeHtml(v) + '</div>')
           .join('');
         summarySection.style.display = '';

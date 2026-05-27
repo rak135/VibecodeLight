@@ -48,4 +48,23 @@ describe('desktop renderer preview diagnostics', () => {
     expect(html).toContain('if (_cgButtonsBound) return;');
     expect(html).toContain('_cgButtonsBound = true;');
   });
+
+  // CodeGraph context warnings (e.g. CODEGRAPH_INDEX_STALE) are pre-formatted in
+  // core and surfaced in the GUI under the existing "codegraph used" row. The
+  // row appears only when warnings are present and never shows as a fatal error.
+  test('composer summary renders CodeGraph warnings under the used row when present', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+
+    // A dedicated helper computes the compact warning row value.
+    expect(html).toContain('function codeGraphWarningSummaryValue');
+    // It pulls the pre-formatted text from core (displayWarnings).
+    expect(html).toContain('cg.displayWarnings');
+    // The summary grid pushes the warning row conditionally — never injecting
+    // an empty/missing row when nothing is wrong.
+    expect(html).toContain("rows.push(['codegraph warning', warningValue])");
+    // The detail block under the status label also surfaces warnings.
+    expect(html).toContain('cg-warning');
+    // Renderer never reads codegraph_usage.json directly.
+    expect(html).not.toMatch(/codegraph_usage\.json/);
+  });
 });
