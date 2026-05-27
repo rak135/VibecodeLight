@@ -169,6 +169,11 @@ export interface CodeGraphStatusIpc {
   usedForContext?: boolean;
   usageReason?: string;
   contextArtifact?: string;
+  repoAtlasGenerated?: boolean;
+  repoAtlasReason?: string;
+  repoAtlasNote?: string;
+  repoAtlasArtifact?: string;
+  repoAtlasJsonArtifact?: string;
 }
 
 export type CodeGraphContextModeIpc = 'detect-only' | 'use-existing';

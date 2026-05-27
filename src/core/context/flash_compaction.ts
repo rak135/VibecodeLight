@@ -98,6 +98,8 @@ export const FULL_ARTIFACT_REFERENCES = [
 ];
 
 const CODEGRAPH_CONTEXT_REFERENCE = 'scan/codegraph_context.md';
+const CODEGRAPH_REPO_ATLAS_REFERENCE = 'scan/repo_atlas.md';
+const CODEGRAPH_REPO_ATLAS_JSON_REFERENCE = 'scan/repo_atlas.json';
 
 const SUBSYSTEMS = [
   { name: 'CLI', paths: ['src/app/cli'] },
@@ -243,10 +245,19 @@ function codeGraphContextArtifactExists(runDir: string): boolean {
   return fs.existsSync(path.join(runDir, ...CODEGRAPH_CONTEXT_REFERENCE.split('/')));
 }
 
+function codeGraphRepoAtlasArtifactExists(runDir: string): boolean {
+  return fs.existsSync(path.join(runDir, ...CODEGRAPH_REPO_ATLAS_REFERENCE.split('/')));
+}
+
 function fullArtifactReferencesForRun(runDir: string): string[] {
-  return codeGraphContextArtifactExists(runDir)
-    ? [...FULL_ARTIFACT_REFERENCES, CODEGRAPH_CONTEXT_REFERENCE]
-    : FULL_ARTIFACT_REFERENCES;
+  const references = [...FULL_ARTIFACT_REFERENCES];
+  if (codeGraphRepoAtlasArtifactExists(runDir)) {
+    references.push(CODEGRAPH_REPO_ATLAS_REFERENCE, CODEGRAPH_REPO_ATLAS_JSON_REFERENCE);
+  }
+  if (codeGraphContextArtifactExists(runDir)) {
+    references.push(CODEGRAPH_CONTEXT_REFERENCE);
+  }
+  return references;
 }
 
 function selectRelevant(runDir: string, task: string): RelevanceSelection {
@@ -390,6 +401,10 @@ function renderRepoAtlas(opts: BuildCompactFlashContextOptions, artifactReferenc
   atlasParts.push('');
   atlasParts.push('## Full Artifact References');
   for (const ref of artifactReferences) atlasParts.push(`- ${ref}`);
+  const codeGraphRepoAtlas = renderCodeGraphRepoAtlas(opts.runDir);
+  if (codeGraphRepoAtlas) {
+    atlasParts.push('', '## CodeGraph-Derived Repo Atlas', codeGraphRepoAtlas);
+  }
   return capMarkdown(redactSecrets(atlasParts.join('\n')), REPO_ATLAS_HARD_MAX_TOKENS, 'Repo Atlas');
 }
 
@@ -512,14 +527,41 @@ function compactPaths(runDir: string): CompactFlashArtifactPaths {
   };
 }
 
+function renderCodeGraphRepoAtlas(runDir: string): string | undefined {
+  const usage = readJson(runDir, 'scan/codegraph_usage.json');
+  if (typeof usage !== 'object' || usage === null) return undefined;
+  const usageRecord = usage as Record<string, unknown>;
+  if (usageRecord.used !== true || usageRecord.repo_atlas_generated !== true) return undefined;
+  const artifact = typeof usageRecord.repo_atlas_artifact === 'string' ? usageRecord.repo_atlas_artifact : CODEGRAPH_REPO_ATLAS_REFERENCE;
+  const atlas = readText(runDir, artifact);
+  if (!atlas.trim()) return undefined;
+  return [
+    `Artifact: ${artifact}`,
+    typeof usageRecord.repo_atlas_json_artifact === 'string' ? `JSON: ${usageRecord.repo_atlas_json_artifact}` : '',
+    '',
+    atlas.replace(/^# Repo Atlas\n?/, '').trim(),
+  ].filter(Boolean).join('\n');
+}
+
 function renderCodeGraphContext(runDir: string): string | undefined {
   const usage = readJson(runDir, 'scan/codegraph_usage.json');
   if (typeof usage !== 'object' || usage === null) return undefined;
   const usageRecord = usage as Record<string, unknown>;
   if (usageRecord.used !== true) return undefined;
   const artifact = typeof usageRecord.artifact === 'string' ? usageRecord.artifact : 'scan/codegraph_context.md';
+  const hasRepoAtlas = usageRecord.repo_atlas_generated === true && readText(runDir, typeof usageRecord.repo_atlas_artifact === 'string' ? usageRecord.repo_atlas_artifact : CODEGRAPH_REPO_ATLAS_REFERENCE).trim().length > 0;
   const context = readText(runDir, artifact);
   if (!context.trim()) return undefined;
+  if (hasRepoAtlas) {
+    return [
+      'Source: existing local CodeGraph index',
+      `Mode: ${typeof usageRecord.mode === 'string' ? usageRecord.mode : 'use-existing'}`,
+      `Artifact: ${artifact}`,
+      '',
+      'Full CodeGraph context remains available at scan/codegraph_context.md. It is referenced, not embedded, because Repo Atlas already includes bounded CodeGraph-derived hints.',
+      'CodeGraph output is guidance, not source of truth. Main model must still inspect exact files before editing.',
+    ].join('\n');
+  }
   return [
     'Source: existing local CodeGraph index',
     `Mode: ${typeof usageRecord.mode === 'string' ? usageRecord.mode : 'use-existing'}`,

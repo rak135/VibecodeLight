@@ -33,10 +33,19 @@ describe('CodeGraph flash input integration', () => {
       });
       expect(detectOnlyManifest.artifacts.codegraph_context).toBeUndefined();
       expect(detectOnlyManifest.optional_inputs.codegraph_context).toBeUndefined();
+      expect(detectOnlyManifest.artifacts.repo_atlas).toBeUndefined();
+      expect(detectOnlyManifest.optional_inputs.repo_atlas).toBeUndefined();
+      expect(detectOnlyManifest.artifacts.repo_atlas_json).toBeUndefined();
+      expect(detectOnlyManifest.optional_inputs.repo_atlas_json).toBeUndefined();
       expect(detectOnlyManifest.missing_inputs).not.toContain('scan/codegraph_context.md');
+      expect(detectOnlyManifest.missing_inputs).not.toContain('scan/repo_atlas.md');
+      expect(detectOnlyManifest.missing_inputs).not.toContain('scan/repo_atlas.json');
       expect(detectOnlyManifest.warnings.join('\n')).not.toContain('codegraph_context');
+      expect(detectOnlyManifest.warnings.join('\n')).not.toContain('repo_atlas');
 
       fs.writeFileSync(path.join(fixture.runDir, 'scan', 'codegraph_context.md'), '# CodeGraph Context\nRelevant graph output\n', 'utf8');
+      fs.writeFileSync(path.join(fixture.runDir, 'scan', 'repo_atlas.md'), '# Repo Atlas\nCompact graph hints\n', 'utf8');
+      fs.writeFileSync(path.join(fixture.runDir, 'scan', 'repo_atlas.json'), JSON.stringify({ generated: true }), 'utf8');
 
       const manifest = buildFlashInputManifest({
         run_id: '20260525_000001',
@@ -45,9 +54,18 @@ describe('CodeGraph flash input integration', () => {
         runDir: fixture.runDir,
       });
 
-      expect(manifest.artifacts.codegraph_context).toBe('scan/codegraph_context.md');
+      expect(manifest.optional_inputs.repo_atlas).toBe('scan/repo_atlas.md');
+      expect(manifest.optional_inputs.repo_atlas_json).toBe('scan/repo_atlas.json');
       expect(manifest.optional_inputs.codegraph_context).toBe('scan/codegraph_context.md');
+      expect(Object.keys(manifest.optional_inputs).indexOf('repo_atlas')).toBeLessThan(Object.keys(manifest.optional_inputs).indexOf('codegraph_context'));
+      expect(Object.keys(manifest.artifacts).indexOf('repo_atlas')).toBeLessThan(Object.keys(manifest.artifacts).indexOf('codegraph_context'));
+      expect(manifest.artifacts.repo_atlas).toBe('scan/repo_atlas.md');
+      expect(manifest.optional_inputs.repo_atlas).toBe('scan/repo_atlas.md');
+      expect(manifest.artifacts.repo_atlas_json).toBe('scan/repo_atlas.json');
+      expect(manifest.optional_inputs.repo_atlas_json).toBe('scan/repo_atlas.json');
       expect(manifest.missing_inputs).not.toContain('scan/codegraph_context.md');
+      expect(manifest.missing_inputs).not.toContain('scan/repo_atlas.md');
+      expect(manifest.missing_inputs).not.toContain('scan/repo_atlas.json');
     } finally {
       fs.rmSync(fixture.repoRoot, { recursive: true, force: true });
     }
@@ -73,6 +91,51 @@ describe('CodeGraph flash input integration', () => {
       expect(result.flashInput).toContain('CodeGraph output is guidance, not source of truth');
       expect(result.flashInput).toContain('src/adapters/codegraph/codegraph_context.ts');
       expect(result.budget.included_sections).toContain('CodeGraph Context');
+      expect(result.budget.full_artifacts_referenced).toContain('scan/codegraph_context.md');
+    } finally {
+      fs.rmSync(fixture.repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('flash_input.md includes CodeGraph-derived Repo Atlas before raw CodeGraph artifact reference when generated', () => {
+    const fixture = makeRunFixture();
+    try {
+      fs.writeFileSync(path.join(fixture.runDir, 'scan', 'codegraph_usage.json'), JSON.stringify({
+        mode: 'use-existing',
+        used: true,
+        reason: 'EXISTING_INDEX',
+        artifact: 'scan/codegraph_context.md',
+        repo_atlas_generated: true,
+        repo_atlas_artifact: 'scan/repo_atlas.md',
+        repo_atlas_json_artifact: 'scan/repo_atlas.json',
+        warnings: [],
+      }, null, 2), 'utf8');
+      fs.writeFileSync(path.join(fixture.runDir, 'scan', 'codegraph_context.md'), '# CodeGraph says\nRaw details mention src/raw/large_dump.ts\n', 'utf8');
+      fs.writeFileSync(path.join(fixture.runDir, 'scan', 'repo_atlas.md'), [
+        '# Repo Atlas',
+        'Important note: CodeGraph output is guidance, not source of truth.',
+        '## Likely Relevant Areas',
+        '- src/core/context/flash_compaction.ts — CodeGraph-derived hint',
+      ].join('\n'), 'utf8');
+      fs.writeFileSync(path.join(fixture.runDir, 'scan', 'repo_atlas.json'), JSON.stringify({ generated: true }), 'utf8');
+
+      const result = buildCompactFlashContext({
+        run_id: '20260525_000001',
+        task: 'Implement CodeGraph context support',
+        repo_root: fixture.repoRoot,
+        runDir: fixture.runDir,
+      });
+
+      const repoAtlasIndex = result.flashInput.indexOf('# Repo Atlas');
+      const codeGraphIndex = result.flashInput.indexOf('# CodeGraph Context');
+      expect(repoAtlasIndex).toBeGreaterThanOrEqual(0);
+      expect(codeGraphIndex).toBeGreaterThan(repoAtlasIndex);
+      expect(result.flashInput).toContain('## CodeGraph-Derived Repo Atlas');
+      expect(result.flashInput).toContain('src/core/context/flash_compaction.ts');
+      expect(result.flashInput).toContain('Full CodeGraph context remains available at scan/codegraph_context.md');
+      expect(result.flashInput).not.toContain('src/raw/large_dump.ts');
+      expect(result.budget.full_artifacts_referenced).toContain('scan/repo_atlas.md');
+      expect(result.budget.full_artifacts_referenced).toContain('scan/repo_atlas.json');
       expect(result.budget.full_artifacts_referenced).toContain('scan/codegraph_context.md');
     } finally {
       fs.rmSync(fixture.repoRoot, { recursive: true, force: true });

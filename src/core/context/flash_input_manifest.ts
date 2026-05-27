@@ -37,6 +37,16 @@ const CODEGRAPH_CONTEXT_OPTIONAL_INPUT = {
   codegraph_context: 'scan/codegraph_context.md',
 } as const;
 
+const CODEGRAPH_REPO_ATLAS_OPTIONAL_INPUTS = {
+  repo_atlas: 'scan/repo_atlas.md',
+  repo_atlas_json: 'scan/repo_atlas.json',
+} as const;
+
+const CODEGRAPH_OPTIONAL_INPUTS = {
+  ...CODEGRAPH_REPO_ATLAS_OPTIONAL_INPUTS,
+  ...CODEGRAPH_CONTEXT_OPTIONAL_INPUT,
+} as const;
+
 export interface FlashInputManifest {
   run_id: string;
   created_at: string;
@@ -74,9 +84,10 @@ export class FlashInputManifestError extends Error {
 
 function optionalInputsForRun(runDir: string): Record<string, string> {
   const optionalInputs: Record<string, string> = { ...FLASH_INPUT_OPTIONAL_INPUTS };
-  const codegraphPath = CODEGRAPH_CONTEXT_OPTIONAL_INPUT.codegraph_context;
-  if (readSavedArtifact(runDir, codegraphPath) !== null) {
-    optionalInputs.codegraph_context = codegraphPath;
+  for (const [key, relativePath] of Object.entries(CODEGRAPH_OPTIONAL_INPUTS)) {
+    if (readSavedArtifact(runDir, relativePath) !== null) {
+      optionalInputs[key] = relativePath;
+    }
   }
   return optionalInputs;
 }

@@ -37,6 +37,8 @@ describe('desktop renderer preview diagnostics', () => {
     // The summary makes "used or not" explicit, including skipped/use-existing results.
     expect(html).toContain('codeGraphUsedSummaryValue');
     expect(html).toContain("['codegraph used', codeGraphUsedSummaryValue(result.codegraph)]");
+    expect(html).toContain('codeGraphRepoAtlasSummaryValue');
+    expect(html).toContain("['repo atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)]");
     expect(html).toContain('id="composer-cg-mode"');
     expect(html).toContain('Use CodeGraph in context');
   });

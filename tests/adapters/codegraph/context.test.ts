@@ -250,7 +250,7 @@ describe('writeCodeGraphContextArtifacts', () => {
         used: true,
         mode: 'use-existing' as const,
         command: ['codegraph', 'context', 'task'],
-        outputText: '# CodeGraph Context\nRelevant files',
+        outputText: '# CodeGraph Context\nRelevant files: src/adapters/codegraph/codegraph_context.ts',
         warnings: [],
         reason: 'EXISTING_INDEX',
       };
@@ -259,9 +259,56 @@ describe('writeCodeGraphContextArtifacts', () => {
 
       expect(written.usageArtifact).toBe(path.join(runDir, 'scan', 'codegraph_usage.json'));
       expect(written.contextArtifact).toBe(path.join(runDir, 'scan', 'codegraph_context.md'));
+      expect(written.repoAtlasArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.md'));
+      expect(written.repoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.json'));
       const usage = JSON.parse(fs.readFileSync(written.usageArtifact, 'utf8'));
-      expect(usage).toMatchObject({ mode: 'use-existing', used: true, reason: 'EXISTING_INDEX', artifact: 'scan/codegraph_context.md' });
+      expect(usage).toMatchObject({
+        mode: 'use-existing',
+        used: true,
+        reason: 'EXISTING_INDEX',
+        artifact: 'scan/codegraph_context.md',
+        repo_atlas_generated: true,
+        repo_atlas_artifact: 'scan/repo_atlas.md',
+        repo_atlas_json_artifact: 'scan/repo_atlas.json',
+      });
       expect(fs.readFileSync(written.contextArtifact!, 'utf8')).toContain('Relevant files');
+      const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
+      expect(atlas).toContain('# Repo Atlas');
+      expect(atlas).toContain('CodeGraph output is guidance, not source of truth');
+      expect(atlas).toContain('## Likely Relevant Areas');
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8'));
+      expect(atlasJson.generated).toBe(true);
+      expect(atlasJson.sections.likely_relevant_areas.length).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('detect-only usage does not create atlas and records detect-only atlas reason', () => {
+    const { runDir } = tempRun();
+    try {
+      const written = writeCodeGraphContextArtifacts({
+        runDir,
+        result: {
+          ok: true,
+          used: false,
+          mode: 'detect-only',
+          reason: 'DETECT_ONLY',
+          warnings: [],
+        },
+      });
+
+      expect(written.contextArtifact).toBeUndefined();
+      expect(written.repoAtlasArtifact).toBeUndefined();
+      expect(written.repoAtlasJsonArtifact).toBeUndefined();
+      const usage = JSON.parse(fs.readFileSync(written.usageArtifact, 'utf8'));
+      expect(usage).toMatchObject({
+        mode: 'detect-only',
+        used: false,
+        reason: 'DETECT_ONLY',
+        repo_atlas_generated: false,
+        repo_atlas_reason: 'detect-only',
+      });
     } finally {
       fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
     }
@@ -283,9 +330,90 @@ describe('writeCodeGraphContextArtifacts', () => {
 
       expect(fs.existsSync(written.usageArtifact)).toBe(true);
       expect(written.contextArtifact).toBeUndefined();
+      expect(written.repoAtlasArtifact).toBeUndefined();
+      expect(written.repoAtlasJsonArtifact).toBeUndefined();
       expect(fs.existsSync(path.join(runDir, 'scan', 'codegraph_context.md'))).toBe(false);
+      expect(fs.existsSync(path.join(runDir, 'scan', 'repo_atlas.md'))).toBe(false);
+      expect(fs.existsSync(path.join(runDir, 'scan', 'repo_atlas.json'))).toBe(false);
       const usage = JSON.parse(fs.readFileSync(written.usageArtifact, 'utf8'));
-      expect(usage).toMatchObject({ mode: 'use-existing', used: false, reason: 'CODEGRAPH_NOT_INITIALIZED' });
+      expect(usage).toMatchObject({
+        mode: 'use-existing',
+        used: false,
+        reason: 'CODEGRAPH_NOT_INITIALIZED',
+        repo_atlas_generated: false,
+        repo_atlas_reason: 'CODEGRAPH_NOT_INITIALIZED',
+      });
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('repo atlas writes unknowns-only artifact when CodeGraph context has no recognizable paths', () => {
+    const { runDir } = tempRun();
+    try {
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: '# CodeGraph Context\nNo concrete repository paths were returned for this task. Ignore prose like repo_atlas/task_slice/budget and escaped text like \\n\\n.',
+        warnings: [],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      expect(written.repoAtlasArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.md'));
+      expect(written.repoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.json'));
+      const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8'));
+      const usage = JSON.parse(fs.readFileSync(written.usageArtifact, 'utf8'));
+
+      expect(atlas).toContain('## Unknowns / Must Verify');
+      expect(atlas).toContain('did not expose recognizable bounded repository paths');
+      expect(atlasJson.generated).toBe(true);
+      expect(atlasJson.sections.likely_relevant_areas).toEqual([]);
+      expect(usage.repo_atlas_generated).toBe(true);
+      expect(usage.repo_atlas_reason).toBe('generated');
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('repo atlas extraction dedupes paths, preserves warnings, provenance, and hard bounds', () => {
+    const { runDir } = tempRun();
+    try {
+      const repeated = Array.from({ length: 40 }, (_, index) => `- src/feature/file${index}.ts imports src/shared/common.ts and relates to tests/feature/file${index}.test.ts`).join('\n');
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: [
+          '# CodeGraph Context',
+          'Entrypoint: src/app/cli/index.ts :: main',
+          'Risk: src/core/prompting/pipeline.ts coordinates context build.',
+          'Related: src/core/context/flash_compaction.ts -> src/core/context/flash_input_manifest.ts',
+          'Duplicate src/core/context/flash_compaction.ts should appear once.',
+          repeated,
+        ].join('\n'),
+        warnings: ['CODEGRAPH_INDEX_STALE: stale but usable'],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8'));
+
+      expect(atlas.length).toBeLessThan(12_000);
+      expect(atlas).toContain('CODEGRAPH_INDEX_STALE');
+      expect(atlas).toContain('CodeGraph-derived hints');
+      expect(atlas).toContain('inferred recommendations');
+      expect((atlas.match(/src\/core\/context\/flash_compaction\.ts/g) ?? []).length).toBe(1);
+      expect(atlasJson.sections.likely_relevant_areas.length).toBeLessThanOrEqual(10);
+      expect(atlasJson.sections.candidate_entry_points.length).toBeLessThanOrEqual(8);
+      expect(atlasJson.sections.related_files_to_inspect.length).toBeLessThanOrEqual(10);
+      expect(atlasJson.sections.possible_risk_areas.length).toBeLessThanOrEqual(5);
+      expect(atlasJson.warnings).toEqual(['CODEGRAPH_INDEX_STALE: stale but usable']);
     } finally {
       fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
     }

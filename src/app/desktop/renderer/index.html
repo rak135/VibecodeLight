@@ -996,6 +996,14 @@
         return 'no — detect-only';
       }
 
+      function codeGraphRepoAtlasSummaryValue(cg) {
+        if (!cg) return 'not generated — unknown';
+        if (cg.repoAtlasGenerated) return 'generated';
+        if (cg.repoAtlasReason) return cg.repoAtlasReason;
+        if (cg.mode === 'use-existing') return 'not generated — skipped';
+        return 'not generated — detect-only';
+      }
+
       // Compact warning value for the summary grid. CodeGraph warnings are
       // informational (the run still succeeded); detect-only runs never emit
       // them so the row stays hidden in the common case. Returns empty string
@@ -1021,11 +1029,12 @@
           ['estimated tokens', result.estimatedTokens == null ? '—' : String(result.estimatedTokens)],
           ['budget status', result.budgetStatus || '—'],
           ['flash_input.md', result.flashInputPath || '—'],
-          ['repo atlas', result.repoAtlasPath || '—'],
+          ['flash repo atlas', result.repoAtlasPath || '—'],
           ['task_slice.md', result.taskSlicePath || '—'],
           ['flash_input_budget.json', result.flashInputBudgetPath || '—'],
           ['codegraph', codeGraphSummaryValue(result.codegraph)],
           ['codegraph used', codeGraphUsedSummaryValue(result.codegraph)],
+          ['repo atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)],
         ];
         const warningValue = codeGraphWarningSummaryValue(result.codegraph);
         if (warningValue) {

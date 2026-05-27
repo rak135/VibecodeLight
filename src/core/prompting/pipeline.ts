@@ -192,6 +192,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     path.join(scan.runDir, 'skills', 'skills_catalog.json'),
     codegraphArtifacts.usageArtifact,
     ...(codegraphArtifacts.contextArtifact ? [codegraphArtifacts.contextArtifact] : []),
+    ...(codegraphArtifacts.repoAtlasArtifact ? [codegraphArtifacts.repoAtlasArtifact] : []),
+    ...(codegraphArtifacts.repoAtlasJsonArtifact ? [codegraphArtifacts.repoAtlasJsonArtifact] : []),
     ...Object.values(scan.artifacts),
   ];
   const warnings = [...scan.warnings, ...resolved.resolution.warnings, ...codegraphResult.warnings];

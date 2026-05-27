@@ -44,6 +44,16 @@ export interface CodeGraphStatus {
   usageReason: string;
   /** Relative path to bounded CodeGraph context artifact when present. */
   contextArtifact?: string;
+  /** True only when a CodeGraph-derived scan/repo_atlas.md was generated. */
+  repoAtlasGenerated: boolean;
+  /** Human-readable Repo Atlas generation/skipped reason. */
+  repoAtlasReason: string;
+  /** Display-ready Repo Atlas summary line. */
+  repoAtlasNote: string;
+  /** Relative path to CodeGraph-derived Repo Atlas markdown when present. */
+  repoAtlasArtifact?: string;
+  /** Relative path to CodeGraph-derived Repo Atlas JSON when present. */
+  repoAtlasJsonArtifact?: string;
 }
 
 /**
@@ -98,6 +108,14 @@ function normalizeMode(mode: unknown): string | null {
   return typeof mode === 'string' && mode.length > 0 ? mode : null;
 }
 
+function defaultRepoAtlasFields(): Pick<CodeGraphStatus, 'repoAtlasGenerated' | 'repoAtlasReason' | 'repoAtlasNote'> {
+  return {
+    repoAtlasGenerated: false,
+    repoAtlasReason: 'not generated — detect-only',
+    repoAtlasNote: 'Repo atlas: not generated — detect-only.',
+  };
+}
+
 function unknownStatus(): CodeGraphStatus {
   return {
     state: 'unknown',
@@ -109,6 +127,7 @@ function unknownStatus(): CodeGraphStatus {
     usageNote: CODEGRAPH_USAGE_NOTE,
     usedForContext: false,
     usageReason: 'detect-only',
+    ...defaultRepoAtlasFields(),
   };
 }
 
@@ -142,6 +161,7 @@ export function summarizeCodeGraphStatus(
       usageNote: CODEGRAPH_USAGE_NOTE,
       usedForContext: false,
       usageReason: 'detect-only',
+      ...defaultRepoAtlasFields(),
     };
   }
 
@@ -157,6 +177,7 @@ export function summarizeCodeGraphStatus(
       usageNote: CODEGRAPH_USAGE_NOTE,
       usedForContext: false,
       usageReason: 'detect-only',
+      ...defaultRepoAtlasFields(),
     };
   }
 
@@ -170,6 +191,7 @@ export function summarizeCodeGraphStatus(
     usageNote: CODEGRAPH_USAGE_NOTE,
     usedForContext: false,
     usageReason: 'detect-only',
+    ...defaultRepoAtlasFields(),
   };
 }
 
@@ -179,6 +201,10 @@ function usageNote(mode: string | null, used: boolean, reason?: string): string 
   return CODEGRAPH_USAGE_NOTE;
 }
 
+function repoAtlasNote(generated: boolean, reason: string): string {
+  return generated ? 'Repo atlas: generated.' : `Repo atlas: not generated — ${reason}.`;
+}
+
 function applyUsage(status: CodeGraphStatus, usage: unknown): CodeGraphStatus {
   if (typeof usage !== 'object' || usage === null) return status;
   const record = usage as Record<string, unknown>;
@@ -186,6 +212,13 @@ function applyUsage(status: CodeGraphStatus, usage: unknown): CodeGraphStatus {
   const used = record.used === true;
   const rawReason = typeof record.reason === 'string' ? record.reason : undefined;
   const artifact = typeof record.artifact === 'string' ? record.artifact : status.contextArtifact;
+  const repoAtlasGenerated = record.repo_atlas_generated === true;
+  const repoAtlasRawReason = typeof record.repo_atlas_reason === 'string'
+    ? record.repo_atlas_reason
+    : (repoAtlasGenerated ? 'generated' : 'CODEGRAPH_NOT_USED');
+  const repoAtlasReason = repoAtlasGenerated ? repoAtlasRawReason : `not generated — ${repoAtlasRawReason}`;
+  const repoAtlasArtifact = typeof record.repo_atlas_artifact === 'string' ? record.repo_atlas_artifact : status.repoAtlasArtifact;
+  const repoAtlasJsonArtifact = typeof record.repo_atlas_json_artifact === 'string' ? record.repo_atlas_json_artifact : status.repoAtlasJsonArtifact;
   const usageReason = used ? 'existing index' : (mode === 'use-existing' && rawReason ? `skipped: ${rawReason}` : 'detect-only');
   const warnings = normalizeWarnings(record.warnings);
   const mergedWarnings = Array.from(new Set([...status.warnings, ...warnings]));
@@ -197,7 +230,12 @@ function applyUsage(status: CodeGraphStatus, usage: unknown): CodeGraphStatus {
     usageNote: usageNote(mode, used, rawReason),
     warnings: mergedWarnings,
     displayWarnings: toDisplayWarnings(mergedWarnings),
+    repoAtlasGenerated,
+    repoAtlasReason,
+    repoAtlasNote: repoAtlasNote(repoAtlasGenerated, repoAtlasRawReason),
     ...(artifact ? { contextArtifact: artifact } : {}),
+    ...(repoAtlasArtifact ? { repoAtlasArtifact } : {}),
+    ...(repoAtlasJsonArtifact ? { repoAtlasJsonArtifact } : {}),
   };
 }
 
