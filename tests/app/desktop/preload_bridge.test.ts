@@ -92,10 +92,26 @@ describe('desktop preload bridge boundary', () => {
     await import('../../../src/app/desktop/preload.js');
 
     const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
-    const composer = api.composer as { generatePreview: (task: string) => Promise<unknown> };
+    const composer = api.composer as { generatePreview: (task: string, codegraphMode?: string) => Promise<unknown> };
     await composer.generatePreview('integration smoke');
 
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:generatePreview', 'integration smoke');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      'composer:generatePreview',
+      'integration smoke',
+      'mock',
+      undefined,
+      undefined,
+      undefined,
+    );
+    await composer.generatePreview('integration smoke', 'use-existing');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      'composer:generatePreview',
+      'integration smoke',
+      'mock',
+      undefined,
+      undefined,
+      'use-existing',
+    );
   });
 
   test('composer.generatePreviewLive forwards live mode with provider/model over the same channel', async () => {
@@ -113,9 +129,9 @@ describe('desktop preload bridge boundary', () => {
 
     const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     const composer = api.composer as {
-      generatePreviewLive: (task: string, provider?: string, model?: string) => Promise<unknown>;
+      generatePreviewLive: (task: string, provider?: string, model?: string, codegraphMode?: string) => Promise<unknown>;
     };
-    await composer.generatePreviewLive('live smoke', 'openrouter', 'deepseek/deepseek-chat');
+    await composer.generatePreviewLive('live smoke', 'openrouter', 'deepseek/deepseek-chat', 'use-existing');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(
       'composer:generatePreview',
@@ -123,6 +139,7 @@ describe('desktop preload bridge boundary', () => {
       'live',
       'openrouter',
       'deepseek/deepseek-chat',
+      'use-existing',
     );
   });
 

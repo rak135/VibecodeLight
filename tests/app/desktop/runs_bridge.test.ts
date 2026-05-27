@@ -114,14 +114,14 @@ describe('desktop runs bridge', () => {
 
     const result = (await ipc.invoke('runs:show', '2026-05-25_001')) as {
       ok: boolean;
-      run?: { codegraph?: { state: string; label: string; mode: string | null; usageNote: string } };
+      run?: { codegraph?: { state: string; label: string; mode: string | null; usageNote: string; usedForContext?: boolean } };
     };
     expect(result.ok).toBe(true);
     expect(result.run?.codegraph?.state).toBe('ready');
     expect(result.run?.codegraph?.label).toBe('CodeGraph: ready');
     expect(result.run?.codegraph?.mode).toBe('detect-only');
-    // Informational only: no active "use CodeGraph" affordance is implied.
-    expect(result.run?.codegraph?.usageNote.toLowerCase()).toContain('not implemented');
+    expect(result.run?.codegraph?.usageNote.toLowerCase()).toContain('detect-only');
+    expect(result.run?.codegraph?.usedForContext).toBe(false);
   });
 
   test('runs:show returns a neutral unknown CodeGraph status when no scan artifact exists', async () => {

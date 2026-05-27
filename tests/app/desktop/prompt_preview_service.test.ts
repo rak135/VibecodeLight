@@ -173,11 +173,41 @@ describe('DesktopPromptPreviewService', () => {
     expect(result.codegraph.mode).toBe('detect-only');
     expect(['ready', 'installed-not-initialized', 'not-installed', 'unknown']).toContain(result.codegraph.state);
 
-    // Informational only: the status must make clear CodeGraph is NOT used to build
-    // the context/final prompt in this phase, and must never imply an active toggle.
-    expect(result.codegraph.usageNote.toLowerCase()).toContain('not implemented');
+    // Default is still detect-only: CodeGraph is not automatically used.
+    expect(result.codegraph.usedForContext).toBe(false);
+    expect(result.codegraph.usageNote.toLowerCase()).toContain('detect-only');
     expect(Object.keys(result.codegraph)).not.toContain('enabled');
-    expect(Object.keys(result.codegraph)).not.toContain('using');
+  });
+
+  test('passes selected CodeGraph context mode to the prompt pipeline', async () => {
+    const runDir = path.join(tmpRepo, '.vibecode', 'runs', '20260525_000001');
+    const finalPromptPath = path.join(runDir, 'output', 'final_prompt.md');
+    fs.mkdirSync(path.dirname(finalPromptPath), { recursive: true });
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    fs.writeFileSync(finalPromptPath, '# Final Prompt\n', 'utf8');
+    fs.writeFileSync(path.join(runDir, 'scan', 'external_tools.json'), JSON.stringify({ tools: { codegraph: { available: true, initialized: true, mode: 'use-existing', used_for_context: true, context_artifact: 'scan/codegraph_context.md', warnings: [] } } }), 'utf8');
+    fs.writeFileSync(path.join(runDir, 'scan', 'codegraph_usage.json'), JSON.stringify({ mode: 'use-existing', used: true, reason: 'EXISTING_INDEX', artifact: 'scan/codegraph_context.md', warnings: [] }), 'utf8');
+    const runPromptPipeline = vi.fn().mockResolvedValue({
+      ok: true,
+      run_id: '20260525_000001',
+      runDir,
+      finalPromptPath,
+      flashInputPath: path.join(runDir, 'flash', 'flash_input.md'),
+      providerCalled: true,
+      artifacts: [],
+      warnings: [],
+    });
+    vi.doMock('../../../src/core/prompting/pipeline.js', () => ({ runPromptPipeline }));
+
+    const { generatePromptPreview } = await import('../../../src/app/desktop/prompt_preview_service.js');
+    const result = await generatePromptPreview({ task: 'use codegraph', repoRoot: tmpRepo, codegraphMode: 'use-existing' });
+
+    expect(runPromptPipeline).toHaveBeenCalledWith(expect.objectContaining({ codegraphMode: 'use-existing' }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.codegraph.mode).toBe('use-existing');
+    expect(result.codegraph.usedForContext).toBe(true);
   });
 
   test('error result includes providerErrorPath when provider_error.json exists in artifacts list', async () => {

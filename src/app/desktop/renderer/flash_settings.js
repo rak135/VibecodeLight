@@ -53,6 +53,10 @@
       return mode === 'live' ? 'live' : 'mock';
     }
 
+    function normalizeCodeGraphMode(mode) {
+      return mode === 'use-existing' ? 'use-existing' : 'detect-only';
+    }
+
     // The header pill reflects the flash mode the next preview will use. It
     // defaults to Mock so the GUI never implies a surprise live API call; only
     // when the user explicitly selects Live does it surface the resolved
@@ -178,9 +182,10 @@
     async function runComposerPreview(opts) {
       var composer = opts.composer;
       var mode = normalizeMode(opts.mode);
+      var codegraphMode = normalizeCodeGraphMode(opts.codegraphMode);
       if (mode === 'mock') {
-        var mockResult = await composer.generatePreview(opts.task);
-        return { mode: 'mock', flashMode: 'mock', blocked: false, result: mockResult };
+        var mockResult = await composer.generatePreview(opts.task, codegraphMode);
+        return { mode: 'mock', flashMode: 'mock', codegraphMode: codegraphMode, blocked: false, result: mockResult };
       }
 
       var provider = findProvider(opts.providerList, opts.provider);
@@ -210,8 +215,8 @@
         };
       }
 
-      var liveResult = await composer.generatePreviewLive(opts.task, opts.provider, opts.model);
-      return { mode: 'live', flashMode: 'live', blocked: false, result: liveResult };
+      var liveResult = await composer.generatePreviewLive(opts.task, opts.provider, opts.model, codegraphMode);
+      return { mode: 'live', flashMode: 'live', codegraphMode: codegraphMode, blocked: false, result: liveResult };
     }
 
     function safeDiagnostic(errLike) {

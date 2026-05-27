@@ -74,16 +74,15 @@ describe('summarizeCodeGraphStatus', () => {
     expect(status.mode).toBeNull();
   });
 
-  // F. no behavior expansion: status is informational, never claims CodeGraph is in use.
-  test('ready status stays detect-only and informational (no usage/enrichment claim)', () => {
+  // F. default remains detect-only: no automatic context use claim.
+  test('ready status defaults to detect-only and records used=false', () => {
     const status = summarizeCodeGraphStatus(entry({ available: true, initialized: true }));
     expect(status.mode).toBe('detect-only');
+    expect(status.usedForContext).toBe(false);
+    expect(status.usageReason).toBe('detect-only');
     expect(status.usageNote).toBe(CODEGRAPH_USAGE_NOTE);
-    // The note must make clear context usage is NOT enabled yet.
-    expect(status.usageNote.toLowerCase()).toContain('not implemented');
-    // No field implies CodeGraph is actively enabled/used for context.
+    expect(status.usageNote.toLowerCase()).toContain('detect-only');
     expect(Object.keys(status)).not.toContain('enabled');
-    expect(Object.keys(status)).not.toContain('using');
   });
 });
 
@@ -113,6 +112,61 @@ describe('readRunCodeGraphStatus', () => {
       const status = readRunCodeGraphStatus(runDir);
       expect(status.state).toBe('ready');
       expect(status.label).toBe('CodeGraph: ready');
+    } finally {
+      fs.rmSync(runDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reads use-existing usage from codegraph_usage.json', () => {
+    const runDir = tempRun();
+    try {
+      writeExternalTools(runDir, {
+        available: true,
+        initialized: true,
+        mode: 'use-existing',
+        used_for_context: true,
+        context_artifact: 'scan/codegraph_context.md',
+        warnings: [],
+        codegraph_dir: '.codegraph',
+      });
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'codegraph_usage.json'),
+        JSON.stringify({ mode: 'use-existing', used: true, reason: 'EXISTING_INDEX', artifact: 'scan/codegraph_context.md', warnings: [] }, null, 2),
+        'utf8',
+      );
+      const status = readRunCodeGraphStatus(runDir);
+      expect(status.state).toBe('ready');
+      expect(status.mode).toBe('use-existing');
+      expect(status.usedForContext).toBe(true);
+      expect(status.usageReason).toBe('existing index');
+      expect(status.contextArtifact).toBe('scan/codegraph_context.md');
+      expect(status.usageNote).toBe('CodeGraph used: yes — existing index.');
+    } finally {
+      fs.rmSync(runDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reads skipped use-existing usage reason from codegraph_usage.json', () => {
+    const runDir = tempRun();
+    try {
+      writeExternalTools(runDir, {
+        available: true,
+        initialized: true,
+        mode: 'use-existing',
+        used_for_context: false,
+        warnings: [],
+        codegraph_dir: '.codegraph',
+      });
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'codegraph_usage.json'),
+        JSON.stringify({ mode: 'use-existing', used: false, reason: 'CODEGRAPH_INDEX_STALE', warnings: [] }, null, 2),
+        'utf8',
+      );
+      const status = readRunCodeGraphStatus(runDir);
+      expect(status.mode).toBe('use-existing');
+      expect(status.usedForContext).toBe(false);
+      expect(status.usageReason).toBe('skipped: CODEGRAPH_INDEX_STALE');
+      expect(status.usageNote).toBe('CodeGraph used: no — skipped: CODEGRAPH_INDEX_STALE.');
     } finally {
       fs.rmSync(runDir, { recursive: true, force: true });
     }

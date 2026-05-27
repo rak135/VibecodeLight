@@ -94,11 +94,28 @@ describe('composer preview routing — mock mode', () => {
     });
 
     expect(composer.generatePreview).toHaveBeenCalledTimes(1);
-    expect(composer.generatePreview).toHaveBeenCalledWith('do the thing');
+    expect(composer.generatePreview).toHaveBeenCalledWith('do the thing', 'detect-only');
     expect(composer.generatePreviewLive).not.toHaveBeenCalled();
     expect(outcome.flashMode).toBe('mock');
     expect(outcome.blocked).toBe(false);
     expect(outcome.result).toEqual({ ok: true, run_id: 'r-mock', finalPrompt: 'mock prompt' });
+  });
+
+  test('mock mode forwards selected CodeGraph context mode to generatePreview', async () => {
+    const composer = makeComposer();
+    const outcome = await FlashSettings.runComposerPreview({
+      composer,
+      mode: 'mock',
+      task: 'do the thing',
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-chat',
+      providerList: providerList(),
+      codegraphMode: 'use-existing',
+    });
+
+    expect(composer.generatePreview).toHaveBeenCalledWith('do the thing', 'use-existing');
+    expect(composer.generatePreviewLive).not.toHaveBeenCalled();
+    expect(outcome.codegraphMode).toBe('use-existing');
   });
 });
 
@@ -119,10 +136,33 @@ describe('composer preview routing — live mode', () => {
       'do the live thing',
       'openrouter',
       'deepseek/deepseek-chat',
+      'detect-only',
     );
     expect(composer.generatePreview).not.toHaveBeenCalled();
     expect(outcome.flashMode).toBe('live');
     expect(outcome.blocked).toBe(false);
+  });
+
+  test('live mode forwards selected CodeGraph context mode to generatePreviewLive', async () => {
+    const composer = makeComposer();
+    const outcome = await FlashSettings.runComposerPreview({
+      composer,
+      mode: 'live',
+      task: 'do the live thing',
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-chat',
+      providerList: providerList(),
+      codegraphMode: 'use-existing',
+    });
+
+    expect(composer.generatePreviewLive).toHaveBeenCalledWith(
+      'do the live thing',
+      'openrouter',
+      'deepseek/deepseek-chat',
+      'use-existing',
+    );
+    expect(composer.generatePreview).not.toHaveBeenCalled();
+    expect(outcome.codegraphMode).toBe('use-existing');
   });
 
   test('live mode with a provider that has no API key blocks with FLASH_PROVIDER_AUTH_MISSING and never calls mock', async () => {

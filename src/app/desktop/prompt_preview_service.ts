@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import type { CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
 import { runPromptPipeline } from '../../core/prompting/pipeline.js';
 import type { PipelineEvent, PipelineProgressCallback } from '../../core/prompting/pipeline_events.js';
 import { readRunContextSummary, RunContextSummary } from '../../core/context/run_context_summary.js';
@@ -13,6 +14,7 @@ export interface PromptPreviewRequest {
   flashMode?: 'mock' | 'live';
   flashProvider?: string;
   flashModel?: string;
+  codegraphMode?: CodeGraphContextMode;
   onProgress?: PipelineProgressCallback;
 }
 
@@ -114,6 +116,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     live: request.flashMode === 'live',
     flashProvider: request.flashProvider,
     flashModel: request.flashModel,
+    codegraphMode: request.codegraphMode,
     onProgress: request.onProgress,
   });
   if (pipelineResult.ok === false) {

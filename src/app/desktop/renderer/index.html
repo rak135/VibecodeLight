@@ -87,12 +87,12 @@
                 <div class="ov-head">
                   <span class="title">prompt composer</span>
                   <span class="scope" id="ov-scope">~/main</span>
-                  <!-- Optional CodeGraph detect-only indicator. Status is derived in core
+                  <!-- Optional CodeGraph indicator. Status is derived in core
                        (runs:list / composer build result); the renderer never runs
                        detection. Dot: green=ready, amber=installed-not-initialized,
                        grey=not-installed/unknown. Missing CodeGraph is optional, not an error. -->
                   <span class="cg-chip" id="composer-cg-chip" style="margin-left:10px"
-                        title="Optional CodeGraph detection (detect-only; not used to build context yet).">
+                        title="Optional CodeGraph status. Context use is explicit and defaults to detect-only.">
                     <span class="cg-dot muted" id="composer-cg-dot"></span>
                     <span id="composer-cg-chip-text">CodeGraph: …</span>
                   </span>
@@ -104,6 +104,13 @@
                     <button class="cg-action-btn" id="cg-btn-reindex" title="Full re-index (codegraph index --force) — may take longer" style="display:none">Re-index</button>
                   </span>
                   <span id="cg-action-msg" style="margin-left:6px;font-size:11px;color:var(--muted,#888);display:none"></span>
+                  <label class="cg-action-btn" for="composer-cg-mode" style="margin-left:6px;display:inline-flex;gap:4px;align-items:center;">
+                    Use CodeGraph in context
+                    <select id="composer-cg-mode" title="Use existing initialized CodeGraph index during context build" disabled>
+                      <option value="detect-only" selected>Detect only</option>
+                      <option value="use-existing">Use existing index</option>
+                    </select>
+                  </label>
                   <span class="ov-step">
                     <span id="ov-step-label" style="margin-right:4px">step 01 · compose</span>
                     <span class="pip on" data-pip="0"></span>
@@ -329,6 +336,7 @@
       const composerFlashModel = $('composer-flash-model');
       const composerLiveControls = $('composer-live-controls');
       const composerFlashKey = $('composer-flash-key');
+      const composerCgMode = $('composer-cg-mode');
       const composerModeRadios = overlay.querySelectorAll('input[name="composer-flash-mode"]');
 
       const cols = 120;
@@ -654,8 +662,8 @@
 
       // Neutral, informational CodeGraph status block. Missing CodeGraph is shown
       // as optional text, never an error. Status is derived in core (run-display)
-      // from scan/external_tools.json; the renderer only displays it. There is no
-      // active "Use CodeGraph" toggle in this phase.
+      // from scan/external_tools.json; the renderer only displays it. Context use
+      // remains an explicit per-build choice and defaults to detect-only.
       function codeGraphStatusHtml(cg) {
         if (!cg) return '';
         let html = '<div class="cg-status">';
@@ -685,7 +693,7 @@
         if (!cg) {
           if (dot) dot.className = 'cg-dot muted';
           if (text) text.textContent = 'CodeGraph: unknown';
-          if (chip) chip.title = 'Optional CodeGraph detection — run a scan first. Detect-only; not used to build context yet.';
+          if (chip) chip.title = 'Optional CodeGraph detection — run a scan first. Context use defaults to detect-only.';
           return;
         }
         if (dot) dot.className = codeGraphDotClass(cg.state);
@@ -721,6 +729,7 @@
       // (init, sync, reindex) run only on explicit user click — never automatically.
 
       let _cgCurrentState = null;
+      let _cgButtonsBound = false;
 
       function setCgActionMsg(text, isError) {
         const el = $('cg-action-msg');
@@ -737,6 +746,15 @@
         const btnInit = $('cg-btn-init');
         const btnSync = $('cg-btn-sync');
         const btnReindex = $('cg-btn-reindex');
+        if (composerCgMode) {
+          composerCgMode.disabled = state !== 'ready';
+          composerCgMode.title = state === 'ready'
+            ? 'Use an existing initialized CodeGraph index during this context build.'
+            : state === 'installed-not-initialized'
+              ? 'Initialize CodeGraph before using it for context.'
+              : 'CodeGraph is optional and unavailable for this context build.';
+          if (state !== 'ready') composerCgMode.value = 'detect-only';
+        }
         // Always show Refresh once we have a state (or null = unknown)
         if (btnRefresh) btnRefresh.style.display = 'inline-block';
         if (btnInit) btnInit.style.display = (state === 'installed-not-initialized') ? 'inline-block' : 'none';
@@ -757,7 +775,7 @@
             const label = state === 'ready' ? 'CodeGraph: ready' :
                           state === 'installed-not-initialized' ? 'CodeGraph: installed, not initialized' :
                           'CodeGraph: not installed (optional)';
-            renderCodeGraphChip({ state, label, mode: 'detect-only', usageNote: 'Use in context: detect-only (future phase).' });
+            renderCodeGraphChip({ state, label, mode: 'detect-only', usageNote: 'CodeGraph used: no — detect-only.' });
             updateCgActionButtons(state);
             setCgActionMsg('', false);
           } else {
@@ -798,6 +816,8 @@
       }
 
       function bindCgActionButtons() {
+        if (_cgButtonsBound) return;
+        _cgButtonsBound = true;
         const btnRefresh = $('cg-btn-refresh');
         const btnInit = $('cg-btn-init');
         const btnSync = $('cg-btn-sync');
@@ -949,6 +969,13 @@
         return cg.mode ? state + ' · ' + cg.mode : state;
       }
 
+      function codeGraphUsedSummaryValue(cg) {
+        if (!cg) return '—';
+        if (cg.usedForContext) return 'yes — existing index';
+        if (cg.mode === 'use-existing') return 'no — ' + (cg.usageReason || 'skipped');
+        return 'no — detect-only';
+      }
+
       function renderSummary(result) {
         const rowsHtml = [
           ['run_id', result.run_id || '—'],
@@ -961,10 +988,8 @@
           ['repo atlas', result.repoAtlasPath || '—'],
           ['task_slice.md', result.taskSlicePath || '—'],
           ['flash_input_budget.json', result.flashInputBudgetPath || '—'],
-          // Optional CodeGraph: report detection state and, explicitly, that it
-          // was NOT used to build this context (detect-only in this phase).
           ['codegraph', codeGraphSummaryValue(result.codegraph)],
-          ['codegraph used', result.codegraph ? 'no — detect-only (future phase)' : '—'],
+          ['codegraph used', codeGraphUsedSummaryValue(result.codegraph)],
         ];
         summaryElement.innerHTML = rowsHtml
           .map(([k, v]) => '<div class="k">' + k + '</div><div class="v">' + escapeHtml(v) + '</div>')
@@ -1020,6 +1045,7 @@
             provider: composerFlashProvider.value,
             model: composerFlashModel.value,
             providerList: composerProviderList,
+            codegraphMode: currentCodeGraphMode(),
           });
           if (outcome.blocked) {
             renderErrorSummary(outcome.diagnostic);
@@ -1183,6 +1209,12 @@
       function currentComposerMode() {
         const checked = overlay.querySelector('input[name="composer-flash-mode"]:checked');
         return checked && checked.value === 'live' ? 'live' : 'mock';
+      }
+
+      function currentCodeGraphMode() {
+        return composerCgMode && !composerCgMode.disabled && composerCgMode.value === 'use-existing'
+          ? 'use-existing'
+          : 'detect-only';
       }
 
       function updateComposerKeyStatus() {

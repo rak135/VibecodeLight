@@ -33,6 +33,10 @@ export const FLASH_INPUT_OPTIONAL_INPUTS = {
   recent_history: 'scan/recent_history.json',
 } as const;
 
+const CODEGRAPH_CONTEXT_OPTIONAL_INPUT = {
+  codegraph_context: 'scan/codegraph_context.md',
+} as const;
+
 export interface FlashInputManifest {
   run_id: string;
   created_at: string;
@@ -68,6 +72,15 @@ export class FlashInputManifestError extends Error {
   }
 }
 
+function optionalInputsForRun(runDir: string): Record<string, string> {
+  const optionalInputs: Record<string, string> = { ...FLASH_INPUT_OPTIONAL_INPUTS };
+  const codegraphPath = CODEGRAPH_CONTEXT_OPTIONAL_INPUT.codegraph_context;
+  if (readSavedArtifact(runDir, codegraphPath) !== null) {
+    optionalInputs.codegraph_context = codegraphPath;
+  }
+  return optionalInputs;
+}
+
 export function buildFlashInputManifest(opts: BuildFlashInputManifestOptions): FlashInputManifest {
   // Check required inputs exist
   const missingRequired: string[] = [];
@@ -89,10 +102,11 @@ export function buildFlashInputManifest(opts: BuildFlashInputManifestOptions): F
   const missingInputs: string[] = [];
   const warnings: string[] = [];
   const artifacts: Record<string, string> = {};
+  const optionalInputs = optionalInputsForRun(opts.runDir);
   for (const [key, relativePath] of Object.entries(FLASH_INPUT_REQUIRED_INPUTS)) {
     artifacts[key] = relativePath;
   }
-  for (const [key, relativePath] of Object.entries(FLASH_INPUT_OPTIONAL_INPUTS)) {
+  for (const [key, relativePath] of Object.entries(optionalInputs)) {
     if (readSavedArtifact(opts.runDir, relativePath) === null) {
       missingInputs.push(relativePath);
       warnings.push(`optional flash input artifact not available: ${key} (${relativePath})`);
@@ -121,7 +135,7 @@ export function buildFlashInputManifest(opts: BuildFlashInputManifestOptions): F
     task: opts.task,
     repo_root: opts.repo_root,
     required_inputs: { ...FLASH_INPUT_REQUIRED_INPUTS },
-    optional_inputs: { ...FLASH_INPUT_OPTIONAL_INPUTS },
+    optional_inputs: optionalInputs,
     missing_inputs: missingInputs,
     warnings,
     artifacts,

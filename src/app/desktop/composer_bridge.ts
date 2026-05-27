@@ -1,5 +1,6 @@
 import { generatePromptPreview } from './prompt_preview_service.js';
 import type { PromptPreviewResult, PipelineProgressEvent } from './prompt_preview_service.js';
+import type { CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
 import {
   sendFinalPromptForRun,
   SendPromptIpcResult,
@@ -59,6 +60,7 @@ export interface ComposerBridgeOptions {
     flashMode?: 'mock' | 'live';
     flashProvider?: string;
     flashModel?: string;
+    codegraphMode?: CodeGraphContextMode;
     onProgress?: (event: PipelineProgressEvent) => void;
   }) => Promise<PromptPreviewResult>;
   sendService?: (request: {
@@ -93,6 +95,7 @@ export function registerDesktopComposerIpcHandlers(
     const flashMode = (args[1] === 'live' ? 'live' : 'mock') as 'mock' | 'live';
     const flashProvider = typeof args[2] === 'string' ? args[2] : undefined;
     const flashModel = typeof args[3] === 'string' ? args[3] : undefined;
+    const codegraphMode: CodeGraphContextMode = args[4] === 'use-existing' ? 'use-existing' : 'detect-only';
     const repoRoot = options.getRepoPath();
     const sender = (event as IpcEventWithSender | undefined)?.sender;
     return invokePreview({
@@ -101,6 +104,7 @@ export function registerDesktopComposerIpcHandlers(
       flashMode,
       flashProvider,
       flashModel,
+      codegraphMode,
       onProgress: (pipelineEvent) => {
         sender?.send('composer:progress', toSafePipelineProgressEvent(pipelineEvent));
       },

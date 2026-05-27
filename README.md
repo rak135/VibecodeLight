@@ -375,13 +375,14 @@ Canonical current files:
 
 Generated `.vibecode/` artifacts are not committed.
 
-### Optional CodeGraph (detect-only)
+### Optional CodeGraph
 
-CodeGraph is an optional, off-by-default code-intelligence tool. VibecodeLight currently only **detects** it — it never runs `codegraph init`, `index`, `sync`, or `watch`, and never creates `.codegraph/`.
+CodeGraph is an optional, off-by-default code-intelligence tool. By default VibecodeLight only detects it. A context build may explicitly opt into using an existing initialized local CodeGraph index as read-only input; VibecodeLight still never auto-runs `codegraph init`, `index`, `sync`, or `watch`, and never creates `.codegraph/` during context build.
 
 - `.codegraph/` is external generated index state (like `.vibecode/`). It is ignored by git and excluded from repository scans — it is never scanned as source content.
-- Each scan records detection only in `.vibecode/runs/<run_id>/scan/external_tools.json` (whether the `codegraph` command is available and whether `.codegraph/` is initialized). A missing command or missing `.codegraph/` is a warning, never a scan failure.
-- MCP integration and context enrichment are future/deferred work.
+- Each scan records detection in `.vibecode/runs/<run_id>/scan/external_tools.json` (whether the `codegraph` command is available and whether `.codegraph/` is initialized). A missing command or missing `.codegraph/` is a warning, never a scan failure.
+- When explicitly enabled and usable, context build records `.vibecode/runs/<run_id>/scan/codegraph_usage.json` and bounded `.vibecode/runs/<run_id>/scan/codegraph_context.md`; `flash_input.md` marks this as guidance from the existing local index, not source truth.
+- MCP integration, HTTP/stdio serving, managed install/update, background watch, and agent config writes are not part of this integration.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -421,6 +422,8 @@ Canonical run layout:
     recent_history.json
     previous_run_summary.json
     external_tools.json
+    codegraph_usage.json       # present for prompt/context builds
+    codegraph_context.md       # only when explicitly using an existing CodeGraph index succeeds
 
   skills/
     skills_catalog.json

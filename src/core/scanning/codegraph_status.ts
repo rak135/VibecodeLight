@@ -30,15 +30,21 @@ export interface CodeGraphStatus {
   detail: string;
   /** Pass-through detection warnings (may be empty). Never rendered as errors. */
   warnings: string[];
-  /** Informational note: CodeGraph is not used for context yet (no toggle). */
+  /** Informational note describing whether CodeGraph was used for context. */
   usageNote: string;
+  /** True only when a use-existing run successfully included CodeGraph context. */
+  usedForContext: boolean;
+  /** Human-readable usage reason for summary rows. */
+  usageReason: string;
+  /** Relative path to bounded CodeGraph context artifact when present. */
+  contextArtifact?: string;
 }
 
 /**
  * Informational note shown alongside the status. CodeGraph usage for context is
  * a future phase; there is intentionally no enabled toggle in Phase 1.5.
  */
-export const CODEGRAPH_USAGE_NOTE = 'Use in context: not implemented yet (future phase).';
+export const CODEGRAPH_USAGE_NOTE = 'CodeGraph used: no — detect-only.';
 
 function normalizeWarnings(warnings: unknown): string[] {
   return Array.isArray(warnings)
@@ -58,6 +64,8 @@ function unknownStatus(): CodeGraphStatus {
     detail: 'Run a scan or context build to record CodeGraph detection status.',
     warnings: [],
     usageNote: CODEGRAPH_USAGE_NOTE,
+    usedForContext: false,
+    usageReason: 'detect-only',
   };
 }
 
@@ -88,6 +96,8 @@ export function summarizeCodeGraphStatus(
         'CodeGraph is optional and was not found on PATH. VibecodeLight runs normally without it.',
       warnings,
       usageNote: CODEGRAPH_USAGE_NOTE,
+    usedForContext: false,
+    usageReason: 'detect-only',
     };
   }
 
@@ -100,6 +110,8 @@ export function summarizeCodeGraphStatus(
         'The codegraph command is available but this repository has no .codegraph/ index yet.',
       warnings,
       usageNote: CODEGRAPH_USAGE_NOTE,
+    usedForContext: false,
+    usageReason: 'detect-only',
     };
   }
 
@@ -110,6 +122,34 @@ export function summarizeCodeGraphStatus(
     detail: 'CodeGraph is installed and this repository is initialized.',
     warnings,
     usageNote: CODEGRAPH_USAGE_NOTE,
+    usedForContext: false,
+    usageReason: 'detect-only',
+  };
+}
+
+function usageNote(mode: string | null, used: boolean, reason?: string): string {
+  if (used) return 'CodeGraph used: yes — existing index.';
+  if (mode === 'use-existing' && reason) return `CodeGraph used: no — skipped: ${reason}.`;
+  return CODEGRAPH_USAGE_NOTE;
+}
+
+function applyUsage(status: CodeGraphStatus, usage: unknown): CodeGraphStatus {
+  if (typeof usage !== 'object' || usage === null) return status;
+  const record = usage as Record<string, unknown>;
+  const mode = normalizeMode(record.mode) ?? status.mode;
+  const used = record.used === true;
+  const rawReason = typeof record.reason === 'string' ? record.reason : undefined;
+  const artifact = typeof record.artifact === 'string' ? record.artifact : status.contextArtifact;
+  const usageReason = used ? 'existing index' : (mode === 'use-existing' && rawReason ? `skipped: ${rawReason}` : 'detect-only');
+  const warnings = normalizeWarnings(record.warnings);
+  return {
+    ...status,
+    mode,
+    usedForContext: used,
+    usageReason,
+    usageNote: usageNote(mode, used, rawReason),
+    warnings: Array.from(new Set([...status.warnings, ...warnings])),
+    ...(artifact ? { contextArtifact: artifact } : {}),
   };
 }
 
@@ -126,7 +166,14 @@ export function readCodeGraphStatusFromScanDir(scanDir: string): CodeGraphStatus
     const parsed = JSON.parse(fs.readFileSync(artifactPath, 'utf8')) as {
       tools?: { codegraph?: CodeGraphToolEntry };
     };
-    return summarizeCodeGraphStatus(parsed?.tools?.codegraph);
+    const base = summarizeCodeGraphStatus(parsed?.tools?.codegraph);
+    const usagePath = path.join(scanDir, 'codegraph_usage.json');
+    if (!fs.existsSync(usagePath)) return base;
+    try {
+      return applyUsage(base, JSON.parse(fs.readFileSync(usagePath, 'utf8')));
+    } catch {
+      return base;
+    }
   } catch {
     return unknownStatus();
   }

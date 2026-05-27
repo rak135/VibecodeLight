@@ -4,6 +4,7 @@
 // bridge; the return shapes are the view-models the GUI renders.
 
 export type FlashMode = 'mock' | 'live';
+export type CodeGraphContextMode = 'detect-only' | 'use-existing';
 
 export interface FlashPill {
   available: boolean;
@@ -51,20 +52,22 @@ export interface ComposerKeyStatus {
 
 export interface ComposerPreviewOptions {
   composer: {
-    generatePreview(task: string): Promise<unknown>;
-    generatePreviewLive(task: string, provider?: string, model?: string): Promise<unknown>;
+    generatePreview(task: string, codegraphMode?: CodeGraphContextMode): Promise<unknown>;
+    generatePreviewLive(task: string, provider?: string, model?: string, codegraphMode?: CodeGraphContextMode): Promise<unknown>;
   };
   mode: FlashMode | string | undefined;
   task: string;
   provider: string;
   model: string;
   providerList: ProviderListItem[];
+  codegraphMode?: CodeGraphContextMode;
 }
 
 export interface ComposerPreviewOutcome {
   mode: FlashMode;
   flashMode: FlashMode;
   blocked: boolean;
+  codegraphMode?: CodeGraphContextMode;
   result?: unknown;
   diagnostic?: { code: string; message: string };
 }

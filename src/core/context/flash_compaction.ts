@@ -97,6 +97,8 @@ export const FULL_ARTIFACT_REFERENCES = [
   'skills/skills_catalog.json',
 ];
 
+const CODEGRAPH_CONTEXT_REFERENCE = 'scan/codegraph_context.md';
+
 const SUBSYSTEMS = [
   { name: 'CLI', paths: ['src/app/cli'] },
   { name: 'Desktop', paths: ['src/app/desktop'] },
@@ -237,6 +239,16 @@ function collectKeywordBoosts(runDir: string): Map<string, string> {
   return boosts;
 }
 
+function codeGraphContextArtifactExists(runDir: string): boolean {
+  return fs.existsSync(path.join(runDir, ...CODEGRAPH_CONTEXT_REFERENCE.split('/')));
+}
+
+function fullArtifactReferencesForRun(runDir: string): string[] {
+  return codeGraphContextArtifactExists(runDir)
+    ? [...FULL_ARTIFACT_REFERENCES, CODEGRAPH_CONTEXT_REFERENCE]
+    : FULL_ARTIFACT_REFERENCES;
+}
+
 function selectRelevant(runDir: string, task: string): RelevanceSelection {
   const tokens = taskTokens(task);
   const inventoryPaths = collectInventoryPaths(runDir);
@@ -294,7 +306,7 @@ function selectRelevant(runDir: string, task: string): RelevanceSelection {
       edges: imports,
     },
     excluded_large_sections: ['full symbols dump', 'full imports dump', 'full file inventory', 'full docs', 'full architecture documents', 'all keyword hits'],
-    full_artifacts_referenced: FULL_ARTIFACT_REFERENCES,
+    full_artifacts_referenced: fullArtifactReferencesForRun(runDir),
   };
 }
 
@@ -329,7 +341,7 @@ function headingText(value: unknown): string {
   return '';
 }
 
-function renderRepoAtlas(opts: BuildCompactFlashContextOptions): string {
+function renderRepoAtlas(opts: BuildCompactFlashContextOptions, artifactReferences = fullArtifactReferencesForRun(opts.runDir)): string {
   const allPaths = collectInventoryPaths(opts.runDir);
   const topLevel = new Map<string, number>();
   for (const filePath of allPaths) {
@@ -377,7 +389,7 @@ function renderRepoAtlas(opts: BuildCompactFlashContextOptions): string {
   atlasParts.push('- node_modules/, dist/, coverage/, .venv/, __pycache__/ — generated/ignored dependency and build areas.');
   atlasParts.push('');
   atlasParts.push('## Full Artifact References');
-  for (const ref of FULL_ARTIFACT_REFERENCES) atlasParts.push(`- ${ref}`);
+  for (const ref of artifactReferences) atlasParts.push(`- ${ref}`);
   return capMarkdown(redactSecrets(atlasParts.join('\n')), REPO_ATLAS_HARD_MAX_TOKENS, 'Repo Atlas');
 }
 
@@ -456,11 +468,11 @@ function capMarkdown(markdown: string, hardMaxTokens: number, label: string): st
   return `${markdown.slice(0, maxChars - 80).trimEnd()}\n\n_Trimmed: ${label} exceeded ${hardMaxTokens} estimated tokens._\n`;
 }
 
-function renderArtifactReferences(): string {
+function renderArtifactReferences(artifactReferences: string[]): string {
   return [
     'The following full artifacts exist on disk for tools/manual inspection. They are referenced, not embedded, to preserve context budget:',
     '',
-    ...FULL_ARTIFACT_REFERENCES.map((ref) => `- ${ref}`),
+    ...artifactReferences.map((ref) => `- ${ref}`),
   ].join('\n');
 }
 
@@ -500,7 +512,31 @@ function compactPaths(runDir: string): CompactFlashArtifactPaths {
   };
 }
 
-function buildBudget(sections: Array<{ title: string; body: string }>, providerCalled: boolean, budgetStatus: FlashInputBudget['budget_status']): FlashInputBudget {
+function renderCodeGraphContext(runDir: string): string | undefined {
+  const usage = readJson(runDir, 'scan/codegraph_usage.json');
+  if (typeof usage !== 'object' || usage === null) return undefined;
+  const usageRecord = usage as Record<string, unknown>;
+  if (usageRecord.used !== true) return undefined;
+  const artifact = typeof usageRecord.artifact === 'string' ? usageRecord.artifact : 'scan/codegraph_context.md';
+  const context = readText(runDir, artifact);
+  if (!context.trim()) return undefined;
+  return [
+    'Source: existing local CodeGraph index',
+    `Mode: ${typeof usageRecord.mode === 'string' ? usageRecord.mode : 'use-existing'}`,
+    `Artifact: ${artifact}`,
+    '',
+    'CodeGraph output is guidance, not source of truth. Main model must still inspect exact files before editing.',
+    '',
+    truncate(context, 12_000),
+  ].join('\n');
+}
+
+function buildBudget(
+  sections: Array<{ title: string; body: string }>,
+  providerCalled: boolean,
+  budgetStatus: FlashInputBudget['budget_status'],
+  artifactReferences: string[],
+): FlashInputBudget {
   const rendered = renderSections(sections);
   return {
     target_tokens: FLASH_INPUT_TARGET_TOKENS,
@@ -515,7 +551,7 @@ function buildBudget(sections: Array<{ title: string; body: string }>, providerC
     included_sections: sections.map((section) => section.title),
     summarized_sections: ['Repo Atlas', 'Task Slice', 'Symbols', 'Imports', 'File Inventory', 'Docs', 'Tests', 'Keyword Hits', 'Recent History'],
     excluded_sections: ['full Symbols dump', 'full Imports dump', 'full File Inventory dump', 'full Architecture Documents dump', 'full Docs dump', 'all Keyword Hits'],
-    full_artifacts_referenced: FULL_ARTIFACT_REFERENCES,
+    full_artifacts_referenced: artifactReferences,
     provider_called: providerCalled,
     budget_status: budgetStatus,
   };
@@ -537,19 +573,22 @@ function writeText(filePath: string, value: string): void {
 
 export function buildCompactFlashContext(opts: BuildCompactFlashContextOptions): CompactFlashArtifacts {
   const paths = compactPaths(opts.runDir);
-  const repoAtlas = renderRepoAtlas(opts);
+  const artifactReferences = fullArtifactReferencesForRun(opts.runDir);
+  const repoAtlas = renderRepoAtlas(opts, artifactReferences);
   const relevanceSelection = selectRelevant(opts.runDir, opts.task);
   const taskSlice = renderTaskSlice(opts, relevanceSelection);
+  const codeGraphContext = renderCodeGraphContext(opts.runDir);
   const sections = [
     { title: 'Task', body: `\`\`\`text\n${truncate(readText(opts.runDir, 'user_prompt.md') || opts.task, 4000)}\n\`\`\`` },
     { title: 'Repo Atlas', body: repoAtlas.replace(/^# Repo Atlas\n?/, '').trim() },
     { title: 'Task Slice', body: taskSlice.replace(/^# Task Slice\n?/, '').trim() },
-    { title: 'Available Full Artifacts', body: renderArtifactReferences() },
+    ...(codeGraphContext ? [{ title: 'CodeGraph Context', body: codeGraphContext }] : []),
+    { title: 'Available Full Artifacts', body: renderArtifactReferences(artifactReferences) },
     { title: 'Flash Instructions', body: renderFlashInstructions() },
   ];
   const flashInput = renderSections(sections);
   const budgetStatus = estimateTokens(flashInput) > FLASH_INPUT_HARD_MAX_TOKENS ? 'FLASH_INPUT_BUDGET_EXCEEDED' : 'ok';
-  const budget = buildBudget(sections, false, budgetStatus);
+  const budget = buildBudget(sections, false, budgetStatus, artifactReferences);
 
   writeText(paths.run_repo_atlas_path, `${repoAtlas}\n`);
   if (paths.repo_atlas_path) writeText(paths.repo_atlas_path, `${repoAtlas}\n`);

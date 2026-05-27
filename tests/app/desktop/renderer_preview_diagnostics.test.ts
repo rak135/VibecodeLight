@@ -34,7 +34,18 @@ describe('desktop renderer preview diagnostics', () => {
     expect(html).not.toContain('detectCodeGraph');
     expect(html).not.toMatch(/readRunArtifact[^;]*external_tools/);
 
-    // The summary makes "used or not" explicit: detect-only, not used for context.
-    expect(html).toContain("['codegraph used', result.codegraph ? 'no — detect-only (future phase)' : '—']");
+    // The summary makes "used or not" explicit, including skipped/use-existing results.
+    expect(html).toContain('codeGraphUsedSummaryValue');
+    expect(html).toContain("['codegraph used', codeGraphUsedSummaryValue(result.codegraph)]");
+    expect(html).toContain('id="composer-cg-mode"');
+    expect(html).toContain('Use CodeGraph in context');
+  });
+
+  test('binds CodeGraph action buttons once so explicit clicks do not multiply across composer reopens', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+
+    expect(html).toContain('let _cgButtonsBound = false;');
+    expect(html).toContain('if (_cgButtonsBound) return;');
+    expect(html).toContain('_cgButtonsBound = true;');
   });
 });

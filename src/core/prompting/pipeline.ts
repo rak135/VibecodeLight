@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { LlmAdapter } from '../../adapters/llm/base.js';
+import { buildCodeGraphContext, writeCodeGraphContextArtifacts, type CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
 import { LlmAdapterError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
@@ -23,6 +24,7 @@ import { renderFinalPrompt } from './renderer.js';
 import type { PipelineEvent } from './pipeline_events.js';
 import type { PipelineProgressCallback } from './pipeline_events.js';
 import { updateCurrent } from '../runs/current.js';
+import { augmentExternalToolsWithCodeGraphContext } from '../scanning/external_tools.js';
 import { performScanPhase, writeRunManifest } from '../runs/scan_phase.js';
 import type { RunManifest } from '../models/index.js';
 
@@ -32,6 +34,7 @@ export interface PromptPipelineOptions {
   mock: boolean;
   live?: boolean;
   adapter?: LlmAdapter;
+  codegraphMode?: CodeGraphContextMode;
   flashProvider?: string;
   flashModel?: string;
   onProgress?: PipelineProgressCallback;
@@ -169,6 +172,14 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
   const flashDir = path.join(scan.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
 
+  const codegraphResult = await buildCodeGraphContext({
+    repoRoot: opts.repoRoot,
+    task: opts.task,
+    mode: opts.codegraphMode ?? 'detect-only',
+  });
+  const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: scan.runDir, result: codegraphResult });
+  augmentExternalToolsWithCodeGraphContext(scan.scanDir, codegraphResult);
+
   // Safe (secret-free) record of how config was resolved for this run.
   const configResolutionPath = writeConfigResolution(scan.runDir, resolved.resolution);
 
@@ -179,9 +190,11 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     configResolutionPath,
     path.join(scan.scanDir, 'scan_manifest.json'),
     path.join(scan.runDir, 'skills', 'skills_catalog.json'),
+    codegraphArtifacts.usageArtifact,
+    ...(codegraphArtifacts.contextArtifact ? [codegraphArtifacts.contextArtifact] : []),
     ...Object.values(scan.artifacts),
   ];
-  const warnings = [...scan.warnings, ...resolved.resolution.warnings];
+  const warnings = [...scan.warnings, ...resolved.resolution.warnings, ...codegraphResult.warnings];
 
   try {
     const flashManifest = buildFlashInputManifest({
