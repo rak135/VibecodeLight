@@ -91,6 +91,8 @@ describe('flash run CLI', () => {
     expect(payload.data).toHaveProperty('flash_output');
     expect(Array.isArray(payload.artifacts)).toBe(true);
     expect(payload.artifacts.map((entry: string) => path.basename(entry))).toEqual([
+      'flash_system_prompt.md',
+      'flash_prompt_meta.json',
       'flash_output.md',
       'flash_output_meta.json',
       'tool_calls.json',

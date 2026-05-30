@@ -11,7 +11,8 @@ import {
   resolveFlashConfig,
   writeConfigResolution,
 } from '../config/index.js';
-import { buildCompactFlashContext,
+import {
+  buildCompactFlashContext,
   buildFlashInputManifest,
   contextFinalizeErrorToDiagnostic,
   enrichFlashOutputMeta,
@@ -21,8 +22,8 @@ import { buildCompactFlashContext,
   markFlashInputProviderCalled,
 } from '../context/index.js';
 import { renderFinalPrompt } from './renderer.js';
-import type { PipelineEvent } from './pipeline_events.js';
-import type { PipelineProgressCallback } from './pipeline_events.js';
+import { resolveFlashSystemPrompt, writeFlashSystemPromptArtifacts } from '../../core/prompts/flash_system_prompt.js';
+import type { PipelineEvent, PipelineProgressCallback } from './pipeline_events.js';
 import { updateCurrent } from '../runs/current.js';
 import { augmentExternalToolsWithCodeGraphContext } from '../scanning/external_tools.js';
 import { performScanPhase, writeRunManifest } from '../runs/scan_phase.js';
@@ -76,6 +77,8 @@ function unique(items: string[]): string[] {
   return [...new Set(items)];
 }
 
+const BUNDLED_FLASH_SYSTEM_PROMPT_PATH = path.resolve(__dirname, '../../../resources/prompts/flash_system.md');
+
 function errorResult(code: string, message: string, pathValue = '', details: string[] = []): PromptPipelineError {
   return {
     ok: false,
@@ -105,7 +108,6 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     return safeMessage;
   };
 
-  // Validate explicit mode flags: both together is a conflict, neither is required.
   if (opts.mock && opts.live) {
     const result = errorResult(
       'FLASH_MODE_CONFLICT',
@@ -127,8 +129,6 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     return result;
   }
 
-  // Ensure a local workspace config exists (snapshot from global, or minimal
-  // defaults) so resolution and the config artifact are meaningful per run.
   const ensured = ensureLocalConfig({ repoRoot: opts.repoRoot, env: process.env });
   const resolved = resolveFlashConfig({
     repoRoot: opts.repoRoot,
@@ -139,14 +139,12 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     cliFlags: { provider: opts.flashProvider, model: opts.flashModel },
   });
 
-  // Resolve which adapter to use
   let adapter: LlmAdapter;
   if (opts.mock) {
     adapter = new MockFlashAdapter();
   } else if (opts.adapter) {
     adapter = opts.adapter;
   } else {
-    // Live mode: require resolved provider config
     if (!resolved.providerConfig) {
       const code = resolved.error?.code ?? 'FLASH_PROVIDER_NOT_CONFIGURED';
       const message = code === 'FLASH_PROVIDER_NOT_CONFIGURED'
@@ -180,7 +178,6 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
   const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: scan.runDir, result: codegraphResult });
   augmentExternalToolsWithCodeGraphContext(scan.scanDir, codegraphResult);
 
-  // Safe (secret-free) record of how config was resolved for this run.
   const configResolutionPath = writeConfigResolution(scan.runDir, resolved.resolution);
 
   const artifacts: string[] = [
@@ -240,6 +237,14 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       artifacts.push(compactPaths.repo_atlas_path);
     }
     warnings.push(...flashManifest.warnings);
+
+    const resolvedSystemPrompt = resolveFlashSystemPrompt({
+      repoRoot: opts.repoRoot,
+      bundledPromptPath: BUNDLED_FLASH_SYSTEM_PROMPT_PATH,
+      env: process.env,
+    });
+    warnings.push(...resolvedSystemPrompt.warnings);
+
     emitProgress({
       phase: 'flash_input_built',
       message: 'Flash input artifact built.',
@@ -247,7 +252,6 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       artifact_path: flashInputPath,
     });
 
-    const adapter2 = adapter;
     emitProgress({
       phase: 'provider_resolved',
       message: 'Flash provider resolved.',
@@ -260,18 +264,23 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       message: 'Flash request started.',
       run_id: scan.run_id,
     });
-    const adapterResult = await adapter2.run({
+
+    const adapterResult = await adapter.run({
       flashInputMd: compactResult.flashInput,
+      systemPrompt: resolvedSystemPrompt.content,
       flashDir,
       runId: scan.run_id,
       workspaceRoot: opts.repoRoot,
     });
     markFlashInputProviderCalled(scan.runDir, true);
+
     emitProgress({
       phase: 'flash_response_received',
       message: 'Flash response received.',
       run_id: scan.run_id,
     });
+
+    const flashSystemPromptArtifacts = writeFlashSystemPromptArtifacts(flashDir, resolvedSystemPrompt);
     const adapterMeta = adapterResult.meta as Record<string, unknown>;
     enrichFlashOutputMeta(flashDir, {
       provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
@@ -283,12 +292,15 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       config_source: resolved.resolution.selected_config_source,
       config_resolution_path: configResolutionPath,
     });
+
     emitProgress({
       phase: 'flash_output_validated',
       message: 'Flash output validated.',
       run_id: scan.run_id,
     });
     artifacts.push(
+      flashSystemPromptArtifacts.promptPath,
+      flashSystemPromptArtifacts.metaPath,
       path.join(flashDir, 'flash_output.md'),
       path.join(flashDir, 'flash_output_meta.json'),
       path.join(flashDir, 'tool_calls.json'),

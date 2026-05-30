@@ -13,23 +13,6 @@ const PROVIDER_BODY_EXCERPT_LIMIT = 800;
 const NON_JSON_PROVIDER_MESSAGE = 'Provider API returned a non-JSON HTTP response. Flash output remains Markdown-first; this indicates an API endpoint, authentication, model, or provider configuration error.';
 const BAD_PROVIDER_RESPONSE_PREFIX = 'Provider API returned a bad response. Flash output remains Markdown-first; this indicates an API endpoint, authentication, model, or provider configuration error.';
 
-const SYSTEM_PROMPT = [
-  'You are a flash model for a coding context pipeline.',
-  'Return ONLY the required Markdown contract with exactly 8 sections — no preamble, no explanation.',
-  'The 8 sections are:',
-  '# Task Summary',
-  '# Relevant Files',
-  '# Files To Read With Tools',
-  '# Relevant Tests',
-  '# Commands To Run',
-  '# Selected Skills',
-  '# Cautions',
-  '# Context Pack',
-  'Each section must start with a top-level heading exactly as shown above.',
-  'Do not include any text before "# Task Summary".',
-  'Do not include any additional sections.',
-].join('\n');
-
 function safeHost(baseUrl: string | undefined): string {
   if (!baseUrl) return '';
   try {
@@ -176,7 +159,7 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
     const requestBody: Record<string, unknown> = {
       model: resolvedModel,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: input.systemPrompt },
         { role: 'user', content: flashInputMd },
       ],
     };

@@ -39,6 +39,7 @@ import {
   getPreviousRunSummary,
   parseFlashOutput,
 } from '../../core/context/index.js';
+import { resolveFlashSystemPrompt, writeFlashSystemPromptArtifacts } from '../../core/prompts/flash_system_prompt.js';
 import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
 import type { PipelineEvent, PromptPipelineResult } from '../../core/prompting/index.js';
 import {
@@ -53,6 +54,8 @@ import {
 import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
 
 export const BAD_PROVIDER_RESPONSE_TIP = 'Tip: This indicates an API endpoint, auth, model, or provider configuration error. Check pnpm vibecode config show for your current provider configuration.';
+
+const BUNDLED_FLASH_SYSTEM_PROMPT_PATH = path.resolve(__dirname, '../../../resources/prompts/flash_system.md');
 
 type TextWriter = { write(chunk: string): unknown };
 
@@ -520,6 +523,11 @@ export async function runFlash(opts: {
     }
 
     const flashInputMd = fs.readFileSync(flashInputPath, 'utf8');
+    const resolvedSystemPrompt = resolveFlashSystemPrompt({
+      repoRoot: opts.repoRoot,
+      bundledPromptPath: BUNDLED_FLASH_SYSTEM_PROMPT_PATH,
+      env: process.env,
+    });
 
     const resolved = resolveFlashConfig({
       repoRoot: opts.repoRoot,
@@ -546,12 +554,25 @@ export async function runFlash(opts: {
       }
 
       const liveAdapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
-      adapterResult = await liveAdapter.run({ flashInputMd, flashDir, runId, workspaceRoot: opts.repoRoot });
+      adapterResult = await liveAdapter.run({
+        flashInputMd,
+        systemPrompt: resolvedSystemPrompt.content,
+        flashDir,
+        runId,
+        workspaceRoot: opts.repoRoot,
+      });
     } else {
       const adapter = new MockFlashAdapter();
-      adapterResult = await adapter.run({ flashInputMd, flashDir, runId, workspaceRoot: opts.repoRoot });
+      adapterResult = await adapter.run({
+        flashInputMd,
+        systemPrompt: resolvedSystemPrompt.content,
+        flashDir,
+        runId,
+        workspaceRoot: opts.repoRoot,
+      });
     }
 
+    const flashSystemPromptArtifacts = writeFlashSystemPromptArtifacts(flashDir, resolvedSystemPrompt);
     const configResolutionPath = writeConfigResolution(runDir, resolved.resolution);
     const adapterMeta = adapterResult.meta as Record<string, unknown>;
     enrichFlashOutputMeta(flashDir, {
@@ -566,6 +587,8 @@ export async function runFlash(opts: {
     });
 
     const artifacts = [
+      flashSystemPromptArtifacts.promptPath,
+      flashSystemPromptArtifacts.metaPath,
       path.join(flashDir, 'flash_output.md'),
       path.join(flashDir, 'flash_output_meta.json'),
       path.join(flashDir, 'tool_calls.json'),
@@ -577,7 +600,7 @@ export async function runFlash(opts: {
       runDir,
       flashDir,
       artifacts,
-      warnings: resolved.resolution.warnings,
+      warnings: [...resolved.resolution.warnings, ...resolvedSystemPrompt.warnings],
     };
   } catch (error) {
     return {

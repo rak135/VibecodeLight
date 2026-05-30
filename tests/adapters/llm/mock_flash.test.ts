@@ -16,6 +16,7 @@ function makeRun(workspaceRoot: string, runId = '20260101-000000-mock') {
 function flashInput(args: { flashDir: string; runId: string; workspaceRoot: string }) {
   return {
     flashInputMd: '',
+    systemPrompt: 'test system prompt',
     flashDir: args.flashDir,
     runId: args.runId,
     workspaceRoot: args.workspaceRoot,

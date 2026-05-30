@@ -58,6 +58,7 @@ async function captureError(adapter: OpenAiCompatibleAdapter, args: { flashDir: 
   try {
     await adapter.run({
       flashInputMd: '',
+      systemPrompt: 'test system prompt',
       flashDir: args.flashDir,
       runId: args.runId,
       workspaceRoot: args.workspaceRoot,

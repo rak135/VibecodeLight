@@ -45,6 +45,7 @@ function makeWorkspace() {
 function flashInput(args: { flashDir: string; runId: string; workspaceRoot: string }, flashInputMd = '') {
   return {
     flashInputMd,
+    systemPrompt: 'test system prompt',
     flashDir: args.flashDir,
     runId: args.runId,
     workspaceRoot: args.workspaceRoot,
@@ -102,6 +103,7 @@ describe('OpenAiCompatibleAdapter', () => {
 
       const result = await adapter.run({
         flashInputMd: 'ignored because adapter reads the saved file',
+        systemPrompt: 'test system prompt',
         flashDir,
         runId,
         workspaceRoot,
@@ -116,14 +118,13 @@ describe('OpenAiCompatibleAdapter', () => {
       expect(body).toEqual({
         model: 'gpt-4o-mini',
         messages: [
-          expect.objectContaining({ role: 'system', content: expect.any(String) }),
+          { role: 'system', content: 'test system prompt' },
           { role: 'user', content: '# Flash Input\n\nAdapter fixture input\n' },
         ],
         max_tokens: 512,
         temperature: 0.1,
       });
-      expect(body.messages[0].content).toContain('ONLY');
-      expect(body.messages[0].content).toContain('8 sections');
+      expect(body.messages[0].content).toBe('test system prompt');
 
       const outputPath = path.join(flashDir, 'flash_output.md');
       const metaPath = path.join(flashDir, 'flash_output_meta.json');

@@ -4,6 +4,7 @@ export interface LlmAdapter {
 
 export interface FlashInput {
   flashInputMd: string;
+  systemPrompt: string;
   flashDir: string;
   runId: string;
   workspaceRoot: string;

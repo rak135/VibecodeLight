@@ -50,6 +50,8 @@ const requiredArtifacts = [
   'flash/relevance_selection.json',
   'flash/flash_input_budget.json',
   'flash/flash_input.md',
+  'flash/flash_system_prompt.md',
+  'flash/flash_prompt_meta.json',
   'flash/flash_output.md',
   'flash/flash_output_meta.json',
   'flash/tool_calls.json',
