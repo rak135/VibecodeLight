@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 import { readSavedArtifact } from './artifact_reader.js';
 import { FLASH_INPUT_OPTIONAL_INPUTS, FlashInputManifestError } from './flash_input_manifest.js';
 
@@ -32,6 +33,7 @@ export interface BuildCompactFlashContextOptions {
   repo_root: string;
   runDir: string;
   previousRunSummary?: string | undefined;
+  taskIntent?: TaskIntent;
 }
 
 interface ScoredPath {
@@ -192,7 +194,7 @@ function taskTokens(task: string): string[] {
   );
 }
 
-function scorePath(filePath: string, tokens: string[], extraReason?: string): ScoredPath {
+function scorePath(filePath: string, tokens: string[], hintBoosts: Map<string, string[]>, extraReason?: string): ScoredPath {
   const lower = filePath.toLowerCase();
   const reasons: string[] = [];
   let score = 0;
@@ -200,6 +202,7 @@ function scorePath(filePath: string, tokens: string[], extraReason?: string): Sc
     if (lower.includes(token)) {
       score += 10;
       reasons.push(`path matches task term '${token}'`);
+      reasons.push(...(hintBoosts.get(token) ?? []));
     }
   }
   if (lower.includes('flash') || lower.includes('context')) {
@@ -243,6 +246,28 @@ function collectKeywordBoosts(runDir: string): Map<string, string> {
   return boosts;
 }
 
+function collectHintBoosts(taskIntent?: TaskIntent): Map<string, string[]> {
+  const boosts = new Map<string, string[]>();
+  if (!taskIntent?.enabled || !taskIntent.ok) return boosts;
+
+  const addBoost = (token: string, reason: string): void => {
+    if (!token) return;
+    boosts.set(token, unique([...(boosts.get(token) ?? []), reason]));
+  };
+
+  for (const hint of taskIntent.search_hints) {
+    for (const token of taskTokens(hint)) addBoost(token, `matched search hint: ${hint}`);
+  }
+
+  for (const [groupName, terms] of Object.entries(taskIntent.keyword_groups)) {
+    for (const term of terms) {
+      for (const token of taskTokens(term)) addBoost(token, `matched keyword group: ${groupName}`);
+    }
+  }
+
+  return boosts;
+}
+
 function codeGraphContextArtifactExists(runDir: string): boolean {
   return fs.existsSync(path.join(runDir, ...CODEGRAPH_CONTEXT_REFERENCE.split('/')));
 }
@@ -271,26 +296,37 @@ function fullArtifactReferencesForRun(runDir: string): string[] {
   return references;
 }
 
-function selectRelevant(runDir: string, task: string): RelevanceSelection {
+function selectRelevant(runDir: string, task: string, taskIntent?: TaskIntent): RelevanceSelection {
   const tokens = taskTokens(task);
+  const normalizedTokens = (taskIntent?.enabled && taskIntent.ok)
+    ? taskTokens(taskIntent.normalized_english_task)
+    : [];
+  const hintTokens = (taskIntent?.enabled && taskIntent.ok)
+    ? taskIntent.search_hints.flatMap((hint) => taskTokens(hint))
+    : [];
+  const keywordGroupTokens = (taskIntent?.enabled && taskIntent.ok)
+    ? Object.values(taskIntent.keyword_groups).flatMap((terms) => terms.flatMap((term) => taskTokens(term)))
+    : [];
+  const allTokens = unique([...tokens, ...normalizedTokens, ...hintTokens, ...keywordGroupTokens]);
   const inventoryPaths = collectInventoryPaths(runDir);
   const boosts = collectKeywordBoosts(runDir);
+  const hintBoosts = collectHintBoosts(taskIntent);
   const paths = unique([...inventoryPaths, ...Array.from(boosts.keys())]);
   const scoredFiles = sortedTop(
-    paths.map((filePath) => scorePath(filePath, tokens, boosts.get(filePath))),
+    paths.map((filePath) => scorePath(filePath, allTokens, hintBoosts, boosts.get(filePath))),
     40,
   );
 
   const testRecords = asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.tests), ['tests', 'test_files']);
   const testPaths = unique(testRecords.map(getPath).filter(Boolean).concat(paths.filter((p) => /(^|\/)tests?\//.test(p) || /\.test\./.test(p))));
-  const selectedTests = sortedTop(testPaths.map((filePath) => scorePath(filePath, tokens, boosts.get(filePath))), 15);
+  const selectedTests = sortedTop(testPaths.map((filePath) => scorePath(filePath, allTokens, hintBoosts, boosts.get(filePath))), 15);
 
   const docRecords = [
     ...asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.repo_instructions), ['repo_instructions', 'instructions']),
     ...asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.docs), ['docs']),
     ...asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.architecture_docs), ['architecture_docs']),
   ];
-  const selectedDocs = sortedTop(docRecords.map((record) => scorePath(getPath(record), tokens, 'doc/instruction reference')), 8);
+  const selectedDocs = sortedTop(docRecords.map((record) => scorePath(getPath(record), allTokens, hintBoosts, 'doc/instruction reference')), 8);
 
   const selectedFileSet = new Set(scoredFiles.slice(0, 20).map((item) => item.path));
   const symbols = asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.symbols), ['symbols'])
@@ -448,21 +484,60 @@ function renderTaskSlice(opts: BuildCompactFlashContextOptions, selection: Relev
   parts.push('## Previous Run Summary');
   parts.push(opts.previousRunSummary ? truncate(opts.previousRunSummary, 2000) : 'none available');
   parts.push('');
+  parts.push('## Task Intent');
+  if (opts.taskIntent?.enabled && opts.taskIntent.ok) {
+    const intent = opts.taskIntent;
+    parts.push('Task Normalizer: on');
+    parts.push(`Original task language: ${intent.original_language}`);
+    parts.push('');
+    parts.push('Normalized English task:');
+    parts.push(intent.normalized_english_task);
+    if (intent.search_hints.length > 0) {
+      parts.push('');
+      parts.push('Search hints:');
+      for (const hint of intent.search_hints) parts.push(`- ${hint}`);
+    }
+    if (intent.negative_constraints.length > 0) {
+      parts.push('');
+      parts.push('Constraints:');
+      for (const constraint of intent.negative_constraints) parts.push(`- ${constraint}`);
+    }
+    if (intent.validation_hints.length > 0) {
+      parts.push('');
+      parts.push('Validation hints:');
+      for (const hint of intent.validation_hints) parts.push(`- ${hint}`);
+    }
+    if (intent.warnings.length > 0) {
+      parts.push('');
+      parts.push('Warnings:');
+      for (const warning of intent.warnings) parts.push(`- ${warning}`);
+    }
+  } else if (opts.taskIntent?.enabled && !opts.taskIntent.ok) {
+    parts.push('Task Normalizer: fallback (failed)');
+    if (opts.taskIntent.warnings.length > 0) {
+      for (const warning of opts.taskIntent.warnings) parts.push(`- ${warning}`);
+    }
+    parts.push('Using raw user task only.');
+  } else {
+    parts.push('Task Normalizer: off');
+    parts.push('Using raw user task only.');
+  }
+  parts.push('');
   parts.push('## Ranked Relevant Files');
   for (const item of selection.selected_files.slice(0, 25)) {
-    parts.push(`- ${item.path} (score ${item.score}) — ${item.reasons.join('; ') || 'selected by repository map'}`);
+    parts.push(`- ${item.path} — selected by: ${item.reasons.join('; ') || 'repository map'}`);
   }
   if (selection.selected_files.length === 0) parts.push('- not available');
   parts.push('');
   parts.push('## Ranked Relevant Tests');
   for (const item of selection.selected_tests.slice(0, 15)) {
-    parts.push(`- ${item.path} (score ${item.score}) — ${item.reasons.join('; ') || 'test candidate'}`);
+    parts.push(`- ${item.path} — selected by: ${item.reasons.join('; ') || 'test candidate'}`);
   }
   if (selection.selected_tests.length === 0) parts.push('- not available');
   parts.push('');
   parts.push('## Ranked Relevant Docs / Instructions');
   for (const item of selection.selected_docs.slice(0, 8)) {
-    parts.push(`- ${item.path} (score ${item.score}) — ${docExcerpt(opts.runDir, item.path)}`);
+    parts.push(`- ${item.path} — ${docExcerpt(opts.runDir, item.path)}`);
   }
   if (selection.selected_docs.length === 0) parts.push('- not available');
   parts.push('');
@@ -640,7 +715,7 @@ export function buildCompactFlashContext(opts: BuildCompactFlashContextOptions):
   const paths = compactPaths(opts.runDir);
   const artifactReferences = fullArtifactReferencesForRun(opts.runDir);
   const repoAtlas = renderRepoAtlas(opts, artifactReferences);
-  const relevanceSelection = selectRelevant(opts.runDir, opts.task);
+  const relevanceSelection = selectRelevant(opts.runDir, opts.task, opts.taskIntent);
   const taskSlice = renderTaskSlice(opts, relevanceSelection);
   const codeGraphContext = renderCodeGraphContext(opts.runDir);
   const sections = [

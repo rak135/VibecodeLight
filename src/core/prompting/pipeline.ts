@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { buildCodeGraphContext, writeCodeGraphContextArtifacts, type CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
 import { LlmAdapterError } from '../../adapters/llm/errors.js';
@@ -97,6 +98,23 @@ function errorResult(code: string, message: string, pathValue = '', details: str
   };
 }
 
+function buildCodeGraphTask(rawTask: string, taskIntent: TaskIntent): string {
+  if (!taskIntent.enabled || !taskIntent.ok) return rawTask;
+
+  const parts = [
+    `Original task:\n${rawTask}`,
+    `\nNormalized task:\n${taskIntent.normalized_english_task}`,
+  ];
+  if (taskIntent.search_hints.length > 0) {
+    parts.push(`\nSearch hints:\n${taskIntent.search_hints.slice(0, 10).map((hint) => `- ${hint}`).join('\n')}`);
+  }
+  if (taskIntent.negative_constraints.length > 0) {
+    parts.push(`\nConstraints:\n${taskIntent.negative_constraints.slice(0, 5).map((constraint) => `- ${constraint}`).join('\n')}`);
+  }
+  const combined = parts.join('');
+  return combined.length <= 2000 ? combined : rawTask;
+}
+
 export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<PromptPipelineResult> {
   const startTime = Date.now();
   const emitProgress = (event: PipelineEventInput): void => {
@@ -191,9 +209,10 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
   const flashDir = path.join(scan.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
 
+  const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
   const codegraphResult = await buildCodeGraphContext({
     repoRoot: opts.repoRoot,
-    task: opts.task,
+    task: codegraphTask,
     mode: opts.codegraphMode ?? 'detect-only',
   });
   const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: scan.runDir, result: codegraphResult });
@@ -240,6 +259,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       repo_root: opts.repoRoot,
       runDir: scan.runDir,
       previousRunSummary,
+      taskIntent,
     });
     const { paths: compactPaths, budget: compactBudget } = compactResult;
     const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
