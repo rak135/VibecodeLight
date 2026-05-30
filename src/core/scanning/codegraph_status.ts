@@ -44,7 +44,7 @@ export interface CodeGraphStatus {
   usageReason: string;
   /** Relative path to bounded CodeGraph context artifact when present. */
   contextArtifact?: string;
-  /** True only when a CodeGraph-derived scan/repo_atlas.md was generated. */
+  /** True only when a CodeGraph-derived scan/codegraph_repo_atlas.md was generated. */
   repoAtlasGenerated: boolean;
   /** Human-readable Repo Atlas generation/skipped reason. */
   repoAtlasReason: string;
@@ -112,7 +112,7 @@ function defaultRepoAtlasFields(): Pick<CodeGraphStatus, 'repoAtlasGenerated' | 
   return {
     repoAtlasGenerated: false,
     repoAtlasReason: 'not generated — detect-only',
-    repoAtlasNote: 'Repo atlas: not generated — detect-only.',
+    repoAtlasNote: 'CodeGraph-derived Repo Atlas: not generated — detect-only.',
   };
 }
 
@@ -202,7 +202,7 @@ function usageNote(mode: string | null, used: boolean, reason?: string): string 
 }
 
 function repoAtlasNote(generated: boolean, reason: string): string {
-  return generated ? 'Repo atlas: generated.' : `Repo atlas: not generated — ${reason}.`;
+  return generated ? 'CodeGraph-derived Repo Atlas: generated.' : `CodeGraph-derived Repo Atlas: not generated — ${reason}.`;
 }
 
 function applyUsage(status: CodeGraphStatus, usage: unknown): CodeGraphStatus {
@@ -212,13 +212,19 @@ function applyUsage(status: CodeGraphStatus, usage: unknown): CodeGraphStatus {
   const used = record.used === true;
   const rawReason = typeof record.reason === 'string' ? record.reason : undefined;
   const artifact = typeof record.artifact === 'string' ? record.artifact : status.contextArtifact;
-  const repoAtlasGenerated = record.repo_atlas_generated === true;
-  const repoAtlasRawReason = typeof record.repo_atlas_reason === 'string'
-    ? record.repo_atlas_reason
-    : (repoAtlasGenerated ? 'generated' : 'CODEGRAPH_NOT_USED');
+  const repoAtlasGenerated = record.codegraph_repo_atlas_generated === true || record.repo_atlas_generated === true;
+  const repoAtlasRawReason = typeof record.codegraph_repo_atlas_reason === 'string'
+    ? record.codegraph_repo_atlas_reason
+    : (typeof record.repo_atlas_reason === 'string'
+      ? record.repo_atlas_reason
+      : (repoAtlasGenerated ? 'generated' : 'CODEGRAPH_NOT_USED'));
   const repoAtlasReason = repoAtlasGenerated ? repoAtlasRawReason : `not generated — ${repoAtlasRawReason}`;
-  const repoAtlasArtifact = typeof record.repo_atlas_artifact === 'string' ? record.repo_atlas_artifact : status.repoAtlasArtifact;
-  const repoAtlasJsonArtifact = typeof record.repo_atlas_json_artifact === 'string' ? record.repo_atlas_json_artifact : status.repoAtlasJsonArtifact;
+  const repoAtlasArtifact = typeof record.codegraph_repo_atlas_artifact === 'string'
+    ? record.codegraph_repo_atlas_artifact
+    : (typeof record.repo_atlas_artifact === 'string' ? record.repo_atlas_artifact : status.repoAtlasArtifact);
+  const repoAtlasJsonArtifact = typeof record.codegraph_repo_atlas_json_artifact === 'string'
+    ? record.codegraph_repo_atlas_json_artifact
+    : (typeof record.repo_atlas_json_artifact === 'string' ? record.repo_atlas_json_artifact : status.repoAtlasJsonArtifact);
   const usageReason = used ? 'existing index' : (mode === 'use-existing' && rawReason ? `skipped: ${rawReason}` : 'detect-only');
   const warnings = normalizeWarnings(record.warnings);
   const mergedWarnings = Array.from(new Set([...status.warnings, ...warnings]));

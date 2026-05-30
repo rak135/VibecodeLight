@@ -46,8 +46,14 @@ export interface BuildCodeGraphContextInput {
 export interface CodeGraphArtifactWriteResult {
   usageArtifact: string;
   contextArtifact?: string;
+  /** Canonical CodeGraph-derived Repo Atlas markdown path. */
   repoAtlasArtifact?: string;
+  /** Canonical CodeGraph-derived Repo Atlas JSON path. */
   repoAtlasJsonArtifact?: string;
+  /** Backward-compatible legacy markdown path: scan/repo_atlas.md. */
+  legacyRepoAtlasArtifact?: string;
+  /** Backward-compatible legacy JSON path: scan/repo_atlas.json. */
+  legacyRepoAtlasJsonArtifact?: string;
 }
 
 interface RepoAtlasItem {
@@ -91,8 +97,10 @@ const DEFAULT_MAX_BYTES = 32 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CONTEXT_RELATIVE_ARTIFACT = 'scan/codegraph_context.md';
 const USAGE_RELATIVE_ARTIFACT = 'scan/codegraph_usage.json';
-const REPO_ATLAS_RELATIVE_ARTIFACT = 'scan/repo_atlas.md';
-const REPO_ATLAS_JSON_RELATIVE_ARTIFACT = 'scan/repo_atlas.json';
+const REPO_ATLAS_RELATIVE_ARTIFACT = 'scan/codegraph_repo_atlas.md';
+const REPO_ATLAS_JSON_RELATIVE_ARTIFACT = 'scan/codegraph_repo_atlas.json';
+const LEGACY_REPO_ATLAS_RELATIVE_ARTIFACT = 'scan/repo_atlas.md';
+const LEGACY_REPO_ATLAS_JSON_RELATIVE_ARTIFACT = 'scan/repo_atlas.json';
 
 const REPO_ATLAS_LIMITS = {
   likely_relevant_areas: 10,
@@ -547,12 +555,18 @@ function renderRepoAtlasMarkdown(atlas: RepoAtlasJson): string {
 function repoAtlasUsageFields(generated: boolean, reason: string): Record<string, unknown> {
   return generated
     ? {
+      codegraph_repo_atlas_generated: true,
+      codegraph_repo_atlas_reason: reason,
+      codegraph_repo_atlas_artifact: REPO_ATLAS_RELATIVE_ARTIFACT,
+      codegraph_repo_atlas_json_artifact: REPO_ATLAS_JSON_RELATIVE_ARTIFACT,
       repo_atlas_generated: true,
       repo_atlas_reason: reason,
-      repo_atlas_artifact: REPO_ATLAS_RELATIVE_ARTIFACT,
-      repo_atlas_json_artifact: REPO_ATLAS_JSON_RELATIVE_ARTIFACT,
+      repo_atlas_artifact: LEGACY_REPO_ATLAS_RELATIVE_ARTIFACT,
+      repo_atlas_json_artifact: LEGACY_REPO_ATLAS_JSON_RELATIVE_ARTIFACT,
     }
     : {
+      codegraph_repo_atlas_generated: false,
+      codegraph_repo_atlas_reason: reason,
       repo_atlas_generated: false,
       repo_atlas_reason: reason,
     };
@@ -588,6 +602,8 @@ export function writeCodeGraphContextArtifacts(input: {
   let contextArtifact: string | undefined;
   let repoAtlasArtifact: string | undefined;
   let repoAtlasJsonArtifact: string | undefined;
+  let legacyRepoAtlasArtifact: string | undefined;
+  let legacyRepoAtlasJsonArtifact: string | undefined;
   let atlasUsage: { generated: boolean; reason: string } | undefined;
   if (input.result.used && input.result.outputText !== undefined) {
     contextArtifact = relToAbs(input.runDir, CONTEXT_RELATIVE_ARTIFACT);
@@ -610,8 +626,14 @@ export function writeCodeGraphContextArtifacts(input: {
     });
     repoAtlasArtifact = relToAbs(input.runDir, REPO_ATLAS_RELATIVE_ARTIFACT);
     repoAtlasJsonArtifact = relToAbs(input.runDir, REPO_ATLAS_JSON_RELATIVE_ARTIFACT);
-    fs.writeFileSync(repoAtlasArtifact, `${renderRepoAtlasMarkdown(atlas).trim()}\n`, 'utf8');
-    fs.writeFileSync(repoAtlasJsonArtifact, `${JSON.stringify(atlas, null, 2)}\n`, 'utf8');
+    legacyRepoAtlasArtifact = relToAbs(input.runDir, LEGACY_REPO_ATLAS_RELATIVE_ARTIFACT);
+    legacyRepoAtlasJsonArtifact = relToAbs(input.runDir, LEGACY_REPO_ATLAS_JSON_RELATIVE_ARTIFACT);
+    const atlasMarkdown = `${renderRepoAtlasMarkdown(atlas).trim()}\n`;
+    const atlasJson = `${JSON.stringify(atlas, null, 2)}\n`;
+    fs.writeFileSync(repoAtlasArtifact, atlasMarkdown, 'utf8');
+    fs.writeFileSync(repoAtlasJsonArtifact, atlasJson, 'utf8');
+    fs.writeFileSync(legacyRepoAtlasArtifact, atlasMarkdown, 'utf8');
+    fs.writeFileSync(legacyRepoAtlasJsonArtifact, atlasJson, 'utf8');
     atlasUsage = { generated: true, reason: 'generated' };
   }
 
@@ -621,5 +643,7 @@ export function writeCodeGraphContextArtifacts(input: {
     ...(contextArtifact ? { contextArtifact } : {}),
     ...(repoAtlasArtifact ? { repoAtlasArtifact } : {}),
     ...(repoAtlasJsonArtifact ? { repoAtlasJsonArtifact } : {}),
+    ...(legacyRepoAtlasArtifact ? { legacyRepoAtlasArtifact } : {}),
+    ...(legacyRepoAtlasJsonArtifact ? { legacyRepoAtlasJsonArtifact } : {}),
   };
 }

@@ -137,6 +137,10 @@ describe('readRunCodeGraphStatus', () => {
           used: true,
           reason: 'EXISTING_INDEX',
           artifact: 'scan/codegraph_context.md',
+          codegraph_repo_atlas_generated: true,
+          codegraph_repo_atlas_reason: 'generated',
+          codegraph_repo_atlas_artifact: 'scan/codegraph_repo_atlas.md',
+          codegraph_repo_atlas_json_artifact: 'scan/codegraph_repo_atlas.json',
           repo_atlas_generated: true,
           repo_atlas_reason: 'generated',
           repo_atlas_artifact: 'scan/repo_atlas.md',
@@ -153,9 +157,9 @@ describe('readRunCodeGraphStatus', () => {
       expect(status.contextArtifact).toBe('scan/codegraph_context.md');
       expect(status.repoAtlasGenerated).toBe(true);
       expect(status.repoAtlasReason).toBe('generated');
-      expect(status.repoAtlasArtifact).toBe('scan/repo_atlas.md');
-      expect(status.repoAtlasJsonArtifact).toBe('scan/repo_atlas.json');
-      expect(status.repoAtlasNote).toBe('Repo atlas: generated.');
+      expect(status.repoAtlasArtifact).toBe('scan/codegraph_repo_atlas.md');
+      expect(status.repoAtlasJsonArtifact).toBe('scan/codegraph_repo_atlas.json');
+      expect(status.repoAtlasNote).toBe('CodeGraph-derived Repo Atlas: generated.');
       expect(status.usageNote).toBe('CodeGraph used: yes — existing index.');
     } finally {
       fs.rmSync(runDir, { recursive: true, force: true });
@@ -185,7 +189,7 @@ describe('readRunCodeGraphStatus', () => {
       expect(status.usageNote).toBe('CodeGraph used: no — skipped: CODEGRAPH_INDEX_STALE.');
       expect(status.repoAtlasGenerated).toBe(false);
       expect(status.repoAtlasReason).toBe('not generated — CODEGRAPH_INDEX_STALE');
-      expect(status.repoAtlasNote).toBe('Repo atlas: not generated — CODEGRAPH_INDEX_STALE.');
+      expect(status.repoAtlasNote).toBe('CodeGraph-derived Repo Atlas: not generated — CODEGRAPH_INDEX_STALE.');
     } finally {
       fs.rmSync(runDir, { recursive: true, force: true });
     }

@@ -21,6 +21,8 @@ export interface RunInfo {
     send_metadata?: string;
     codegraph_usage?: string;
     codegraph_context?: string;
+    codegraph_repo_atlas?: string;
+    codegraph_repo_atlas_json?: string;
     repo_atlas?: string;
     repo_atlas_json?: string;
   };
@@ -66,6 +68,8 @@ export function getRunInfo(runDir: string): RunInfo {
     send_metadata: existing(path.join(runDir, 'terminal', 'send_metadata.json')),
     codegraph_usage: existing(path.join(runDir, 'scan', 'codegraph_usage.json')),
     codegraph_context: existing(path.join(runDir, 'scan', 'codegraph_context.md')),
+    codegraph_repo_atlas: existing(path.join(runDir, 'scan', 'codegraph_repo_atlas.md')),
+    codegraph_repo_atlas_json: existing(path.join(runDir, 'scan', 'codegraph_repo_atlas.json')),
     repo_atlas: existing(path.join(runDir, 'scan', 'repo_atlas.md')),
     repo_atlas_json: existing(path.join(runDir, 'scan', 'repo_atlas.json')),
   };

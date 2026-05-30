@@ -615,8 +615,10 @@
           ['terminal/send_metadata.json', a.send_metadata],
           ['scan/codegraph_usage.json', a.codegraph_usage],
           ['scan/codegraph_context.md', a.codegraph_context],
-          ['scan/repo_atlas.md', a.repo_atlas],
-          ['scan/repo_atlas.json', a.repo_atlas_json],
+          ['scan/codegraph_repo_atlas.md (CodeGraph-derived Repo Atlas)', a.codegraph_repo_atlas],
+          ['scan/codegraph_repo_atlas.json', a.codegraph_repo_atlas_json],
+          ['scan/repo_atlas.md (compat CodeGraph-derived Repo Atlas)', a.repo_atlas],
+          ['scan/repo_atlas.json (compat)', a.repo_atlas_json],
         ];
       }
 
@@ -980,8 +982,10 @@
         const paths = [
           'scan/codegraph_usage.json',
           (cg && cg.contextArtifact) || 'scan/codegraph_context.md',
-          (cg && cg.repoAtlasArtifact) || 'scan/repo_atlas.md',
-          (cg && cg.repoAtlasJsonArtifact) || 'scan/repo_atlas.json',
+          (cg && cg.repoAtlasArtifact) || 'scan/codegraph_repo_atlas.md',
+          (cg && cg.repoAtlasJsonArtifact) || 'scan/codegraph_repo_atlas.json',
+          'scan/repo_atlas.md',
+          'scan/repo_atlas.json',
         ];
         return Array.from(new Set(paths.filter(Boolean))).map((artifactPath) => ({ path: artifactPath, exists: false }));
       }
@@ -1015,8 +1019,8 @@
         html += '<div class="cg-sub">used for context: ' + yesNo(Boolean(cg.usedForContext)) + '</div>';
         html += '<div class="cg-sub">usage reason: ' + escapeHtml(cg.usageReason || 'unknown') + '</div>';
         html += '<div class="cg-sub">usage note: ' + escapeHtml(cg.usageNote || '—') + '</div>';
-        html += '<div class="cg-sub">repo atlas generated: ' + yesNo(Boolean(cg.repoAtlasGenerated)) + '</div>';
-        html += '<div class="cg-sub">repo atlas reason/note: ' + escapeHtml((cg.repoAtlasReason || 'unknown') + ' / ' + (cg.repoAtlasNote || '—')) + '</div>';
+        html += '<div class="cg-sub">CodeGraph-derived Repo Atlas generated: ' + yesNo(Boolean(cg.repoAtlasGenerated)) + '</div>';
+        html += '<div class="cg-sub">CodeGraph-derived Repo Atlas reason/note: ' + escapeHtml((cg.repoAtlasReason || 'unknown') + ' / ' + (cg.repoAtlasNote || '—')) + '</div>';
         html += '<div class="cg-sub">warnings/displayWarnings:</div>';
         if (warnings.length === 0) {
           html += '<div class="cg-sub cg-muted">  none</div>';
@@ -1152,7 +1156,7 @@
           ['flash_input_budget.json', result.flashInputBudgetPath || '—'],
           ['codegraph', codeGraphSummaryValue(result.codegraph)],
           ['codegraph used', codeGraphUsedSummaryValue(result.codegraph)],
-          ['repo atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)],
+          ['CodeGraph-derived Repo Atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)],
         ];
         const warningValue = codeGraphWarningSummaryValue(result.codegraph);
         if (warningValue) {

@@ -11,7 +11,8 @@ describe('desktop renderer preview diagnostics', () => {
     expect(html).toContain('estimated tokens');
     expect(html).toContain('budget status');
     expect(html).toContain('flash_input.md');
-    expect(html).toContain('repo atlas');
+    expect(html).toContain('flash repo atlas');
+    expect(html).toContain('CodeGraph-derived Repo Atlas');
     expect(html).toContain('task_slice.md');
     expect(html).toContain('flash_input_budget.json');
     expect(html).toContain('FLASH_INPUT_BUDGET_EXCEEDED');
@@ -38,7 +39,7 @@ describe('desktop renderer preview diagnostics', () => {
     expect(html).toContain('codeGraphUsedSummaryValue');
     expect(html).toContain("['codegraph used', codeGraphUsedSummaryValue(result.codegraph)]");
     expect(html).toContain('codeGraphRepoAtlasSummaryValue');
-    expect(html).toContain("['repo atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)]");
+    expect(html).toContain("['CodeGraph-derived Repo Atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)]");
     expect(html).toContain('id="codegraph-toggle"');
     expect(html).toContain('role="switch"');
     expect(html).toContain('CodeGraph');
@@ -83,11 +84,11 @@ describe('desktop renderer preview diagnostics', () => {
 
     expect(html).toContain('function renderCodeGraphPanel');
     expect(html).toContain('used for context: ');
-    expect(html).toContain('repo atlas generated: ');
+    expect(html).toContain('CodeGraph-derived Repo Atlas generated: ');
     expect(html).toContain('scan/codegraph_usage.json');
     expect(html).toContain('scan/codegraph_context.md');
-    expect(html).toContain('scan/repo_atlas.md');
-    expect(html).toContain('scan/repo_atlas.json');
+    expect(html).toContain('scan/codegraph_repo_atlas.md');
+    expect(html).toContain('scan/codegraph_repo_atlas.json');
     expect(html).toContain('readRunArtifact(result.run_id, artifact.path)');
     expect(html).toContain('artifact.exists');
     expect(html).toContain('cg-artifact-btn');

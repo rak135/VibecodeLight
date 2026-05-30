@@ -16,6 +16,8 @@ import {
   writeCodeGraphContextArtifacts,
   type CodeGraphContextMode,
   type CodeGraphContextResult,
+  type CodeGraphContextRunner,
+  type CodeGraphReadinessProvider,
 } from '../../adapters/codegraph/codegraph_context.js';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
@@ -474,6 +476,8 @@ const RUN_SHOW_ARTIFACTS = new Set([
   'terminal/send_metadata.json',
   'scan/codegraph_usage.json',
   'scan/codegraph_context.md',
+  'scan/codegraph_repo_atlas.md',
+  'scan/codegraph_repo_atlas.json',
   'scan/repo_atlas.md',
   'scan/repo_atlas.json',
 ]);
@@ -511,8 +515,10 @@ function codeGraphRelativeArtifactLines(info: ReturnType<typeof getRunInfo>): st
   const candidates: Array<[string, string | undefined]> = [
     ['scan/codegraph_usage.json', info.artifacts.codegraph_usage],
     ['scan/codegraph_context.md', info.artifacts.codegraph_context],
-    ['scan/repo_atlas.md', info.artifacts.repo_atlas],
-    ['scan/repo_atlas.json', info.artifacts.repo_atlas_json],
+    ['scan/codegraph_repo_atlas.md', info.artifacts.codegraph_repo_atlas],
+    ['scan/codegraph_repo_atlas.json', info.artifacts.codegraph_repo_atlas_json],
+    ['scan/repo_atlas.md (compat)', info.artifacts.repo_atlas],
+    ['scan/repo_atlas.json (compat)', info.artifacts.repo_atlas_json],
   ];
   return candidates.filter(([, artifactPath]) => Boolean(artifactPath)).map(([relativePath]) => relativePath);
 }
@@ -525,9 +531,9 @@ function writeCodeGraphSummary(info: ReturnType<typeof getRunInfo>): void {
   console.log(`  used for context: ${cg.usedForContext ? 'yes' : 'no'}`);
   console.log(`  reason: ${cg.usageReason}`);
   console.log(`  usage note: ${cg.usageNote}`);
-  console.log(`  repo atlas: ${cg.repoAtlasGenerated ? 'generated' : 'not generated'}`);
-  console.log(`  repo atlas reason: ${cg.repoAtlasReason}`);
-  console.log(`  repo atlas note: ${cg.repoAtlasNote}`);
+  console.log(`  CodeGraph-derived Repo Atlas: ${cg.repoAtlasGenerated ? 'generated' : 'not generated'}`);
+  console.log(`  CodeGraph-derived Repo Atlas reason: ${cg.repoAtlasReason}`);
+  console.log(`  CodeGraph-derived Repo Atlas note: ${cg.repoAtlasNote}`);
   const artifacts = codeGraphRelativeArtifactLines(info);
   console.log('  artifacts:');
   if (artifacts.length === 0) {
@@ -595,6 +601,12 @@ export async function runContextBuild(opts: {
   repoRoot: string;
   jsonOutput?: boolean;
   codegraphMode?: CodeGraphContextMode;
+  /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
+  codegraphRunner?: CodeGraphContextRunner;
+  /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
+  codegraphReadinessProvider?: CodeGraphReadinessProvider;
+  /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
+  codegraphCommand?: string;
 }): Promise<ContextBuildResult> {
   const result = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
 
@@ -625,6 +637,9 @@ export async function runContextBuild(opts: {
       repoRoot: opts.repoRoot,
       task: opts.task,
       mode: codegraphMode,
+      ...(opts.codegraphRunner ? { runner: opts.codegraphRunner } : {}),
+      ...(opts.codegraphReadinessProvider ? { readinessProvider: opts.codegraphReadinessProvider } : {}),
+      ...(opts.codegraphCommand ? { command: opts.codegraphCommand } : {}),
     });
   } catch (error) {
     codegraphResult = codeGraphContextFallbackResult(codegraphMode, error);
@@ -678,6 +693,8 @@ export async function runContextBuild(opts: {
       ...(codegraphArtifacts.contextArtifact ? [codegraphArtifacts.contextArtifact] : []),
       ...(codegraphArtifacts.repoAtlasArtifact ? [codegraphArtifacts.repoAtlasArtifact] : []),
       ...(codegraphArtifacts.repoAtlasJsonArtifact ? [codegraphArtifacts.repoAtlasJsonArtifact] : []),
+      ...(codegraphArtifacts.legacyRepoAtlasArtifact ? [codegraphArtifacts.legacyRepoAtlasArtifact] : []),
+      ...(codegraphArtifacts.legacyRepoAtlasJsonArtifact ? [codegraphArtifacts.legacyRepoAtlasJsonArtifact] : []),
       flashManifestPath,
       flashInputPath,
     ];
@@ -1876,7 +1893,7 @@ export function createCli(): Command {
     .description('Show a VibecodeLight run')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
-    .option('--artifact <name>', 'Print a whitelisted run artifact (for example codegraph or scan/repo_atlas.md)')
+    .option('--artifact <name>', 'Print a whitelisted run artifact (for example codegraph or scan/codegraph_repo_atlas.md)')
     .action((runId: string, options: { repo: string; json?: boolean; artifact?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const paths = getWorkspacePaths(repoRoot);
@@ -1966,8 +1983,10 @@ export function createCli(): Command {
         ['terminal/send_metadata.json', info.artifacts.send_metadata],
         ['scan/codegraph_usage.json', info.artifacts.codegraph_usage],
         ['scan/codegraph_context.md', info.artifacts.codegraph_context],
-        ['scan/repo_atlas.md', info.artifacts.repo_atlas],
-        ['scan/repo_atlas.json', info.artifacts.repo_atlas_json],
+        ['scan/codegraph_repo_atlas.md (CodeGraph-derived Repo Atlas)', info.artifacts.codegraph_repo_atlas],
+        ['scan/codegraph_repo_atlas.json', info.artifacts.codegraph_repo_atlas_json],
+        ['scan/repo_atlas.md (compat CodeGraph-derived Repo Atlas)', info.artifacts.repo_atlas],
+        ['scan/repo_atlas.json (compat)', info.artifacts.repo_atlas_json],
       ];
       for (const [label, artifactPath] of artifactLines) {
         console.log(`  ${label}: ${artifactPath ? 'exists' : 'missing'}`);

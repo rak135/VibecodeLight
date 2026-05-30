@@ -26,6 +26,8 @@ const ALLOWED_RUN_ARTIFACTS = new Set([
   'flash/flash_output_meta.json',
   'scan/codegraph_usage.json',
   'scan/codegraph_context.md',
+  'scan/codegraph_repo_atlas.md',
+  'scan/codegraph_repo_atlas.json',
   'scan/repo_atlas.md',
   'scan/repo_atlas.json',
 ]);

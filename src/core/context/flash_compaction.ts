@@ -98,8 +98,10 @@ export const FULL_ARTIFACT_REFERENCES = [
 ];
 
 const CODEGRAPH_CONTEXT_REFERENCE = 'scan/codegraph_context.md';
-const CODEGRAPH_REPO_ATLAS_REFERENCE = 'scan/repo_atlas.md';
-const CODEGRAPH_REPO_ATLAS_JSON_REFERENCE = 'scan/repo_atlas.json';
+const CODEGRAPH_REPO_ATLAS_REFERENCE = 'scan/codegraph_repo_atlas.md';
+const CODEGRAPH_REPO_ATLAS_JSON_REFERENCE = 'scan/codegraph_repo_atlas.json';
+const LEGACY_CODEGRAPH_REPO_ATLAS_REFERENCE = 'scan/repo_atlas.md';
+const LEGACY_CODEGRAPH_REPO_ATLAS_JSON_REFERENCE = 'scan/repo_atlas.json';
 
 const SUBSYSTEMS = [
   { name: 'CLI', paths: ['src/app/cli'] },
@@ -245,15 +247,24 @@ function codeGraphContextArtifactExists(runDir: string): boolean {
   return fs.existsSync(path.join(runDir, ...CODEGRAPH_CONTEXT_REFERENCE.split('/')));
 }
 
-function codeGraphRepoAtlasArtifactExists(runDir: string): boolean {
-  return fs.existsSync(path.join(runDir, ...CODEGRAPH_REPO_ATLAS_REFERENCE.split('/')));
+function codeGraphRepoAtlasArtifactReference(runDir: string): string | undefined {
+  if (fs.existsSync(path.join(runDir, ...CODEGRAPH_REPO_ATLAS_REFERENCE.split('/')))) return CODEGRAPH_REPO_ATLAS_REFERENCE;
+  if (fs.existsSync(path.join(runDir, ...LEGACY_CODEGRAPH_REPO_ATLAS_REFERENCE.split('/')))) return LEGACY_CODEGRAPH_REPO_ATLAS_REFERENCE;
+  return undefined;
+}
+
+function codeGraphRepoAtlasJsonArtifactReference(runDir: string): string | undefined {
+  if (fs.existsSync(path.join(runDir, ...CODEGRAPH_REPO_ATLAS_JSON_REFERENCE.split('/')))) return CODEGRAPH_REPO_ATLAS_JSON_REFERENCE;
+  if (fs.existsSync(path.join(runDir, ...LEGACY_CODEGRAPH_REPO_ATLAS_JSON_REFERENCE.split('/')))) return LEGACY_CODEGRAPH_REPO_ATLAS_JSON_REFERENCE;
+  return undefined;
 }
 
 function fullArtifactReferencesForRun(runDir: string): string[] {
   const references = [...FULL_ARTIFACT_REFERENCES];
-  if (codeGraphRepoAtlasArtifactExists(runDir)) {
-    references.push(CODEGRAPH_REPO_ATLAS_REFERENCE, CODEGRAPH_REPO_ATLAS_JSON_REFERENCE);
-  }
+  const codeGraphRepoAtlas = codeGraphRepoAtlasArtifactReference(runDir);
+  const codeGraphRepoAtlasJson = codeGraphRepoAtlasJsonArtifactReference(runDir);
+  if (codeGraphRepoAtlas) references.push(codeGraphRepoAtlas);
+  if (codeGraphRepoAtlasJson) references.push(codeGraphRepoAtlasJson);
   if (codeGraphContextArtifactExists(runDir)) {
     references.push(CODEGRAPH_CONTEXT_REFERENCE);
   }
@@ -531,13 +542,19 @@ function renderCodeGraphRepoAtlas(runDir: string): string | undefined {
   const usage = readJson(runDir, 'scan/codegraph_usage.json');
   if (typeof usage !== 'object' || usage === null) return undefined;
   const usageRecord = usage as Record<string, unknown>;
-  if (usageRecord.used !== true || usageRecord.repo_atlas_generated !== true) return undefined;
-  const artifact = typeof usageRecord.repo_atlas_artifact === 'string' ? usageRecord.repo_atlas_artifact : CODEGRAPH_REPO_ATLAS_REFERENCE;
+  const generated = usageRecord.codegraph_repo_atlas_generated === true || usageRecord.repo_atlas_generated === true;
+  if (usageRecord.used !== true || !generated) return undefined;
+  const artifact = typeof usageRecord.codegraph_repo_atlas_artifact === 'string'
+    ? usageRecord.codegraph_repo_atlas_artifact
+    : (typeof usageRecord.repo_atlas_artifact === 'string' ? usageRecord.repo_atlas_artifact : CODEGRAPH_REPO_ATLAS_REFERENCE);
   const atlas = readText(runDir, artifact);
   if (!atlas.trim()) return undefined;
+  const jsonArtifact = typeof usageRecord.codegraph_repo_atlas_json_artifact === 'string'
+    ? usageRecord.codegraph_repo_atlas_json_artifact
+    : (typeof usageRecord.repo_atlas_json_artifact === 'string' ? usageRecord.repo_atlas_json_artifact : undefined);
   return [
     `Artifact: ${artifact}`,
-    typeof usageRecord.repo_atlas_json_artifact === 'string' ? `JSON: ${usageRecord.repo_atlas_json_artifact}` : '',
+    jsonArtifact ? `JSON: ${jsonArtifact}` : '',
     '',
     atlas.replace(/^# Repo Atlas\n?/, '').trim(),
   ].filter(Boolean).join('\n');
@@ -549,7 +566,13 @@ function renderCodeGraphContext(runDir: string): string | undefined {
   const usageRecord = usage as Record<string, unknown>;
   if (usageRecord.used !== true) return undefined;
   const artifact = typeof usageRecord.artifact === 'string' ? usageRecord.artifact : 'scan/codegraph_context.md';
-  const hasRepoAtlas = usageRecord.repo_atlas_generated === true && readText(runDir, typeof usageRecord.repo_atlas_artifact === 'string' ? usageRecord.repo_atlas_artifact : CODEGRAPH_REPO_ATLAS_REFERENCE).trim().length > 0;
+  const hasRepoAtlas = (usageRecord.codegraph_repo_atlas_generated === true || usageRecord.repo_atlas_generated === true)
+    && readText(
+      runDir,
+      typeof usageRecord.codegraph_repo_atlas_artifact === 'string'
+        ? usageRecord.codegraph_repo_atlas_artifact
+        : (typeof usageRecord.repo_atlas_artifact === 'string' ? usageRecord.repo_atlas_artifact : CODEGRAPH_REPO_ATLAS_REFERENCE),
+    ).trim().length > 0;
   const context = readText(runDir, artifact);
   if (!context.trim()) return undefined;
   if (hasRepoAtlas) {

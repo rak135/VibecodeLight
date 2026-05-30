@@ -278,14 +278,19 @@ describe('writeCodeGraphContextArtifacts', () => {
 
       expect(written.usageArtifact).toBe(path.join(runDir, 'scan', 'codegraph_usage.json'));
       expect(written.contextArtifact).toBe(path.join(runDir, 'scan', 'codegraph_context.md'));
-      expect(written.repoAtlasArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.md'));
-      expect(written.repoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.json'));
+      expect(written.repoAtlasArtifact).toBe(path.join(runDir, 'scan', 'codegraph_repo_atlas.md'));
+      expect(written.repoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'codegraph_repo_atlas.json'));
+      expect(written.legacyRepoAtlasArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.md'));
+      expect(written.legacyRepoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.json'));
       const usage = JSON.parse(fs.readFileSync(written.usageArtifact, 'utf8'));
       expect(usage).toMatchObject({
         mode: 'use-existing',
         used: true,
         reason: 'EXISTING_INDEX',
         artifact: 'scan/codegraph_context.md',
+        codegraph_repo_atlas_generated: true,
+        codegraph_repo_atlas_artifact: 'scan/codegraph_repo_atlas.md',
+        codegraph_repo_atlas_json_artifact: 'scan/codegraph_repo_atlas.json',
         repo_atlas_generated: true,
         repo_atlas_artifact: 'scan/repo_atlas.md',
         repo_atlas_json_artifact: 'scan/repo_atlas.json',
@@ -352,8 +357,8 @@ describe('writeCodeGraphContextArtifacts', () => {
       expect(written.repoAtlasArtifact).toBeUndefined();
       expect(written.repoAtlasJsonArtifact).toBeUndefined();
       expect(fs.existsSync(path.join(runDir, 'scan', 'codegraph_context.md'))).toBe(false);
-      expect(fs.existsSync(path.join(runDir, 'scan', 'repo_atlas.md'))).toBe(false);
-      expect(fs.existsSync(path.join(runDir, 'scan', 'repo_atlas.json'))).toBe(false);
+      expect(fs.existsSync(path.join(runDir, 'scan', 'codegraph_repo_atlas.md'))).toBe(false);
+      expect(fs.existsSync(path.join(runDir, 'scan', 'codegraph_repo_atlas.json'))).toBe(false);
       const usage = JSON.parse(fs.readFileSync(written.usageArtifact, 'utf8'));
       expect(usage).toMatchObject({
         mode: 'use-existing',
@@ -381,8 +386,10 @@ describe('writeCodeGraphContextArtifacts', () => {
       };
 
       const written = writeCodeGraphContextArtifacts({ runDir, result });
-      expect(written.repoAtlasArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.md'));
-      expect(written.repoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.json'));
+      expect(written.repoAtlasArtifact).toBe(path.join(runDir, 'scan', 'codegraph_repo_atlas.md'));
+      expect(written.repoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'codegraph_repo_atlas.json'));
+      expect(written.legacyRepoAtlasArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.md'));
+      expect(written.legacyRepoAtlasJsonArtifact).toBe(path.join(runDir, 'scan', 'repo_atlas.json'));
       const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
       const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8'));
       const usage = JSON.parse(fs.readFileSync(written.usageArtifact, 'utf8'));

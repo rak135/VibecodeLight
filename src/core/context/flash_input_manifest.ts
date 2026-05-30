@@ -38,6 +38,11 @@ const CODEGRAPH_CONTEXT_OPTIONAL_INPUT = {
 } as const;
 
 const CODEGRAPH_REPO_ATLAS_OPTIONAL_INPUTS = {
+  repo_atlas: 'scan/codegraph_repo_atlas.md',
+  repo_atlas_json: 'scan/codegraph_repo_atlas.json',
+} as const;
+
+const LEGACY_CODEGRAPH_REPO_ATLAS_OPTIONAL_INPUTS = {
   repo_atlas: 'scan/repo_atlas.md',
   repo_atlas_json: 'scan/repo_atlas.json',
 } as const;
@@ -87,6 +92,11 @@ function optionalInputsForRun(runDir: string): Record<string, string> {
   for (const [key, relativePath] of Object.entries(CODEGRAPH_OPTIONAL_INPUTS)) {
     if (readSavedArtifact(runDir, relativePath) !== null) {
       optionalInputs[key] = relativePath;
+    }
+  }
+  for (const [key, legacyRelativePath] of Object.entries(LEGACY_CODEGRAPH_REPO_ATLAS_OPTIONAL_INPUTS)) {
+    if (optionalInputs[key] === undefined && readSavedArtifact(runDir, legacyRelativePath) !== null) {
+      optionalInputs[key] = legacyRelativePath;
     }
   }
   return optionalInputs;
