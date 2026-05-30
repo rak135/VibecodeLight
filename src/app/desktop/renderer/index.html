@@ -104,13 +104,12 @@
                     <button class="cg-action-btn" id="cg-btn-reindex" title="Full re-index (codegraph index --force) — may take longer" style="display:none">Re-index</button>
                   </span>
                   <span id="cg-action-msg" style="margin-left:6px;font-size:11px;color:var(--muted,#888);display:none"></span>
-                  <label class="cg-action-btn" for="composer-cg-mode" style="margin-left:6px;display:inline-flex;gap:4px;align-items:center;">
-                    Use CodeGraph in context
-                    <select id="composer-cg-mode" title="Use existing initialized CodeGraph index during context build" disabled>
-                      <option value="detect-only" selected>Detect only</option>
-                      <option value="use-existing">Use existing index</option>
-                    </select>
-                  </label>
+                  <button id="codegraph-toggle" class="toggle" type="button" role="switch" aria-checked="false"
+                    title="CodeGraph: when ON, uses existing CodeGraph index during context build (use-existing mode). OFF = detect-only."
+                    style="margin-left:6px;display:inline-flex;align-items:center;text-transform:none;">
+                    <span class="sw"></span>
+                    CodeGraph
+                  </button>
                   <span class="ov-step">
                     <span id="ov-step-label" style="margin-right:4px">step 01 · compose</span>
                     <span class="pip on" data-pip="0"></span>
@@ -341,7 +340,7 @@
       const composerFlashModel = $('composer-flash-model');
       const composerLiveControls = $('composer-live-controls');
       const composerFlashKey = $('composer-flash-key');
-      const composerCgMode = $('composer-cg-mode');
+      const codegraphToggle = $('codegraph-toggle');
       const composerModeRadios = overlay.querySelectorAll('input[name="composer-flash-mode"]');
 
       const cols = 120;
@@ -407,6 +406,40 @@
       function autoApproveEnabled() {
         return autoApprove.classList.contains('on');
       }
+
+      function setCodeGraphToggleState(on) {
+        if (!codegraphToggle) return;
+        codegraphToggle.classList.toggle('on', Boolean(on));
+        codegraphToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+
+      function restoreStoredCodeGraphToggleState() {
+        if (!codegraphToggle) return;
+        setCodeGraphToggleState(localStorage.getItem('vibecode.codegraph.on') === '1');
+      }
+
+      function syncCodeGraphToggleAvailability() {
+        if (!codegraphToggle) return;
+        const dot = $('composer-cg-dot');
+        const unavailable = !dot || dot.classList.contains('muted');
+        codegraphToggle.disabled = unavailable;
+        if (unavailable) {
+          setCodeGraphToggleState(false);
+          codegraphToggle.title = 'CodeGraph is optional and unavailable for this context build.';
+          return;
+        }
+        restoreStoredCodeGraphToggleState();
+        codegraphToggle.title = 'CodeGraph: when ON, uses existing CodeGraph index during context build (use-existing mode). OFF = detect-only.';
+      }
+
+      function getCodeGraphMode() {
+        return codegraphToggle && !codegraphToggle.disabled && codegraphToggle.classList.contains('on')
+          ? 'use-existing'
+          : 'detect-only';
+      }
+
+      restoreStoredCodeGraphToggleState();
+      syncCodeGraphToggleAvailability();
 
       function refreshSendButton() {
         const ready = terminalReady();
@@ -716,6 +749,7 @@
           if (dot) dot.className = 'cg-dot muted';
           if (text) text.textContent = 'CodeGraph: unknown';
           if (chip) chip.title = 'Optional CodeGraph detection — run a scan first. Context use defaults to detect-only.';
+          syncCodeGraphToggleAvailability();
           return;
         }
         if (dot) dot.className = codeGraphDotClass(cg.state);
@@ -733,6 +767,7 @@
           }
           chip.title = bits.length ? bits.join(' · ') : 'Optional CodeGraph detection (detect-only).';
         }
+        syncCodeGraphToggleAvailability();
       }
 
       // Populate the chip on composer open from the latest run's core-derived status
@@ -775,14 +810,9 @@
         const btnInit = $('cg-btn-init');
         const btnSync = $('cg-btn-sync');
         const btnReindex = $('cg-btn-reindex');
-        if (composerCgMode) {
-          composerCgMode.disabled = state !== 'ready';
-          composerCgMode.title = state === 'ready'
-            ? 'Use an existing initialized CodeGraph index during this context build.'
-            : state === 'installed-not-initialized'
-              ? 'Initialize CodeGraph before using it for context.'
-              : 'CodeGraph is optional and unavailable for this context build.';
-          if (state !== 'ready') composerCgMode.value = 'detect-only';
+        syncCodeGraphToggleAvailability();
+        if (codegraphToggle && !codegraphToggle.disabled && state === 'installed-not-initialized') {
+          codegraphToggle.title = 'CodeGraph is installed but not initialized. ON requests use-existing mode; initialize CodeGraph to use an index.';
         }
         // Always show Refresh once we have a state (or null = unknown)
         if (btnRefresh) btnRefresh.style.display = 'inline-block';
@@ -897,6 +927,13 @@
         autoApprove.setAttribute('aria-checked', on ? 'true' : 'false');
         if (activePanel === 'session') renderPanel('session');
       });
+      if (codegraphToggle) {
+        codegraphToggle.addEventListener('click', () => {
+          const on = codegraphToggle.classList.toggle('on');
+          codegraphToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+          localStorage.setItem('vibecode.codegraph.on', on ? '1' : '0');
+        });
+      }
       finalHead.addEventListener('click', () => finalWrap.classList.toggle('open'));
 
       window.addEventListener('keydown', (event) => {
@@ -1175,7 +1212,7 @@
             provider: composerFlashProvider.value,
             model: composerFlashModel.value,
             providerList: composerProviderList,
-            codegraphMode: currentCodeGraphMode(),
+            codegraphMode: getCodeGraphMode(),
           });
           if (outcome.blocked) {
             renderErrorSummary(outcome.diagnostic);
@@ -1339,12 +1376,6 @@
       function currentComposerMode() {
         const checked = overlay.querySelector('input[name="composer-flash-mode"]:checked');
         return checked && checked.value === 'live' ? 'live' : 'mock';
-      }
-
-      function currentCodeGraphMode() {
-        return composerCgMode && !composerCgMode.disabled && composerCgMode.value === 'use-existing'
-          ? 'use-existing'
-          : 'detect-only';
       }
 
       function updateComposerKeyStatus() {

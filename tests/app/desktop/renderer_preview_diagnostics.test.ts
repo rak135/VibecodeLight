@@ -39,8 +39,9 @@ describe('desktop renderer preview diagnostics', () => {
     expect(html).toContain("['codegraph used', codeGraphUsedSummaryValue(result.codegraph)]");
     expect(html).toContain('codeGraphRepoAtlasSummaryValue');
     expect(html).toContain("['repo atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)]");
-    expect(html).toContain('id="composer-cg-mode"');
-    expect(html).toContain('Use CodeGraph in context');
+    expect(html).toContain('id="codegraph-toggle"');
+    expect(html).toContain('role="switch"');
+    expect(html).toContain('CodeGraph');
   });
 
   test('binds CodeGraph action buttons once so explicit clicks do not multiply across composer reopens', () => {
