@@ -57,6 +57,18 @@
       return mode === 'use-existing' ? 'use-existing' : 'detect-only';
     }
 
+    var TASK_NORMALIZER_STORAGE_KEY = 'vibelight.taskNormalizerEnabled';
+
+    function readTaskNormalizerEnabled(storage) {
+      if (!storage || typeof storage.getItem !== 'function') return false;
+      return storage.getItem(TASK_NORMALIZER_STORAGE_KEY) === '1';
+    }
+
+    function writeTaskNormalizerEnabled(storage, enabled) {
+      if (!storage || typeof storage.setItem !== 'function') return;
+      storage.setItem(TASK_NORMALIZER_STORAGE_KEY, enabled ? '1' : '0');
+    }
+
     // The header pill reflects the flash mode the next preview will use. It
     // defaults to Mock so the GUI never implies a surprise live API call; only
     // when the user explicitly selects Live does it surface the resolved
@@ -183,8 +195,11 @@
       var composer = opts.composer;
       var mode = normalizeMode(opts.mode);
       var codegraphMode = normalizeCodeGraphMode(opts.codegraphMode);
+      var taskNormalizerEnabled = opts.taskNormalizerEnabled === true;
       if (mode === 'mock') {
-        var mockResult = await composer.generatePreview(opts.task, codegraphMode);
+        var mockResult = taskNormalizerEnabled
+          ? await composer.generatePreview(opts.task, codegraphMode, true)
+          : await composer.generatePreview(opts.task, codegraphMode);
         return { mode: 'mock', flashMode: 'mock', codegraphMode: codegraphMode, blocked: false, result: mockResult };
       }
 
@@ -215,7 +230,9 @@
         };
       }
 
-      var liveResult = await composer.generatePreviewLive(opts.task, opts.provider, opts.model, codegraphMode);
+      var liveResult = taskNormalizerEnabled
+        ? await composer.generatePreviewLive(opts.task, opts.provider, opts.model, codegraphMode, true)
+        : await composer.generatePreviewLive(opts.task, opts.provider, opts.model, codegraphMode);
       return { mode: 'live', flashMode: 'live', codegraphMode: codegraphMode, blocked: false, result: liveResult };
     }
 
@@ -339,6 +356,8 @@
       buildComposerSelection: buildComposerSelection,
       composerModeState: composerModeState,
       composerKeyStatus: composerKeyStatus,
+      readTaskNormalizerEnabled: readTaskNormalizerEnabled,
+      writeTaskNormalizerEnabled: writeTaskNormalizerEnabled,
       runComposerPreview: runComposerPreview,
       modelsForProvider: modelsForProvider,
       safeDiagnostic: safeDiagnostic,

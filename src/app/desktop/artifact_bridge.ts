@@ -22,6 +22,8 @@ const ALLOWED_RUN_ARTIFACTS = new Set([
   'flash/provider_error.json',
   'output/context_pack.md',
   'output/final_prompt.md',
+  'task_intent.json',
+  'task_intent.md',
   'config_resolution.json',
   'flash/flash_output_meta.json',
   'scan/codegraph_usage.json',

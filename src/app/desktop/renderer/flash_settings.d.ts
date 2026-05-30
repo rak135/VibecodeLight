@@ -52,8 +52,8 @@ export interface ComposerKeyStatus {
 
 export interface ComposerPreviewOptions {
   composer: {
-    generatePreview(task: string, codegraphMode?: CodeGraphContextMode): Promise<unknown>;
-    generatePreviewLive(task: string, provider?: string, model?: string, codegraphMode?: CodeGraphContextMode): Promise<unknown>;
+    generatePreview(task: string, codegraphMode?: CodeGraphContextMode, taskNormalizerEnabled?: boolean): Promise<unknown>;
+    generatePreviewLive(task: string, provider?: string, model?: string, codegraphMode?: CodeGraphContextMode, taskNormalizerEnabled?: boolean): Promise<unknown>;
   };
   mode: FlashMode | string | undefined;
   task: string;
@@ -61,6 +61,7 @@ export interface ComposerPreviewOptions {
   model: string;
   providerList: ProviderListItem[];
   codegraphMode?: CodeGraphContextMode;
+  taskNormalizerEnabled?: boolean;
 }
 
 export interface ComposerPreviewOutcome {
@@ -103,6 +104,8 @@ export interface FlashSettingsModule {
   buildComposerSelection(resolution: unknown): ComposerSelection;
   composerModeState(mode: FlashMode | string | undefined): ComposerModeState;
   composerKeyStatus(providerList: ProviderListItem[], providerId: string): ComposerKeyStatus;
+  readTaskNormalizerEnabled(storage: { getItem(key: string): string | null | undefined }): boolean;
+  writeTaskNormalizerEnabled(storage: { setItem(key: string, value: string): void }, enabled: boolean): void;
   runComposerPreview(opts: ComposerPreviewOptions): Promise<ComposerPreviewOutcome>;
   modelsForProvider(providers: unknown, providerId: string): ProviderModelView[];
   safeDiagnostic(errLike: unknown): string;

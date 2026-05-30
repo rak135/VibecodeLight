@@ -67,6 +67,8 @@ import {
   type TerminalSendWriter,
 } from '../../core/terminal/index.js';
 import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
+import { runTaskNormalizer, writeTaskIntentArtifacts } from '../../adapters/task_normalizer/index.js';
+import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 
 export const BAD_PROVIDER_RESPONSE_TIP = 'Tip: This indicates an API endpoint, auth, model, or provider configuration error. Check pnpm vibecode config show for your current provider configuration.';
 
@@ -120,6 +122,7 @@ export interface PromptCommandOptions {
   flashProvider?: string;
   flashModel?: string;
   codegraphMode?: CodeGraphContextMode;
+  taskNormalizerEnabled?: boolean;
   json?: boolean;
   stdout?: TextWriter;
   stderr?: TextWriter;
@@ -157,6 +160,7 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
     flashProvider: options.flashProvider,
     flashModel: options.flashModel,
     codegraphMode: options.codegraphMode,
+    taskNormalizerEnabled: options.taskNormalizerEnabled === true,
     adapter: options.adapter,
     onProgress: options.json ? undefined : (event) => writePromptProgressEvent(event, stderr),
   });
@@ -238,6 +242,10 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
         task_slice_path: result.taskSlicePath,
         relevance_selection_path: result.relevanceSelectionPath,
         flash_input_budget_path: result.flashInputBudgetPath,
+        taskNormalizerEnabled: result.taskNormalizerEnabled ?? false,
+        taskNormalizerOk: result.taskNormalizerOk ?? false,
+        taskNormalizerLanguage: result.taskNormalizerLanguage ?? 'unknown',
+        taskIntentPath: result.taskIntentPath,
         estimated_tokens: result.estimatedTokens,
         hard_max_tokens: result.hardMaxTokens,
         provider_called: result.providerCalled,
@@ -461,12 +469,17 @@ function buildCodeGraphActionFailure(action: 'status' | 'init' | 'sync' | 'reind
 }
 
 function normalizeRunArtifactSelector(selector: string): string {
-  return selector.replace(/\\/g, '/') === 'codegraph' ? 'scan/codegraph_usage.json' : selector.replace(/\\/g, '/');
+  const normalized = selector.replace(/\\/g, '/');
+  if (normalized === 'codegraph') return 'scan/codegraph_usage.json';
+  if (normalized === 'task-intent') return 'task_intent.json';
+  return normalized;
 }
 
 const RUN_SHOW_ARTIFACTS = new Set([
   'user_prompt.md',
   'run_manifest.json',
+  'task_intent.json',
+  'task_intent.md',
   'scanner_config.json',
   'flash/flash_input.md',
   'flash/flash_output.md',
@@ -509,6 +522,38 @@ function resolveRunArtifactPath(runDir: string, selector: string): { relativePat
     });
   }
   return { relativePath, absolutePath: artifactPath };
+}
+
+function readTaskIntentSummary(runDir: string): TaskIntent | undefined {
+  const taskIntentPath = path.join(runDir, 'task_intent.json');
+  if (!fs.existsSync(taskIntentPath)) return undefined;
+  try {
+    return JSON.parse(fs.readFileSync(taskIntentPath, 'utf8')) as TaskIntent;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeTaskIntentSummary(intent: TaskIntent | undefined): void {
+  console.log('Task Normalizer:');
+  if (!intent) {
+    console.log('  status: not present');
+    return;
+  }
+  console.log(`  enabled: ${intent.enabled ? 'yes' : 'no'}`);
+  console.log(`  ok: ${intent.ok ? 'yes' : 'no'}`);
+  console.log(`  language: ${intent.original_language}`);
+  if (intent.enabled && intent.ok) {
+    console.log(`  normalized English task: ${intent.normalized_english_task || '—'}`);
+    console.log(`  search hints: ${intent.search_hints.length > 0 ? intent.search_hints.join(', ') : '—'}`);
+  }
+  if (intent.warnings.length > 0) {
+    console.log('  warnings:');
+    for (const warning of intent.warnings) console.log(`    - ${warning}`);
+  }
+  console.log('  artifacts:');
+  console.log('    - task_intent.json');
+  console.log('    - task_intent.md');
 }
 
 function codeGraphRelativeArtifactLines(info: ReturnType<typeof getRunInfo>): string[] {
@@ -601,6 +646,7 @@ export async function runContextBuild(opts: {
   repoRoot: string;
   jsonOutput?: boolean;
   codegraphMode?: CodeGraphContextMode;
+  taskNormalizerEnabled?: boolean;
   /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
   codegraphRunner?: CodeGraphContextRunner;
   /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
@@ -608,7 +654,8 @@ export async function runContextBuild(opts: {
   /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
   codegraphCommand?: string;
 }): Promise<ContextBuildResult> {
-  const result = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
+  const taskIntent = await runTaskNormalizer({ task: opts.task, enabled: opts.taskNormalizerEnabled === true });
+  const result = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot, taskIntent });
 
   if (result.status === 'error') {
     return {
@@ -627,6 +674,7 @@ export async function runContextBuild(opts: {
     };
   }
 
+  const taskIntentArtifacts = writeTaskIntentArtifacts(result.runDir, taskIntent);
   const flashDir = path.join(result.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
 
@@ -685,6 +733,8 @@ export async function runContextBuild(opts: {
 
     const artifactPaths = [
       path.join(result.runDir, 'user_prompt.md'),
+      taskIntentArtifacts.jsonPath,
+      taskIntentArtifacts.mdPath,
       result.runManifestPath,
       path.join(result.runDir, 'scanner_config.json'),
       path.join(result.runDir, 'skills', 'skills_catalog.json'),
@@ -1703,15 +1753,23 @@ export function createCli(): Command {
     .description('create a run, scan the repo, and build flash input artifacts')
     .option('--repo <path>', 'repository root (default: cwd)', process.cwd())
     .option('--codegraph-mode <mode>', 'CodeGraph context mode: detect-only | use-existing')
+    .option('--task-normalizer', 'Enable Task Normalizer')
+    .option('--no-task-normalizer', 'Disable Task Normalizer (default)', false)
     .option('--json', 'output canonical JSON envelope')
-    .action(async (task: string, options: { repo?: string; codegraphMode?: string; json?: boolean }) => {
+    .action(async (task: string, options: { repo?: string; codegraphMode?: string; taskNormalizer?: boolean; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo ?? process.cwd());
       const parsedMode = parseCodeGraphModeOption(options.codegraphMode);
       if (parsedMode.ok === false) {
         emitCliStructuredError(parsedMode.error, { json: options.json, prefix: 'context-build failed' });
         return;
       }
-      const result = await runContextBuild({ task, repoRoot, jsonOutput: options.json, codegraphMode: parsedMode.mode });
+      const result = await runContextBuild({
+        task,
+        repoRoot,
+        jsonOutput: options.json,
+        codegraphMode: parsedMode.mode,
+        taskNormalizerEnabled: options.taskNormalizer === true,
+      });
 
       if (result.status === 'error') {
         if (options.json) {
@@ -1950,12 +2008,13 @@ export function createCli(): Command {
       }
 
       const info = getRunInfo(resolvedRun.runDir);
+      const taskIntent = readTaskIntentSummary(resolvedRun.runDir);
       const artifacts = Object.values(info.artifacts).filter((value): value is string => typeof value === 'string');
 
       if (options.json) {
         console.log(JSON.stringify({
           ok: true,
-          data: info,
+          data: taskIntent ? { ...info, task_intent: taskIntent } : info,
           artifacts,
           warnings: [],
         }));
@@ -1969,11 +2028,14 @@ export function createCli(): Command {
       console.log(`runDir: ${info.runDir}`);
       console.log(`final_prompt: ${info.artifacts.final_prompt ?? 'not found'}`);
       console.log(`send_metadata: ${info.artifacts.send_metadata ?? 'not present'}`);
+      writeTaskIntentSummary(taskIntent);
       writeCodeGraphSummary(info);
       console.log('artifacts:');
       const artifactLines: Array<[string, string | undefined]> = [
         ['user_prompt.md', info.artifacts.user_prompt],
         ['run_manifest.json', info.artifacts.run_manifest],
+        ['task_intent.json', taskIntent ? path.join(resolvedRun.runDir, 'task_intent.json') : undefined],
+        ['task_intent.md', taskIntent ? path.join(resolvedRun.runDir, 'task_intent.md') : undefined],
         ['scanner_config.json', info.artifacts.scanner_config],
         ['flash/flash_input.md', info.artifacts.flash_input],
         ['flash/flash_output.md', info.artifacts.flash_output],
@@ -2005,9 +2067,11 @@ export function createCli(): Command {
     .option('--codegraph', 'Use existing CodeGraph index during context build (use-existing mode)')
     .option('--no-codegraph', 'Skip CodeGraph context injection (detect-only mode)')
     .option('--codegraph-mode <mode>', 'Explicit CodeGraph mode: detect-only | use-existing')
+    .option('--task-normalizer', 'Enable Task Normalizer (translate/expand task into English hints before context selection)')
+    .option('--no-task-normalizer', 'Disable Task Normalizer (default)', false)
     .option('--auto-approve', 'Send the rendered final_prompt.md into a terminal without a separate approval step')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; codegraph?: boolean; codegraphMode?: string; autoApprove?: boolean; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; codegraph?: boolean; codegraphMode?: string; taskNormalizer?: boolean; autoApprove?: boolean; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -2038,6 +2102,7 @@ export function createCli(): Command {
         flashProvider: options.flashProvider,
         flashModel: options.flashModel,
         codegraphMode: resolvedCodegraph.mode,
+        taskNormalizerEnabled: options.taskNormalizer === true,
         autoApprove: options.autoApprove === true,
         json: options.json,
       });

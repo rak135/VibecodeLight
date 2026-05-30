@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
+import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 import { runPromptPipeline } from '../../core/prompting/pipeline.js';
 import type { PipelineEvent, PipelineProgressCallback } from '../../core/prompting/pipeline_events.js';
 import { readRunContextSummary, RunContextSummary } from '../../core/context/run_context_summary.js';
@@ -15,6 +16,7 @@ export interface PromptPreviewRequest {
   flashProvider?: string;
   flashModel?: string;
   codegraphMode?: CodeGraphContextMode;
+  taskNormalizerEnabled?: boolean;
   onProgress?: PipelineProgressCallback;
 }
 
@@ -51,6 +53,11 @@ export interface PromptPreviewSuccess {
   flashOutputContent?: string;
   providerErrorPath?: string;
   context: RunContextSummary;
+  taskIntent?: TaskIntent;
+  taskNormalizerEnabled?: boolean;
+  taskNormalizerOk?: boolean;
+  taskNormalizerLanguage?: string;
+  taskIntentPath?: string;
   /**
    * Optional CodeGraph detect-only status for this run, derived in core from
    * scan/external_tools.json. Informational only: CodeGraph is not used to build
@@ -81,6 +88,15 @@ function readTextFilePrefix(filePath: string, maxBytes: number): string | undefi
     return buffer.subarray(0, bytesRead).toString('utf8');
   } finally {
     fs.closeSync(fd);
+  }
+}
+
+function readTaskIntent(taskIntentPath: string | undefined): TaskIntent | undefined {
+  if (!taskIntentPath || !fs.existsSync(taskIntentPath)) return undefined;
+  try {
+    return JSON.parse(fs.readFileSync(taskIntentPath, 'utf8')) as TaskIntent;
+  } catch {
+    return undefined;
   }
 }
 
@@ -117,6 +133,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     flashProvider: request.flashProvider,
     flashModel: request.flashModel,
     codegraphMode: request.codegraphMode,
+    taskNormalizerEnabled: request.taskNormalizerEnabled === true,
     onProgress: request.onProgress,
   });
   if (pipelineResult.ok === false) {
@@ -157,6 +174,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
   const providerErrorPath = fs.existsSync(path.join(pipelineResult.runDir, 'flash', 'provider_error.json'))
     ? path.join(pipelineResult.runDir, 'flash', 'provider_error.json')
     : undefined;
+  const taskIntent = readTaskIntent(pipelineResult.taskIntentPath);
   let budgetStatus: 'ok' | 'FLASH_INPUT_BUDGET_EXCEEDED' | undefined;
   if (pipelineResult.flashInputBudgetPath && fs.existsSync(pipelineResult.flashInputBudgetPath)) {
     try {
@@ -190,6 +208,11 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     ...(flashOutputContent !== undefined ? { flashOutputContent } : {}),
     ...(providerErrorPath ? { providerErrorPath } : {}),
     context: readRunContextSummary(pipelineResult.runDir),
+    ...(taskIntent ? { taskIntent } : {}),
+    taskNormalizerEnabled: pipelineResult.taskNormalizerEnabled,
+    taskNormalizerOk: pipelineResult.taskNormalizerOk,
+    taskNormalizerLanguage: pipelineResult.taskNormalizerLanguage,
+    ...(pipelineResult.taskIntentPath ? { taskIntentPath: pipelineResult.taskIntentPath } : {}),
     codegraph: readRunCodeGraphStatus(pipelineResult.runDir),
     terminalSend: 'not_sent',
     flash_mode: request.flashMode ?? 'mock',

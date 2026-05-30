@@ -21,6 +21,11 @@ export interface ComposerPreviewIpcResult {
   providerErrorPath?: string;
   artifacts?: string[];
   context?: ContextSummaryIpc;
+  taskIntent?: unknown;
+  taskNormalizerEnabled?: boolean;
+  taskNormalizerOk?: boolean;
+  taskNormalizerLanguage?: string;
+  taskIntentPath?: string;
   /** Optional CodeGraph detect-only status for this run (informational only). */
   codegraph?: CodeGraphStatusIpc;
   terminalSend?: 'not_sent';
@@ -256,8 +261,8 @@ export interface VibecodePreloadApi {
     }>;
   };
   composer: {
-    generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc): Promise<ComposerPreviewIpcResult>;
-    generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc): Promise<ComposerPreviewIpcResult>;
+    generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean): Promise<ComposerPreviewIpcResult>;
+    generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean): Promise<ComposerPreviewIpcResult>;
     sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean): Promise<ComposerSendIpcResult>;
     onProgress(callback: (event: PipelineProgressEvent) => void): () => void;
   };
@@ -324,11 +329,15 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
     },
     composer: {
-      generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc) {
-        return ipcRenderer.invoke('composer:generatePreview', task, 'mock', undefined, undefined, codegraphMode) as Promise<ComposerPreviewIpcResult>;
+      generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean) {
+        return taskNormalizerEnabled === true
+          ? ipcRenderer.invoke('composer:generatePreview', task, 'mock', undefined, undefined, codegraphMode, true) as Promise<ComposerPreviewIpcResult>
+          : ipcRenderer.invoke('composer:generatePreview', task, 'mock', undefined, undefined, codegraphMode) as Promise<ComposerPreviewIpcResult>;
       },
-      generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc) {
-        return ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel, codegraphMode) as Promise<ComposerPreviewIpcResult>;
+      generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean) {
+        return taskNormalizerEnabled === true
+          ? ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel, codegraphMode, true) as Promise<ComposerPreviewIpcResult>
+          : ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel, codegraphMode) as Promise<ComposerPreviewIpcResult>;
       },
       sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean) {
         return ipcRenderer.invoke('composer:sendPreview', runId, targetSessionId, Boolean(autoApprove)) as Promise<ComposerSendIpcResult>;

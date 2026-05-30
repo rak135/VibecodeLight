@@ -110,6 +110,15 @@
                     <span class="sw"></span>
                     CodeGraph
                   </button>
+                  <button id="task-normalizer-toggle" class="toggle" type="button" role="switch" aria-checked="false"
+                    title="Translates and expands your task into English search hints before context selection. Does not select files."
+                    style="margin-left:6px;display:inline-flex;align-items:center;text-transform:none;">
+                    <span class="sw"></span>
+                    Task Normalizer
+                  </button>
+                  <span class="hint" id="task-normalizer-helper" style="margin-left:4px;font-size:11px;color:var(--muted,#888);">
+                    Translates and expands your task into English search hints before context selection. Does not select files.
+                  </span>
                   <span class="ov-step">
                     <span id="ov-step-label" style="margin-right:4px">step 01 · compose</span>
                     <span class="pip on" data-pip="0"></span>
@@ -341,6 +350,7 @@
       const composerLiveControls = $('composer-live-controls');
       const composerFlashKey = $('composer-flash-key');
       const codegraphToggle = $('codegraph-toggle');
+      const taskNormalizerToggle = $('task-normalizer-toggle');
       const composerModeRadios = overlay.querySelectorAll('input[name="composer-flash-mode"]');
 
       const cols = 120;
@@ -438,8 +448,28 @@
           : 'detect-only';
       }
 
+      function setTaskNormalizerToggleState(on) {
+        if (!taskNormalizerToggle) return;
+        taskNormalizerToggle.classList.toggle('on', Boolean(on));
+        taskNormalizerToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+
+      function restoreStoredTaskNormalizerToggleState() {
+        if (!taskNormalizerToggle) return;
+        if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.readTaskNormalizerEnabled) {
+          setTaskNormalizerToggleState(window.VibecodeFlashSettings.readTaskNormalizerEnabled(localStorage));
+          return;
+        }
+        setTaskNormalizerToggleState(localStorage.getItem('vibelight.taskNormalizerEnabled') === '1');
+      }
+
+      function taskNormalizerEnabled() {
+        return Boolean(taskNormalizerToggle && taskNormalizerToggle.classList.contains('on'));
+      }
+
       restoreStoredCodeGraphToggleState();
       syncCodeGraphToggleAvailability();
+      restoreStoredTaskNormalizerToggleState();
 
       function refreshSendButton() {
         const ready = terminalReady();
@@ -936,6 +966,17 @@
           localStorage.setItem('vibecode.codegraph.on', on ? '1' : '0');
         });
       }
+      if (taskNormalizerToggle) {
+        taskNormalizerToggle.addEventListener('click', () => {
+          const on = taskNormalizerToggle.classList.toggle('on');
+          taskNormalizerToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+          if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.writeTaskNormalizerEnabled) {
+            window.VibecodeFlashSettings.writeTaskNormalizerEnabled(localStorage, on);
+          } else {
+            localStorage.setItem('vibelight.taskNormalizerEnabled', on ? '1' : '0');
+          }
+        });
+      }
       finalHead.addEventListener('click', () => finalWrap.classList.toggle('open'));
 
       window.addEventListener('keydown', (event) => {
@@ -1142,6 +1183,46 @@
         return first + ' (+' + (warnings.length - 1) + ' more)';
       }
 
+      function taskIntentFromResult(result) {
+        return (result && result.taskIntent) || null;
+      }
+
+      function taskIntentEnabledValue(result) {
+        const intent = taskIntentFromResult(result);
+        if (intent && typeof intent.enabled === 'boolean') return intent.enabled ? 'yes' : 'no';
+        if (typeof result.taskNormalizerEnabled === 'boolean') return result.taskNormalizerEnabled ? 'yes' : 'no';
+        return 'no';
+      }
+
+      function taskIntentOkValue(result) {
+        const intent = taskIntentFromResult(result);
+        if (intent && typeof intent.ok === 'boolean') return intent.ok ? 'yes' : 'no';
+        if (typeof result.taskNormalizerOk === 'boolean') return result.taskNormalizerOk ? 'yes' : 'no';
+        return '—';
+      }
+
+      function taskIntentLanguageValue(result) {
+        const intent = taskIntentFromResult(result);
+        return (intent && intent.original_language) || result.taskNormalizerLanguage || 'unknown';
+      }
+
+      function taskIntentNormalizedTaskValue(result) {
+        const intent = taskIntentFromResult(result);
+        return intent && intent.normalized_english_task ? intent.normalized_english_task : '—';
+      }
+
+      function taskIntentHintsValue(result) {
+        const intent = taskIntentFromResult(result);
+        const hints = intent && Array.isArray(intent.search_hints) ? intent.search_hints : [];
+        return hints.length > 0 ? hints.slice(0, 8).join(', ') : '—';
+      }
+
+      function taskIntentWarningsValue(result) {
+        const intent = taskIntentFromResult(result);
+        const warnings = intent && Array.isArray(intent.warnings) ? intent.warnings : [];
+        return warnings.length > 0 ? warnings.slice(0, 3).join(' · ') : '';
+      }
+
       function renderSummary(result) {
         const rows = [
           ['run_id', result.run_id || '—'],
@@ -1153,11 +1234,21 @@
           ['flash_input.md', result.flashInputPath || '—'],
           ['flash repo atlas', result.repoAtlasPath || '—'],
           ['task_slice.md', result.taskSlicePath || '—'],
+          ['task normalizer enabled', taskIntentEnabledValue(result)],
+          ['task normalizer ok', taskIntentOkValue(result)],
+          ['task language', taskIntentLanguageValue(result)],
+          ['normalized English task', taskIntentNormalizedTaskValue(result)],
+          ['search hints', taskIntentHintsValue(result)],
+          ['task_intent.json', result.taskIntentPath || '—'],
           ['flash_input_budget.json', result.flashInputBudgetPath || '—'],
           ['codegraph', codeGraphSummaryValue(result.codegraph)],
           ['codegraph used', codeGraphUsedSummaryValue(result.codegraph)],
           ['CodeGraph-derived Repo Atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)],
         ];
+        const taskIntentWarningValue = taskIntentWarningsValue(result);
+        if (taskIntentWarningValue) {
+          rows.push(['task normalizer warning', taskIntentWarningValue]);
+        }
         const warningValue = codeGraphWarningSummaryValue(result.codegraph);
         if (warningValue) {
           rows.push(['codegraph warning', warningValue]);
@@ -1217,6 +1308,7 @@
             model: composerFlashModel.value,
             providerList: composerProviderList,
             codegraphMode: getCodeGraphMode(),
+            taskNormalizerEnabled: taskNormalizerEnabled(),
           });
           if (outcome.blocked) {
             renderErrorSummary(outcome.diagnostic);

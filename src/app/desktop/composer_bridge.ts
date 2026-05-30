@@ -61,6 +61,7 @@ export interface ComposerBridgeOptions {
     flashProvider?: string;
     flashModel?: string;
     codegraphMode?: CodeGraphContextMode;
+    taskNormalizerEnabled?: boolean;
     onProgress?: (event: PipelineProgressEvent) => void;
   }) => Promise<PromptPreviewResult>;
   sendService?: (request: {
@@ -96,6 +97,7 @@ export function registerDesktopComposerIpcHandlers(
     const flashProvider = typeof args[2] === 'string' ? args[2] : undefined;
     const flashModel = typeof args[3] === 'string' ? args[3] : undefined;
     const codegraphMode: CodeGraphContextMode = args[4] === 'use-existing' ? 'use-existing' : 'detect-only';
+    const taskNormalizerEnabled = args[5] === true;
     const repoRoot = options.getRepoPath();
     const sender = (event as IpcEventWithSender | undefined)?.sender;
     return invokePreview({
@@ -105,6 +107,7 @@ export function registerDesktopComposerIpcHandlers(
       flashProvider,
       flashModel,
       codegraphMode,
+      taskNormalizerEnabled,
       onProgress: (pipelineEvent) => {
         sender?.send('composer:progress', toSafePipelineProgressEvent(pipelineEvent));
       },
