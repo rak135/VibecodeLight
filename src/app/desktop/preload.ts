@@ -193,6 +193,16 @@ export interface RunInfoIpc {
     selected_skills?: string;
     final_prompt?: string;
     send_metadata?: string;
+    codegraph_usage?: string;
+    codegraph_context?: string;
+    /** Canonical CodeGraph-derived Repo Atlas markdown. */
+    codegraph_repo_atlas?: string;
+    /** Canonical CodeGraph-derived Repo Atlas JSON. */
+    codegraph_repo_atlas_json?: string;
+    /** Legacy compat copy of the CodeGraph-derived Repo Atlas markdown. */
+    repo_atlas?: string;
+    /** Legacy compat copy of the CodeGraph-derived Repo Atlas JSON. */
+    repo_atlas_json?: string;
   };
   has_final_prompt: boolean;
   has_send_metadata: boolean;

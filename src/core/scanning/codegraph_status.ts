@@ -4,13 +4,16 @@ import path from 'path';
 import { CodeGraphToolEntry, EXTERNAL_TOOLS_FILENAME } from './external_tools.js';
 
 /**
- * Display-ready, derived view of optional CodeGraph detection for a run.
+ * Display-ready, derived view of optional CodeGraph detection and usage for a run.
  *
- * Phase 1.5 surfaces the Phase 1 detect-only result in the GUI/run summary. It
- * is strictly informational: it reads the existing `scan/external_tools.json`
- * artifact and never executes CodeGraph (no init/index/sync/watch, no MCP, no
- * context enrichment). Derivation lives here (core) so the renderer and CLI both
- * read the same computed status instead of re-parsing the artifact.
+ * Reads `scan/external_tools.json` for detection state and the optional
+ * `scan/codegraph_usage.json` for use-existing usage state. Derivation lives in
+ * core so the CLI and renderer share one computed status object.
+ *
+ * This module never executes CodeGraph (no init/index/sync/watch). Use-existing
+ * is opt-in per build: the CLI `--codegraph` / `--codegraph-mode use-existing`
+ * flags and the desktop CodeGraph toggle write the usage artifact this reader
+ * consumes. Default behavior remains detect-only.
  */
 
 export type CodeGraphStatusState =
@@ -57,8 +60,8 @@ export interface CodeGraphStatus {
 }
 
 /**
- * Informational note shown alongside the status. CodeGraph usage for context is
- * a future phase; there is intentionally no enabled toggle in Phase 1.5.
+ * Default usage note when CodeGraph context was not used. Overridden by
+ * `applyUsage` when a use-existing run successfully included CodeGraph context.
  */
 export const CODEGRAPH_USAGE_NOTE = 'CodeGraph used: no — detect-only.';
 
