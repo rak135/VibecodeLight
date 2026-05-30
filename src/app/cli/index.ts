@@ -5,6 +5,18 @@ import { spawnSync } from 'child_process';
 import { Command } from 'commander';
 import YAML from 'yaml';
 
+import {
+  getCodeGraphStatus,
+  initializeCodeGraphRepo,
+  reindexCodeGraphRepo,
+  syncCodeGraphRepo,
+} from '../../adapters/codegraph/codegraph_actions.js';
+import {
+  buildCodeGraphContext,
+  writeCodeGraphContextArtifacts,
+  type CodeGraphContextMode,
+  type CodeGraphContextResult,
+} from '../../adapters/codegraph/codegraph_context.js';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
@@ -27,6 +39,7 @@ import {
   buildSkillsCatalog,
   discoverProjectSkills,
 } from '../../core/skills/catalog.js';
+import { augmentExternalToolsWithCodeGraphContext } from '../../core/scanning/external_tools.js';
 import { copyAllSkills, copySkill } from '../../core/skills/copy.js';
 import {
   buildFlashInput,
@@ -104,6 +117,7 @@ export interface PromptCommandOptions {
   live?: boolean;
   flashProvider?: string;
   flashModel?: string;
+  codegraphMode?: CodeGraphContextMode;
   json?: boolean;
   stdout?: TextWriter;
   stderr?: TextWriter;
@@ -140,6 +154,7 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
     live: options.live,
     flashProvider: options.flashProvider,
     flashModel: options.flashModel,
+    codegraphMode: options.codegraphMode,
     adapter: options.adapter,
     onProgress: options.json ? undefined : (event) => writePromptProgressEvent(event, stderr),
   });
@@ -332,6 +347,117 @@ function toErrorEnvelope(error: unknown, fallbackPath?: string): NonNullable<Fla
   };
 }
 
+interface CliStructuredError {
+  code: string;
+  message: string;
+  path: string;
+  details: string[];
+}
+
+function makeCliStructuredError(code: string, message: string, pathValue = '', details: string[] = []): CliStructuredError {
+  return { code, message, path: pathValue, details };
+}
+
+function emitCliStructuredError(error: CliStructuredError, options: { json?: boolean; prefix: string }): void {
+  if (options.json) {
+    console.log(JSON.stringify({ ok: false, error }));
+  } else {
+    console.error(`${options.prefix}: ${error.message}`);
+    if (error.path) console.error(`path: ${error.path}`);
+    for (const detail of error.details) console.error(`detail: ${detail}`);
+  }
+  process.exitCode = 1;
+}
+
+function parseCodeGraphModeOption(mode: string | undefined):
+  | { ok: true; mode?: CodeGraphContextMode }
+  | { ok: false; error: CliStructuredError } {
+  const normalized = mode?.trim();
+  if (!normalized) return { ok: true, mode: undefined };
+  if (normalized === 'detect-only' || normalized === 'use-existing') {
+    return { ok: true, mode: normalized };
+  }
+  return {
+    ok: false,
+    error: makeCliStructuredError(
+      'INVALID_CODEGRAPH_MODE',
+      `invalid --codegraph-mode: ${normalized}`,
+      '',
+      ['Expected one of: detect-only, use-existing.'],
+    ),
+  };
+}
+
+function resolvePromptCodeGraphMode(options: {
+  codegraph?: boolean;
+  codegraphMode?: string;
+}):
+  | { ok: true; mode?: CodeGraphContextMode }
+  | { ok: false; error: CliStructuredError } {
+  const parsed = parseCodeGraphModeOption(options.codegraphMode);
+  if (!parsed.ok) return parsed;
+
+  if (options.codegraph === true && parsed.mode === 'detect-only') {
+    return {
+      ok: false,
+      error: makeCliStructuredError(
+        'CONFLICTING_CODEGRAPH_FLAGS',
+        '--codegraph conflicts with --codegraph-mode detect-only. Use one CodeGraph mode selector.',
+        '',
+        ['--codegraph selects use-existing.', '--codegraph-mode detect-only disables CodeGraph context injection.'],
+      ),
+    };
+  }
+
+  if (options.codegraph === false && parsed.mode === 'use-existing') {
+    return {
+      ok: false,
+      error: makeCliStructuredError(
+        'CONFLICTING_CODEGRAPH_FLAGS',
+        '--no-codegraph conflicts with --codegraph-mode use-existing. Use one CodeGraph mode selector.',
+        '',
+        ['--no-codegraph selects detect-only.', '--codegraph-mode use-existing enables CodeGraph context injection.'],
+      ),
+    };
+  }
+
+  if (options.codegraph === true) return { ok: true, mode: 'use-existing' };
+  if (options.codegraph === false) return { ok: true, mode: 'detect-only' };
+  return { ok: true, mode: parsed.mode };
+}
+
+function codeGraphContextFallbackResult(mode: CodeGraphContextMode, error: unknown): CodeGraphContextResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    ok: true,
+    used: false,
+    mode,
+    reason: 'CODEGRAPH_CONTEXT_FAILED',
+    warnings: [`CODEGRAPH_CONTEXT_FAILED: ${message}`],
+    error: {
+      code: 'CODEGRAPH_CONTEXT_FAILED',
+      message,
+      details: [],
+    },
+  };
+}
+
+function formatCodeGraphStatusLine(status: { available: boolean; initialized: boolean; version?: string }): string {
+  if (!status.available) return 'codegraph status: not available';
+  const parts = ['codegraph status: available', status.initialized ? 'initialized' : 'not initialized'];
+  if (status.version) parts.push(status.version);
+  return parts.join(' · ');
+}
+
+function buildCodeGraphActionFailure(action: 'status' | 'init' | 'sync' | 'reindex', repoRoot: string, message: string, details: string[] = []): CliStructuredError {
+  return makeCliStructuredError(
+    `CODEGRAPH_${action.toUpperCase()}_FAILED`,
+    message,
+    repoRoot,
+    details,
+  );
+}
+
 function normalizeRunArtifactSelector(selector: string): string {
   return selector.replace(/\\/g, '/') === 'codegraph' ? 'scan/codegraph_usage.json' : selector.replace(/\\/g, '/');
 }
@@ -468,6 +594,7 @@ export async function runContextBuild(opts: {
   task: string;
   repoRoot: string;
   jsonOutput?: boolean;
+  codegraphMode?: CodeGraphContextMode;
 }): Promise<ContextBuildResult> {
   const result = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
 
@@ -490,6 +617,20 @@ export async function runContextBuild(opts: {
 
   const flashDir = path.join(result.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
+
+  const codegraphMode = opts.codegraphMode ?? 'detect-only';
+  let codegraphResult: CodeGraphContextResult = { ok: true, used: false, mode: codegraphMode, reason: 'DETECT_ONLY', warnings: [] };
+  try {
+    codegraphResult = await buildCodeGraphContext({
+      repoRoot: opts.repoRoot,
+      task: opts.task,
+      mode: codegraphMode,
+    });
+  } catch (error) {
+    codegraphResult = codeGraphContextFallbackResult(codegraphMode, error);
+  }
+  const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: result.runDir, result: codegraphResult });
+  augmentExternalToolsWithCodeGraphContext(result.scanDir, codegraphResult);
 
   try {
     const flashManifest = buildFlashInputManifest({
@@ -533,6 +674,10 @@ export async function runContextBuild(opts: {
       path.join(result.runDir, 'scanner_config.json'),
       path.join(result.runDir, 'skills', 'skills_catalog.json'),
       ...Object.values(result.artifacts),
+      codegraphArtifacts.usageArtifact,
+      ...(codegraphArtifacts.contextArtifact ? [codegraphArtifacts.contextArtifact] : []),
+      ...(codegraphArtifacts.repoAtlasArtifact ? [codegraphArtifacts.repoAtlasArtifact] : []),
+      ...(codegraphArtifacts.repoAtlasJsonArtifact ? [codegraphArtifacts.repoAtlasJsonArtifact] : []),
       flashManifestPath,
       flashInputPath,
     ];
@@ -544,7 +689,7 @@ export async function runContextBuild(opts: {
       scanDir: result.scanDir,
       flashDir,
       artifacts: [...new Set(artifactPaths)],
-      warnings: [...result.warnings, ...flashManifest.warnings],
+      warnings: [...result.warnings, ...codegraphResult.warnings, ...flashManifest.warnings],
     };
   } catch (error) {
     const diagnostic = error instanceof Error ? error.message : String(error);
@@ -1437,15 +1582,119 @@ export function createCli(): Command {
       }
     });
 
+  const codegraph = program.command('codegraph').description('CodeGraph repository operations');
+
+  codegraph
+    .command('status')
+    .description('Show CodeGraph availability and initialization status for a repository')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action(async (options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const result = await getCodeGraphStatus(repoRoot);
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            available: result.available,
+            initialized: result.initialized,
+            version: result.version,
+          },
+          artifacts: [],
+          warnings: result.warnings,
+        }));
+        return;
+      }
+      console.log(formatCodeGraphStatusLine(result));
+      for (const warning of result.warnings) console.log(`warning: ${warning}`);
+    });
+
+  const runCodeGraphAction = async (
+    action: 'init' | 'sync' | 'reindex',
+    repoRoot: string,
+    runner: () => Promise<Awaited<ReturnType<typeof initializeCodeGraphRepo>>>,
+    json?: boolean,
+  ): Promise<void> => {
+    const result = await runner();
+    if (!result.ok) {
+      emitCliStructuredError(
+        buildCodeGraphActionFailure(
+          action,
+          repoRoot,
+          result.error?.message ?? `codegraph ${action} failed`,
+          [
+            ...(result.stderrSummary ? [result.stderrSummary] : []),
+            ...(result.stdoutSummary ? [result.stdoutSummary] : []),
+            ...(result.error?.details ? [result.error.details] : []),
+          ],
+        ),
+        { json, prefix: `codegraph ${action} failed` },
+      );
+      return;
+    }
+
+    if (json) {
+      console.log(JSON.stringify({
+        ok: true,
+        data: {
+          stdout: result.stdoutSummary ?? '',
+          stderr: result.stderrSummary ?? '',
+        },
+        artifacts: [],
+        warnings: [],
+      }));
+      return;
+    }
+
+    const summary = result.stdoutSummary?.trim() || result.stderrSummary?.trim();
+    console.log(summary ? `codegraph ${action}: ok · ${summary}` : `codegraph ${action}: ok`);
+  };
+
+  codegraph
+    .command('init')
+    .description('Initialize CodeGraph for a repository')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action(async (options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      await runCodeGraphAction('init', repoRoot, () => initializeCodeGraphRepo(repoRoot), options.json);
+    });
+
+  codegraph
+    .command('sync')
+    .description('Sync an existing CodeGraph index for a repository')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action(async (options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      await runCodeGraphAction('sync', repoRoot, () => syncCodeGraphRepo(repoRoot), options.json);
+    });
+
+  codegraph
+    .command('reindex')
+    .description('Force a full CodeGraph reindex for a repository')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action(async (options: { repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      await runCodeGraphAction('reindex', repoRoot, () => reindexCodeGraphRepo(repoRoot), options.json);
+    });
+
   // context-build command
   program
     .command('context-build <task>')
     .description('create a run, scan the repo, and build flash input artifacts')
     .option('--repo <path>', 'repository root (default: cwd)', process.cwd())
+    .option('--codegraph-mode <mode>', 'CodeGraph context mode: detect-only | use-existing')
     .option('--json', 'output canonical JSON envelope')
-    .action(async (task: string, options: { repo?: string; json?: boolean }) => {
+    .action(async (task: string, options: { repo?: string; codegraphMode?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo ?? process.cwd());
-      const result = await runContextBuild({ task, repoRoot, jsonOutput: options.json });
+      const parsedMode = parseCodeGraphModeOption(options.codegraphMode);
+      if (parsedMode.ok === false) {
+        emitCliStructuredError(parsedMode.error, { json: options.json, prefix: 'context-build failed' });
+        return;
+      }
+      const result = await runContextBuild({ task, repoRoot, jsonOutput: options.json, codegraphMode: parsedMode.mode });
 
       if (result.status === 'error') {
         if (options.json) {
@@ -1734,9 +1983,12 @@ export function createCli(): Command {
     .option('--live', 'Use configured live flash provider')
     .option('--flash-provider <id>', 'Override the active flash provider id')
     .option('--flash-model <id>', 'Override the active flash model id')
+    .option('--codegraph', 'Use existing CodeGraph index during context build (use-existing mode)')
+    .option('--no-codegraph', 'Skip CodeGraph context injection (detect-only mode)')
+    .option('--codegraph-mode <mode>', 'Explicit CodeGraph mode: detect-only | use-existing')
     .option('--auto-approve', 'Send the rendered final_prompt.md into a terminal without a separate approval step')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; autoApprove?: boolean; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; codegraph?: boolean; codegraphMode?: string; autoApprove?: boolean; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -1752,6 +2004,12 @@ export function createCli(): Command {
         return;
       }
 
+      const resolvedCodegraph = resolvePromptCodeGraphMode({ codegraph: options.codegraph, codegraphMode: options.codegraphMode });
+      if (resolvedCodegraph.ok === false) {
+        emitCliStructuredError(resolvedCodegraph.error, { json: options.json, prefix: 'prompt failed' });
+        return;
+      }
+
       const repoRoot = path.resolve(options.repo);
       const result = await runPromptCommand({
         task,
@@ -1760,6 +2018,7 @@ export function createCli(): Command {
         live: options.live === true,
         flashProvider: options.flashProvider,
         flashModel: options.flashModel,
+        codegraphMode: resolvedCodegraph.mode,
         autoApprove: options.autoApprove === true,
         json: options.json,
       });
