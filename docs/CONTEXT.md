@@ -130,26 +130,28 @@ The application may read its own previous run artifacts from `.vibecode/`, but t
 
 ## Project Configuration
 
-The only human-maintained project config is:
+Human-maintained configuration is layered:
 
 ```text
-config.yaml
+%LOCALAPPDATA%\vibecodelight\config.yaml   # global provider registry/defaults
+<repo>\.vibecode\config.yaml               # per-repo overrides (wins over global)
+<repo>\config.yaml                         # project/scanner defaults
 ```
 
-It lives in the selected repository root.
-
-TypeScript owns `config.yaml`.
+TypeScript owns this layered config model.
 
 TypeScript:
 
-- creates it when needed,
+- creates config files when needed,
 - preserves existing content,
-- reads it,
-- validates it,
-- resolves it into runtime settings,
+- reads them,
+- validates them,
+- resolves them into runtime settings,
 - creates a per-run scanner config for Python.
 
-Python scanner does not read `config.yaml` directly.
+Provider/model registry precedence is local workspace config over global user config. The repository-root `config.yaml` remains for project/scanner defaults rather than provider registry ownership. Secrets live only in `%LOCALAPPDATA%\vibecodelight\.env`.
+
+Python scanner does not read the global or local YAML config directly.
 
 Instead, TypeScript writes:
 
@@ -1857,7 +1859,7 @@ Fake success is worse than failure.
 The context system depends on these invariants:
 
 1. `ARCHITECTURE_DECISIONS.md` wins on concrete implementation details.
-2. `config.yaml` is the only human-maintained project config.
+2. Human-maintained config is layered: global `%LOCALAPPDATA%\vibecodelight\config.yaml`, local `<repo>\.vibecode\config.yaml` overrides, and repository-root `config.yaml` for project/scanner defaults.
 3. `.vibecode/` is generated and ignored.
 4. The target repository scan excludes `.vibecode/`.
 5. Every sent prompt creates a new run package.

@@ -563,7 +563,7 @@ This checkpoint is documentation and repository setup only. It does not implemen
   - `docs/IMPLEMENTATION_MAP.md`
   - `docs/ARCHITECTURE_DECISIONS.md`
 - Ensure root `.gitignore` exists and ignores generated/local state.
-- Ensure root `config.yaml` exists as the human-maintained project config.
+- Ensure root `config.yaml` exists for project/scanner defaults and docs reflect the layered human-maintained config model (`%LOCALAPPDATA%\vibecodelight\config.yaml` → `<repo>\.vibecode\config.yaml` overrides, plus root `config.yaml`).
 - Ensure documentation agrees on:
   - TypeScript/Python ownership;
   - canonical repo layout;
@@ -754,7 +754,7 @@ Suggested tests:
 - A clean repo can be initialized with one command.
 - The command reports what it created or updated.
 - `.vibecode/` is ignored by git after initialization.
-- Root `config.yaml` is the only human-maintained project config.
+- Human-maintained config is layered: global `%LOCALAPPDATA%\vibecodelight\config.yaml`, local `<repo>\.vibecode\config.yaml` overrides, and repository-root `config.yaml` for project/scanner defaults.
 - The workspace model can locate repo root, config, `.vibecode`, runs, current, and `SKILLS/` paths.
 
 ---

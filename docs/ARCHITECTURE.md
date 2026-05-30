@@ -376,11 +376,11 @@ core/workspace/
 
 ### Config Ownership
 
-`config.yaml` is the only human-maintained project config.
+Human-maintained config is layered: `%LOCALAPPDATA%\vibecodelight\config.yaml` for global provider/default settings, `<repo>\.vibecode\config.yaml` for per-repo overrides, and repository-root `config.yaml` for project/scanner defaults. Local workspace config takes priority over the global user config.
 
 TypeScript owns it.
 
-TypeScript creates, preserves, reads, validates, and resolves `config.yaml`.
+TypeScript creates, preserves, reads, validates, and resolves this layered config model.
 
 Python scanner receives only a per-run scanner input:
 

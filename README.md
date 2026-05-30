@@ -381,7 +381,9 @@ CodeGraph is an optional, off-by-default code-intelligence tool. By default Vibe
 
 - `.codegraph/` is external generated index state (like `.vibecode/`). It is ignored by git and excluded from repository scans — it is never scanned as source content.
 - Each scan records detection in `.vibecode/runs/<run_id>/scan/external_tools.json` (whether the `codegraph` command is available and whether `.codegraph/` is initialized). A missing command or missing `.codegraph/` is a warning, never a scan failure.
-- When explicitly enabled and usable, context build records `.vibecode/runs/<run_id>/scan/codegraph_usage.json` and bounded `.vibecode/runs/<run_id>/scan/codegraph_context.md`; `flash_input.md` marks this as guidance from the existing local index, not source truth.
+- When explicitly enabled and usable, context build records `.vibecode/runs/<run_id>/scan/codegraph_usage.json` and bounded `.vibecode/runs/<run_id>/scan/codegraph_context.md`. When CodeGraph hints expose recognizable repo paths, a bounded CodeGraph-derived Repo Atlas is also written to `scan/codegraph_repo_atlas.md` and `scan/codegraph_repo_atlas.json` (mirrored under the legacy `scan/repo_atlas.md` / `scan/repo_atlas.json` paths for backward compatibility). `flash_input.md` marks the atlas and context as guidance from the existing local index, not source truth.
+- Opting in is per-build and explicit. CLI: `vibecode prompt --codegraph` or `vibecode prompt --codegraph-mode use-existing` (and the matching `--no-codegraph` / `--codegraph-mode detect-only` to force off); `vibecode context-build "task" --codegraph-mode use-existing` for the no-flash path. Desktop: the **CodeGraph** toggle in the composer header (ON = `use-existing`, OFF = `detect-only`; persisted in `localStorage`).
+- Maintenance actions are explicit and never automatic. CLI: `vibecode codegraph status | init | sync | reindex` (each accepts `--repo <path>` and `--json`). Desktop: the **Initialize / Sync / Re-index** buttons in the composer header (Re-index requires confirmation). Prompt and context build never call `codegraph init`, `index`, `sync`, `watch`, or `serve`.
 - MCP integration, HTTP/stdio serving, managed install/update, background watch, and agent config writes are not part of this integration.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -424,6 +426,10 @@ Canonical run layout:
     external_tools.json
     codegraph_usage.json       # present for prompt/context builds
     codegraph_context.md       # only when explicitly using an existing CodeGraph index succeeds
+    codegraph_repo_atlas.md    # bounded CodeGraph-derived Repo Atlas (use-existing only)
+    codegraph_repo_atlas.json  # structured form of the same atlas
+    repo_atlas.md              # legacy compat copy of codegraph_repo_atlas.md
+    repo_atlas.json            # legacy compat copy of codegraph_repo_atlas.json
 
   skills/
     skills_catalog.json
@@ -433,6 +439,12 @@ Canonical run layout:
   flash/
     flash_input_manifest.json
     flash_input.md
+    flash_system_prompt.md   # resolved flash system prompt text for this run
+    flash_prompt_meta.json   # system prompt source metadata (bundled default, user-profile, or project-local override)
+    repo_atlas.md            # bounded Repo Atlas passed to the flash model for this run
+    task_slice.md            # task-relevant file slice selected for flash context
+    relevance_selection.json # relevance/selection metadata for the task slice
+    flash_input_budget.json  # context budget allocation for this flash run
     flash_output.md
     flash_output_meta.json
     tool_calls.json
@@ -646,10 +658,9 @@ pnpm vibecode config providers --json
 pnpm vibecode config models --json
 pnpm vibecode config init-local --repo <path> --json
 pnpm vibecode config sync --from-global --repo <path> --json
-pnpm vibecode config sync --to-global --repo <path> --json
 ```
 
-`config paths` shows the global dir, global config, global env, and local config path. `config show` shows the resolved active provider/model, per-field source map, config source (local/global/cli/mixed), per-provider API-key status (configured true/false, by `api_key_env` name), and the global/local paths — never API keys. `config providers` lists all configured providers and whether each has a key; `config models` lists models per provider. `config sync` requires an explicit direction and reports the source and destination paths. Provider/model can be selected per run: `pnpm vibecode prompt "task" --flash-provider openrouter --flash-model deepseek/deepseek-chat` and `pnpm vibecode flash run latest --flash-provider deepseek --flash-model deepseek-chat`.
+`config paths` shows the global dir, global config, global env, and local config path. `config show` shows the resolved active provider/model, per-field source map, config source (local/global/cli/mixed), per-provider API-key status (configured true/false, by `api_key_env` name), and the global/local paths — never API keys. `config providers` lists all configured providers and whether each has a key; `config models` lists models per provider. `config sync` currently supports only global → local sync and requires `--from-global`; `--to-global` is intentionally rejected with `CONFIG_SYNC_TO_GLOBAL_DISABLED` because per-repo `.vibecode/config.yaml` must not overwrite the global user config. Provider/model can be selected per run: `pnpm vibecode prompt "task" --flash-provider openrouter --flash-model deepseek/deepseek-chat` and `pnpm vibecode flash run latest --flash-provider deepseek --flash-model deepseek-chat`.
 
 Every prompt/flash run records which config was used in a safe, secret-free artifact:
 
@@ -787,7 +798,6 @@ vibecode config providers
 vibecode config models
 vibecode config init-local --repo <path>
 vibecode config sync --from-global --repo <path>
-vibecode config sync --to-global --repo <path>
 ```
 
 For local development, invoke the TypeScript CLI through pnpm:
@@ -819,12 +829,40 @@ pnpm vibecode runs list
 pnpm vibecode runs show latest
 pnpm vibecode runs show latest --json
 pnpm vibecode runs show latest --artifact codegraph
-pnpm vibecode runs show latest --artifact scan/repo_atlas.md
+pnpm vibecode runs show latest --artifact scan/codegraph_repo_atlas.md
 ```
 
-`prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. By default it does not send anything to a terminal, so no `terminal/send_metadata.json` is created. Adding `--auto-approve` sends the saved `output/final_prompt.md` into a terminal without a separate approval step and writes `terminal/send_metadata.json` with `auto_approve: true` (still no `after/` post-run artifacts). The artifact is the truth — the exact rendered file is what is sent.
+`prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. By default it does not send anything to a terminal, so no `terminal/send_metadata.json` is created. Adding `--auto-approve` sends the saved `output/final_prompt.md` into a terminal without a separate approval step and writes `terminal/send_metadata.json` with `auto_approve: true` (still no `after/` post-run artifacts). The artifact is the truth — the exact rendered file is what is sent. For CodeGraph-derived Repo Atlas artifacts, the canonical scan paths are `scan/codegraph_repo_atlas.md` / `scan/codegraph_repo_atlas.json`; the legacy compatibility aliases `scan/repo_atlas.md` / `scan/repo_atlas.json` are also written.
 
 `runs show` includes a first-class CodeGraph summary (`used for context`, reason, Repo Atlas status, warnings, and available `scan/` artifacts). The same structured `codegraph` object is present in `runs show --json`; `--artifact codegraph` prints `scan/codegraph_usage.json` for agent assertions without Electron.
+
+### Optional CodeGraph CLI
+
+CodeGraph is optional and stays detect-only by default. Both the per-build mode and the maintenance actions are reachable from the CLI without Electron, with stable JSON envelopes for agent use.
+
+Per-build mode selection (mutually exclusive — conflicting flags return a structured `CONFLICTING_CODEGRAPH_FLAGS` error):
+
+```powershell
+pnpm vibecode prompt "task" --codegraph                       # use-existing
+pnpm vibecode prompt "task" --no-codegraph                    # detect-only (default)
+pnpm vibecode prompt "task" --codegraph-mode use-existing
+pnpm vibecode prompt "task" --codegraph-mode detect-only
+pnpm vibecode context-build "task" --codegraph-mode use-existing
+pnpm vibecode context-build "task" --codegraph-mode detect-only
+```
+
+When `use-existing` is selected, the pipeline runs `codegraph status --json` and `codegraph context …` against the existing index (read-only) and writes `scan/codegraph_usage.json`, `scan/codegraph_context.md`, and the CodeGraph-derived Repo Atlas artifacts. A failure (missing command, uninitialized repo, command error) is non-fatal: the run still produces `flash_input.md`, the CodeGraph sections are omitted, and the reason is recorded in `codegraph_usage.json` and surfaced as a warning. Neither command ever runs `codegraph init`, `index`, `sync`, `watch`, or `serve`.
+
+Maintenance namespace (explicit, never automatic):
+
+```powershell
+pnpm vibecode codegraph status   --repo <path> [--json]
+pnpm vibecode codegraph init     --repo <path> [--json]
+pnpm vibecode codegraph sync     --repo <path> [--json]
+pnpm vibecode codegraph reindex  --repo <path> [--json]
+```
+
+`status` is read-only (uses `codegraph --version` and an `fs.existsSync` check on `.codegraph/`). `init`, `sync`, and `reindex` are thin wrappers around `codegraph init -i`, `codegraph sync`, and `codegraph index --force`; failures return a structured `CODEGRAPH_<ACTION>_FAILED` envelope. These are the same operations the desktop composer's CodeGraph buttons trigger.
 
 ### Internal scanner CLI
 
@@ -885,7 +923,6 @@ Expected TypeScript commands:
 ```powershell
 pnpm test
 pnpm test:serial
-pnpm test:live
 pnpm lint
 pnpm typecheck
 pnpm build
@@ -911,11 +948,12 @@ Default tests must not call live LLM providers.
 Live model tests are explicit only:
 
 ```powershell
-pnpm test:live
+# no dedicated pnpm live-test script currently
+pnpm test -- <specific-test-file>
 uv run pytest -m live
 ```
 
-Live tests should be token-efficient.
+There is currently no dedicated live-test pnpm script in `package.json`. For provider-backed/manual live checks, configure real API keys in `%LOCALAPPDATA%\vibecodelight\config.yaml` + `.env` and run targeted Vitest files manually with `pnpm test -- <specific-test-file>` (or run targeted `pnpm vibecode prompt ... --live ...` smoke commands). Live tests should be token-efficient.
 
 ### Development rules
 
