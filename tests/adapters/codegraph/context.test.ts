@@ -50,6 +50,25 @@ function makeRunner(overrides: Partial<{ status: number | null; stdout: string; 
   return { runner, calls };
 }
 
+type AtlasItemForTest = { path: string; reason?: string; provenance?: string; symbol?: string };
+type AtlasJsonForTest = {
+  sections: {
+    likely_relevant_areas: AtlasItemForTest[];
+    candidate_entry_points: AtlasItemForTest[];
+    related_files_to_inspect: AtlasItemForTest[];
+    possible_risk_areas: AtlasItemForTest[];
+  };
+};
+
+function allAtlasPaths(atlasJson: AtlasJsonForTest): string[] {
+  return [
+    ...atlasJson.sections.likely_relevant_areas.map((item) => item.path),
+    ...atlasJson.sections.candidate_entry_points.map((item) => item.path),
+    ...atlasJson.sections.related_files_to_inspect.map((item) => item.path),
+    ...atlasJson.sections.possible_risk_areas.map((item) => item.path),
+  ];
+}
+
 describe('buildCodeGraphContext', () => {
   test('resolves npm .cmd shim target so task text can be passed as argv without cmd.exe quote loss', () => {
     const shim = [
@@ -462,13 +481,8 @@ describe('writeCodeGraphContextArtifacts', () => {
 
       const written = writeCodeGraphContextArtifacts({ runDir, result });
       const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
-      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8'));
-      const atlasPaths = [
-        ...atlasJson.sections.likely_relevant_areas.map((item: { path: string }) => item.path),
-        ...atlasJson.sections.candidate_entry_points.map((item: { path: string }) => item.path),
-        ...atlasJson.sections.related_files_to_inspect.map((item: { path: string }) => item.path),
-        ...atlasJson.sections.possible_risk_areas.map((item: { path: string }) => item.path),
-      ];
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8')) as AtlasJsonForTest;
+      const atlasPaths = allAtlasPaths(atlasJson);
 
       expect(atlasPaths).toEqual([
         'src/core/terminal/terminal_demo.ts',
@@ -476,6 +490,209 @@ describe('writeCodeGraphContextArtifacts', () => {
       ]);
       expect(atlas).not.toContain('ENOENT/i.test');
       expect(atlas).not.toContain('docs/GUIDE.md');
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('repo atlas maps Entry Points section paths to candidate entry points with useful reasons', () => {
+    const { runDir } = tempRun();
+    try {
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'file_inventory.json'),
+        JSON.stringify({
+          files: [
+            { path: 'src/app/desktop/prompt_preview_service.ts' },
+            { path: 'src/core/scanning/codegraph_status.ts' },
+          ],
+        }),
+        'utf8',
+      );
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: [
+          '# CodeGraph Context',
+          '### Entry Points',
+          '',
+          '- `src/app/desktop/prompt_preview_service.ts` — `generatePromptPreview`',
+          '- `src/core/scanning/codegraph_status.ts` — `readRunCodeGraphStatus`',
+          '- `ENOENT/i.test` — pseudo path from code',
+          '- `repo_atlas/task_slice/budget` — pseudo path from prose',
+          '- `Readme/n/nIntro./n` — escaped prose',
+          '- `docs/GUIDE.md` — not in deterministic file inventory',
+        ].join('\n'),
+        warnings: [],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8')) as AtlasJsonForTest;
+      const entries = atlasJson.sections.candidate_entry_points;
+
+      expect(entries.map((item) => item.path)).toEqual([
+        'src/app/desktop/prompt_preview_service.ts',
+        'src/core/scanning/codegraph_status.ts',
+      ]);
+      expect(entries.every((item) => item.provenance === 'codegraph_hint')).toBe(true);
+      expect(entries.map((item) => item.reason)).toEqual([
+        expect.stringContaining('entry point: generatePromptPreview'),
+        expect.stringContaining('entry point: readRunCodeGraphStatus'),
+      ]);
+      expect(atlas).toContain('## Candidate Entry Points');
+      expect(atlas).toContain('src/app/desktop/prompt_preview_service.ts');
+      expect(atlas).toContain('src/core/scanning/codegraph_status.ts');
+      expect(allAtlasPaths(atlasJson)).toEqual([
+        'src/app/desktop/prompt_preview_service.ts',
+        'src/core/scanning/codegraph_status.ts',
+      ]);
+      expect(atlas).not.toContain('ENOENT/i.test');
+      expect(atlas).not.toContain('repo_atlas/task_slice/budget');
+      expect(atlas).not.toContain('Readme/n/nIntro./n');
+      expect(atlas).not.toContain('docs/GUIDE.md');
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('repo atlas maps Related Symbols section paths to related files with useful reasons', () => {
+    const { runDir } = tempRun();
+    try {
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'file_inventory.json'),
+        JSON.stringify({
+          files: [
+            { path: 'src/core/context/flash_compaction.ts' },
+            { path: 'src/core/context/flash_input_manifest.ts' },
+          ],
+        }),
+        'utf8',
+      );
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: [
+          '# CodeGraph Context',
+          '### Related Symbols',
+          '',
+          '- `src/core/context/flash_compaction.ts` — `renderFlashInput`',
+          '- `src/core/context/flash_input_manifest.ts` — `buildFlashInputManifest`',
+          '- `docs/GUIDE.md` — not in inventory',
+        ].join('\n'),
+        warnings: [],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      const atlas = fs.readFileSync(written.repoAtlasArtifact!, 'utf8');
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8')) as AtlasJsonForTest;
+      const related = atlasJson.sections.related_files_to_inspect;
+
+      expect(related.map((item) => item.path)).toEqual([
+        'src/core/context/flash_compaction.ts',
+        'src/core/context/flash_input_manifest.ts',
+      ]);
+      expect(related.every((item) => item.provenance === 'codegraph_hint')).toBe(true);
+      expect(related.map((item) => item.reason)).toEqual([
+        expect.stringContaining('related symbol: renderFlashInput'),
+        expect.stringContaining('related symbol: buildFlashInputManifest'),
+      ]);
+      expect(atlas).toContain('## Related Files To Inspect');
+      expect(atlas).toContain('src/core/context/flash_compaction.ts');
+      expect(atlas).toContain('src/core/context/flash_input_manifest.ts');
+      expect(allAtlasPaths(atlasJson)).toEqual([
+        'src/core/context/flash_compaction.ts',
+        'src/core/context/flash_input_manifest.ts',
+      ]);
+      expect(atlas).not.toContain('docs/GUIDE.md');
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('repo atlas extracts symbols from native CodeGraph section formats', () => {
+    const { runDir } = tempRun();
+    try {
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'file_inventory.json'),
+        JSON.stringify({
+          files: [
+            { path: 'src/core/context/artifact_reader.ts' },
+            { path: 'src/adapters/codegraph/codegraph_context.ts' },
+          ],
+        }),
+        'utf8',
+      );
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: [
+          '# CodeGraph Context',
+          '### Entry Points',
+          '- **artifactExists** (function) - src/core/context/artifact_reader.ts:23',
+          '- **CodeGraphContextMode** (type_alias) - src/adapters/codegraph/codegraph_context.ts:8',
+          '### Related Symbols',
+          '- src/adapters/codegraph/codegraph_context.ts: buildCodeGraphContext:177, usageJson:263',
+        ].join('\n'),
+        warnings: [],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8')) as AtlasJsonForTest;
+
+      expect(atlasJson.sections.candidate_entry_points.map((item) => item.reason)).toEqual([
+        expect.stringContaining('entry point: artifactExists'),
+        expect.stringContaining('entry point: CodeGraphContextMode'),
+      ]);
+      expect(atlasJson.sections.related_files_to_inspect.map((item) => item.reason)).toEqual([
+        expect.stringContaining('related symbol: buildCodeGraphContext'),
+      ]);
+    } finally {
+      fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
+    }
+  });
+
+  test('repo atlas applies hard bounds to paths from CodeGraph markdown sections', () => {
+    const { runDir } = tempRun();
+    try {
+      const entryPaths = Array.from({ length: 12 }, (_, index) => `src/app/entry${index}.ts`);
+      const relatedPaths = Array.from({ length: 14 }, (_, index) => `src/core/related${index}.ts`);
+      fs.writeFileSync(
+        path.join(runDir, 'scan', 'file_inventory.json'),
+        JSON.stringify({ files: [...entryPaths, ...relatedPaths].map((filePath) => ({ path: filePath })) }),
+        'utf8',
+      );
+      const result = {
+        ok: true,
+        used: true,
+        mode: 'use-existing' as const,
+        command: ['codegraph', 'context', 'task'],
+        outputText: [
+          '# CodeGraph Context',
+          '### Entry Points',
+          ...entryPaths.map((filePath, index) => `- \`${filePath}\` — \`entry${index}\``),
+          '### Related Symbols',
+          ...relatedPaths.map((filePath, index) => `- \`${filePath}\` — \`related${index}\``),
+        ].join('\n'),
+        warnings: [],
+        reason: 'EXISTING_INDEX',
+      };
+
+      const written = writeCodeGraphContextArtifacts({ runDir, result });
+      const atlasJson = JSON.parse(fs.readFileSync(written.repoAtlasJsonArtifact!, 'utf8')) as AtlasJsonForTest;
+
+      expect(atlasJson.sections.candidate_entry_points).toHaveLength(8);
+      expect(atlasJson.sections.related_files_to_inspect).toHaveLength(10);
+      expect(atlasJson.sections.candidate_entry_points.map((item) => item.path)).toEqual(entryPaths.slice(0, 8));
+      expect(atlasJson.sections.related_files_to_inspect.map((item) => item.path)).toEqual(relatedPaths.slice(0, 10));
     } finally {
       fs.rmSync(path.dirname(path.dirname(runDir)), { recursive: true, force: true });
     }

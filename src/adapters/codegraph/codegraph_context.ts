@@ -355,10 +355,55 @@ function readKnownRepoPaths(runDir: string): Set<string> | undefined {
   }
 }
 
+function symbolBeforePath(line: string, filePath: string): string | undefined {
+  const before = line.slice(0, line.indexOf(filePath));
+  const match = before.match(/\*\*([A-Za-z_$][A-Za-z0-9_$.:-]*)\*\*\s*(?:\([^)]{1,40}\))?\s*(?:—|–|-)\s*$/)
+    ?? before.match(/`([A-Za-z_$][A-Za-z0-9_$.:-]*)`\s*(?:\([^)]{1,40}\))?\s*(?:—|–|-)\s*$/);
+  return match?.[1];
+}
+
+function cleanSymbolHint(symbol: string | undefined): string | undefined {
+  const cleaned = symbol?.replace(/:\d+$/, '').trim();
+  return cleaned && cleaned.length <= 80 ? cleaned : undefined;
+}
+
 function symbolNearPath(line: string, filePath: string): string | undefined {
   const after = line.slice(line.indexOf(filePath) + filePath.length);
-  const match = after.match(/\s*(?:::|#|->|→)\s*([A-Za-z_$][A-Za-z0-9_$.:-]*)/);
-  return match?.[1];
+  const match = after.match(/\s*(?:::|#|->|→|:)\s*`?([A-Za-z_$][A-Za-z0-9_$.:-]*)`?/)
+    ?? after.match(/\s*(?:—|–|-)\s*`?([A-Za-z_$][A-Za-z0-9_$.:-]*)`?/);
+  return cleanSymbolHint(match?.[1] ?? symbolBeforePath(line, filePath));
+}
+
+type CodeGraphMarkdownSection = 'entry_points' | 'related_symbols';
+
+function normalizeMarkdownHeading(line: string): string | undefined {
+  const match = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
+  if (!match) return undefined;
+  return match[1]
+    .replace(/[`*_~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function codeGraphMarkdownSection(line: string): CodeGraphMarkdownSection | undefined {
+  const heading = normalizeMarkdownHeading(line);
+  if (heading === 'entry points') return 'entry_points';
+  if (heading === 'related symbols') return 'related_symbols';
+  return undefined;
+}
+
+function atlasBucketForLine(line: string, section: CodeGraphMarkdownSection | undefined): keyof RepoAtlasJson['sections'] {
+  if (section === 'entry_points') return 'candidate_entry_points';
+  if (section === 'related_symbols') return 'related_files_to_inspect';
+  return classifyAtlasLine(line);
+}
+
+function reasonForAtlasItem(line: string, filePath: string, section: CodeGraphMarkdownSection | undefined): string {
+  const symbol = symbolNearPath(line, filePath);
+  if (section === 'entry_points') return symbol ? `entry point: ${symbol}` : 'entry point hint from CodeGraph';
+  if (section === 'related_symbols') return symbol ? `related symbol: ${symbol}` : 'related symbol hint from CodeGraph';
+  return cleanReason(line);
 }
 
 function classifyAtlasLine(line: string): keyof RepoAtlasJson['sections'] {
@@ -372,14 +417,21 @@ function classifyAtlasLine(line: string): keyof RepoAtlasJson['sections'] {
 function addAtlasItem(
   buckets: RepoAtlasJson['sections'],
   seen: Set<string>,
+  seenByBucket: Map<string, Set<keyof RepoAtlasJson['sections']>>,
   bucket: keyof RepoAtlasJson['sections'],
   item: RepoAtlasItem,
+  options: { allowCrossBucketDuplicate?: boolean } = {},
 ): void {
   if (bucket === 'unknowns') return;
-  if (seen.has(item.path)) return;
+  const previousBuckets = seenByBucket.get(item.path);
+  if (previousBuckets?.has(bucket)) return;
+  if (!options.allowCrossBucketDuplicate && seen.has(item.path)) return;
   const limits = REPO_ATLAS_LIMITS;
   if (buckets[bucket].length >= limits[bucket]) return;
   seen.add(item.path);
+  const nextBuckets = previousBuckets ?? new Set<keyof RepoAtlasJson['sections']>();
+  nextBuckets.add(bucket);
+  seenByBucket.set(item.path, nextBuckets);
   buckets[bucket].push(item);
 }
 
@@ -396,24 +448,34 @@ function emptyRepoAtlasSections(): RepoAtlasJson['sections'] {
 function buildRepoAtlasFromCodeGraphContext(input: RepoAtlasBuildOptions): RepoAtlasJson {
   const sections = emptyRepoAtlasSections();
   const seen = new Set<string>();
+  const seenByBucket = new Map<string, Set<keyof RepoAtlasJson['sections']>>();
   const lines = input.contextMarkdown.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 400);
 
+  let currentSection: CodeGraphMarkdownSection | undefined;
+
   for (const line of lines) {
+    if (normalizeMarkdownHeading(line) !== undefined) {
+      currentSection = codeGraphMarkdownSection(line);
+      continue;
+    }
     const paths = pathMatches(line).filter((filePath) => {
       if (!input.knownRepoPaths) return true;
       return input.knownRepoPaths.has(filePath);
     });
     if (paths.length === 0) continue;
-    const bucket = classifyAtlasLine(line);
+    const bucket = atlasBucketForLine(line, currentSection);
     for (const filePath of paths) {
-      addAtlasItem(sections, seen, bucket, {
+      const symbol = symbolNearPath(line, filePath);
+      addAtlasItem(sections, seen, seenByBucket, bucket, {
         path: filePath,
-        reason: cleanReason(line),
-        provenance: bucket === 'candidate_entry_points' || bucket === 'possible_risk_areas'
-          ? 'inferred_recommendation'
-          : 'codegraph_hint',
-        ...(symbolNearPath(line, filePath) ? { symbol: symbolNearPath(line, filePath) } : {}),
-      });
+        reason: reasonForAtlasItem(line, filePath, currentSection),
+        provenance: currentSection === 'entry_points' || currentSection === 'related_symbols' || bucket === 'related_files_to_inspect'
+          ? 'codegraph_hint'
+          : bucket === 'candidate_entry_points' || bucket === 'possible_risk_areas'
+            ? 'inferred_recommendation'
+            : 'codegraph_hint',
+        ...(symbol ? { symbol } : {}),
+      }, { allowCrossBucketDuplicate: currentSection === 'entry_points' || currentSection === 'related_symbols' });
     }
   }
 
