@@ -8,6 +8,7 @@ import { getWorkspacePaths } from '../workspace/paths.js';
 import { formatScannerFailureDiagnostic } from '../scanning/scanner_subprocess.js';
 import { writeExternalToolsArtifact } from '../scanning/external_tools.js';
 import { detectCodeGraph } from '../../adapters/codegraph/codegraph_cli.js';
+import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 import { updateCurrent } from './current.js';
 import { createRun } from './run_store.js';
 
@@ -47,6 +48,7 @@ export function writeRunManifest(runManifestPath: string, manifest: RunManifest)
 export async function performScanPhase(opts: {
   task: string;
   repoRoot: string;
+  taskIntent?: TaskIntent;
 }): Promise<ScannerPhaseResult> {
   const paths = getWorkspacePaths(opts.repoRoot);
 
@@ -69,6 +71,24 @@ export async function performScanPhase(opts: {
   writeSkillsCatalog(path.join(runDir, 'skills', 'skills_catalog.json'), catalog);
 
   const scannerConfigPath = path.join(runDir, 'scanner_config.json');
+  const scannerConfig = {
+    run_id,
+    task: opts.task,
+    repo_root: opts.repoRoot,
+    out_dir: 'scan',
+    normalized_english_task: opts.taskIntent?.enabled && opts.taskIntent.ok
+      ? opts.taskIntent.normalized_english_task
+      : '',
+    search_hints: opts.taskIntent?.enabled && opts.taskIntent.ok
+      ? opts.taskIntent.search_hints
+      : [],
+    keyword_groups: opts.taskIntent?.enabled && opts.taskIntent.ok
+      ? opts.taskIntent.keyword_groups
+      : {},
+    _provenance_note: 'normalized signals from Task Normalizer; Python scanner uses these for expanded keyword matching',
+  };
+  fs.writeFileSync(scannerConfigPath, `${JSON.stringify(scannerConfig, null, 2)}\n`, 'utf8');
+
   const scannerArgs = [
     '-m', 'vibecode_scanner',
     '--repo', opts.repoRoot,

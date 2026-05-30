@@ -6,6 +6,7 @@ import { buildCodeGraphContext, writeCodeGraphContextArtifacts, type CodeGraphCo
 import { LlmAdapterError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
+import { runTaskNormalizer, writeTaskIntentArtifacts } from '../../adapters/task_normalizer/index.js';
 import {
   ensureLocalConfig,
   resolveFlashConfig,
@@ -38,6 +39,7 @@ export interface PromptPipelineOptions {
   codegraphMode?: CodeGraphContextMode;
   flashProvider?: string;
   flashModel?: string;
+  taskNormalizerEnabled?: boolean;
   onProgress?: PipelineProgressCallback;
 }
 
@@ -51,6 +53,10 @@ export interface PromptPipelineSuccess {
   taskSlicePath?: string;
   relevanceSelectionPath?: string;
   flashInputBudgetPath?: string;
+  taskIntentPath?: string;
+  taskNormalizerEnabled?: boolean;
+  taskNormalizerOk?: boolean;
+  taskNormalizerLanguage?: string;
   estimatedTokens?: number;
   hardMaxTokens?: number;
   providerCalled?: boolean;
@@ -157,8 +163,23 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     adapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
   }
 
+  const taskNormalizerEnabled = opts.taskNormalizerEnabled ?? false;
+  const normalizerProviderConfig = opts.mock ? undefined : resolved.providerConfig ?? undefined;
+  const taskIntent = await runTaskNormalizer({
+    task: opts.task,
+    enabled: taskNormalizerEnabled,
+    providerConfig: normalizerProviderConfig,
+    modelInfo: normalizerProviderConfig
+      ? {
+          provider: resolved.resolution.provider ?? 'unknown',
+          model: resolved.resolution.model ?? 'unknown',
+        }
+      : undefined,
+  });
+
   emitProgress({ phase: 'scan_started', message: 'Scanning repository context.' });
-  const scan = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot });
+  const scan = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot, taskIntent });
+  const taskIntentArtifactPaths = writeTaskIntentArtifacts(scan.runDir, taskIntent);
   emitProgress({ phase: 'run_created', message: 'Prompt pipeline run created.', run_id: scan.run_id });
   if (scan.status === 'error') {
     const result = errorResult('SCANNER_FAILED', scan.diagnostic, scan.scanDir, []);
@@ -185,6 +206,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     scan.runManifestPath,
     path.join(scan.runDir, 'scanner_config.json'),
     configResolutionPath,
+    taskIntentArtifactPaths.jsonPath,
+    taskIntentArtifactPaths.mdPath,
     path.join(scan.scanDir, 'scan_manifest.json'),
     path.join(scan.runDir, 'skills', 'skills_catalog.json'),
     codegraphArtifacts.usageArtifact,
@@ -194,6 +217,9 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     ...Object.values(scan.artifacts),
   ];
   const warnings = [...scan.warnings, ...resolved.resolution.warnings, ...codegraphResult.warnings];
+  if (!taskIntent.ok && taskIntent.source === 'fallback') {
+    warnings.push(...taskIntent.warnings);
+  }
 
   try {
     const flashManifest = buildFlashInputManifest({
@@ -359,6 +385,10 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       taskSlicePath,
       relevanceSelectionPath,
       flashInputBudgetPath,
+      taskIntentPath: taskIntentArtifactPaths.jsonPath,
+      taskNormalizerEnabled,
+      taskNormalizerOk: taskIntent.ok,
+      taskNormalizerLanguage: taskIntent.original_language,
       estimatedTokens: compactBudget.estimated_tokens,
       hardMaxTokens: compactBudget.hard_max_tokens,
       providerCalled: true,
