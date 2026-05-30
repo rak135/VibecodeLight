@@ -24,6 +24,10 @@ const ALLOWED_RUN_ARTIFACTS = new Set([
   'output/final_prompt.md',
   'config_resolution.json',
   'flash/flash_output_meta.json',
+  'scan/codegraph_usage.json',
+  'scan/codegraph_context.md',
+  'scan/repo_atlas.md',
+  'scan/repo_atlas.json',
 ]);
 
 function normalizeRelativePath(relativePath: string): string {

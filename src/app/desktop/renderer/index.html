@@ -180,6 +180,7 @@
                         <button class="tab-btn active" data-tab="final" type="button">Final Prompt</button>
                         <button class="tab-btn" data-tab="flash" type="button">Flash Output</button>
                         <button class="tab-btn" data-tab="context" type="button">Context Pack</button>
+                        <button class="tab-btn" data-tab="codegraph" type="button">CodeGraph</button>
                         <button class="tab-btn" data-tab="diag" type="button">Diagnostics</button>
                       </div>
                       <div id="tab-final" class="tab-panel">
@@ -190,6 +191,9 @@
                       </div>
                       <div id="tab-context" class="tab-panel" style="display:none">
                         <pre id="context-pack-preview"></pre>
+                      </div>
+                      <div id="tab-codegraph" class="tab-panel" style="display:none">
+                        <div id="codegraph-preview"></div>
                       </div>
                       <div id="tab-diag" class="tab-panel" style="display:none">
                         <pre id="diag-preview"></pre>
@@ -300,6 +304,7 @@
       const previewElement = $('composer-preview');
       const flashOutputPreview = $('flash-output-preview');
       const contextPackPreview = $('context-pack-preview');
+      const codeGraphPreview = $('codegraph-preview');
       const diagPreview = $('diag-preview');
       const tabsBar = $('ov-tabs');
       const progressSection = $('ov-progress-section');
@@ -575,6 +580,10 @@
           ['skills/selected_skills.json', a.selected_skills],
           ['output/final_prompt.md', a.final_prompt],
           ['terminal/send_metadata.json', a.send_metadata],
+          ['scan/codegraph_usage.json', a.codegraph_usage],
+          ['scan/codegraph_context.md', a.codegraph_context],
+          ['scan/repo_atlas.md', a.repo_atlas],
+          ['scan/repo_atlas.json', a.repo_atlas_json],
         ];
       }
 
@@ -903,7 +912,7 @@
         tabsBar.querySelectorAll('.tab-btn').forEach((btn) => {
           btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
         });
-        ['final', 'flash', 'context', 'diag'].forEach((name) => {
+        ['final', 'flash', 'context', 'codegraph', 'diag'].forEach((name) => {
           const panel = $('tab-' + name);
           if (panel) panel.style.display = name === tabName ? '' : 'none';
         });
@@ -915,6 +924,7 @@
         previewElement.textContent = '';
         flashOutputPreview.textContent = '';
         contextPackPreview.textContent = '';
+        if (codeGraphPreview) codeGraphPreview.innerHTML = '';
         diagPreview.textContent = '';
       }
 
@@ -929,6 +939,75 @@
         }
       }
 
+      function codeGraphArtifactCandidates(cg) {
+        const paths = [
+          'scan/codegraph_usage.json',
+          (cg && cg.contextArtifact) || 'scan/codegraph_context.md',
+          (cg && cg.repoAtlasArtifact) || 'scan/repo_atlas.md',
+          (cg && cg.repoAtlasJsonArtifact) || 'scan/repo_atlas.json',
+        ];
+        return Array.from(new Set(paths.filter(Boolean))).map((artifactPath) => ({ path: artifactPath, exists: false }));
+      }
+
+      async function collectCodeGraphArtifacts(result) {
+        const artifacts = codeGraphArtifactCandidates(result && result.codegraph);
+        for (const artifact of artifacts) {
+          if (!window.vibecodeAPI || !window.vibecodeAPI.artifacts || !window.vibecodeAPI.artifacts.readRunArtifact) continue;
+          try {
+            const artifactResult = await window.vibecodeAPI.artifacts.readRunArtifact(result.run_id, artifact.path);
+            artifact.exists = Boolean(artifactResult && artifactResult.ok);
+          } catch (_error) {
+            artifact.exists = false;
+          }
+        }
+        return artifacts;
+      }
+
+      function yesNo(value) { return value ? 'yes' : 'no'; }
+
+      function renderCodeGraphPanel(result, artifacts) {
+        if (!codeGraphPreview) return;
+        const cg = (result && result.codegraph) || {};
+        const warnings = Array.isArray(cg.displayWarnings)
+          ? cg.displayWarnings
+          : (Array.isArray(cg.warnings) ? cg.warnings : []);
+        let html = '<div class="cg-status cg-panel">';
+        html += '<div class="cg-label">' + escapeHtml(cg.label || 'CodeGraph: unknown') + '</div>';
+        html += '<div class="cg-sub">status label: ' + escapeHtml(cg.label || 'unknown') + '</div>';
+        html += '<div class="cg-sub">mode: ' + escapeHtml(cg.mode || 'unknown') + '</div>';
+        html += '<div class="cg-sub">used for context: ' + yesNo(Boolean(cg.usedForContext)) + '</div>';
+        html += '<div class="cg-sub">usage reason: ' + escapeHtml(cg.usageReason || 'unknown') + '</div>';
+        html += '<div class="cg-sub">usage note: ' + escapeHtml(cg.usageNote || '—') + '</div>';
+        html += '<div class="cg-sub">repo atlas generated: ' + yesNo(Boolean(cg.repoAtlasGenerated)) + '</div>';
+        html += '<div class="cg-sub">repo atlas reason/note: ' + escapeHtml((cg.repoAtlasReason || 'unknown') + ' / ' + (cg.repoAtlasNote || '—')) + '</div>';
+        html += '<div class="cg-sub">warnings/displayWarnings:</div>';
+        if (warnings.length === 0) {
+          html += '<div class="cg-sub cg-muted">  none</div>';
+        } else {
+          for (const warning of warnings) html += '<div class="cg-sub cg-warning">  - ' + escapeHtml(String(warning)) + '</div>';
+        }
+        const available = artifacts.filter((artifact) => artifact.exists);
+        html += '<div class="cg-sub">available artifact paths:</div>';
+        if (available.length === 0) {
+          html += '<div class="cg-sub cg-muted">  none</div>';
+        } else {
+          for (const artifact of available) {
+            html += '<button class="cg-artifact-btn" data-artifact="' + escapeHtml(artifact.path) + '" type="button">' + escapeHtml(artifact.path) + '</button>';
+          }
+        }
+        html += '<pre id="codegraph-artifact-content" class="cg-artifact-content"></pre>';
+        html += '</div>';
+        codeGraphPreview.innerHTML = html;
+        codeGraphPreview.querySelectorAll('.cg-artifact-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const artifactPath = btn.getAttribute('data-artifact') || '';
+            const content = await readRunArtifactText(result.run_id, artifactPath);
+            const target = $('codegraph-artifact-content');
+            if (target) target.textContent = content.length > 3000 ? content.slice(0, 3000) + '\n… truncated to first 3KB' : content;
+          });
+        });
+      }
+
       async function populateArtifactTabs(result) {
         if (!result || !result.ok) return;
         if (tabsBar) tabsBar.style.display = '';
@@ -938,6 +1017,7 @@
         contextPackPreview.textContent = contextPack.length > 3000 ? contextPack.slice(0, 3000) + '\n… truncated to first 3KB' : contextPack;
         const diagnostics = await readRunArtifactText(result.run_id, 'flash/flash_output_meta.json');
         diagPreview.textContent = diagnostics || 'No diagnostics artifact available.';
+        renderCodeGraphPanel(result, await collectCodeGraphArtifacts(result));
         switchPreviewTab('final');
       }
 
@@ -946,6 +1026,7 @@
         previewElement.textContent = '';
         flashOutputPreview.textContent = '';
         contextPackPreview.textContent = '';
+        if (codeGraphPreview) codeGraphPreview.innerHTML = '';
         diagPreview.textContent = JSON.stringify({ error: error || {}, providerErrorPath: result && result.providerErrorPath, artifacts: result && result.artifacts }, null, 2);
         finalMeta.textContent = '· diagnostics';
         finalSection.style.display = '';

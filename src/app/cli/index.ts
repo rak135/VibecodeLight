@@ -332,6 +332,90 @@ function toErrorEnvelope(error: unknown, fallbackPath?: string): NonNullable<Fla
   };
 }
 
+function normalizeRunArtifactSelector(selector: string): string {
+  return selector.replace(/\\/g, '/') === 'codegraph' ? 'scan/codegraph_usage.json' : selector.replace(/\\/g, '/');
+}
+
+const RUN_SHOW_ARTIFACTS = new Set([
+  'user_prompt.md',
+  'run_manifest.json',
+  'scanner_config.json',
+  'flash/flash_input.md',
+  'flash/flash_output.md',
+  'output/context_pack.md',
+  'skills/selected_skills.json',
+  'output/final_prompt.md',
+  'terminal/send_metadata.json',
+  'scan/codegraph_usage.json',
+  'scan/codegraph_context.md',
+  'scan/repo_atlas.md',
+  'scan/repo_atlas.json',
+]);
+
+function resolveRunArtifactPath(runDir: string, selector: string): { relativePath: string; absolutePath: string } {
+  const relativePath = normalizeRunArtifactSelector(selector);
+  if (!RUN_SHOW_ARTIFACTS.has(relativePath)) {
+    throw new LlmAdapterError(`artifact path is not allowed: ${selector}`, {
+      code: 'ARTIFACT_NOT_ALLOWED',
+      path: selector,
+      details: Array.from(RUN_SHOW_ARTIFACTS).sort(),
+    });
+  }
+  const runRoot = path.resolve(runDir);
+  const artifactPath = path.resolve(runRoot, ...relativePath.split('/'));
+  const relToRun = path.relative(runRoot, artifactPath);
+  if (relToRun.startsWith('..') || path.isAbsolute(relToRun)) {
+    throw new LlmAdapterError(`artifact path resolves outside run directory: ${selector}`, {
+      code: 'ARTIFACT_NOT_ALLOWED',
+      path: selector,
+      details: [],
+    });
+  }
+  if (!fs.existsSync(artifactPath)) {
+    throw new LlmAdapterError(`artifact not found: ${relativePath}`, {
+      code: 'ARTIFACT_NOT_FOUND',
+      path: artifactPath,
+      details: [],
+    });
+  }
+  return { relativePath, absolutePath: artifactPath };
+}
+
+function codeGraphRelativeArtifactLines(info: ReturnType<typeof getRunInfo>): string[] {
+  const candidates: Array<[string, string | undefined]> = [
+    ['scan/codegraph_usage.json', info.artifacts.codegraph_usage],
+    ['scan/codegraph_context.md', info.artifacts.codegraph_context],
+    ['scan/repo_atlas.md', info.artifacts.repo_atlas],
+    ['scan/repo_atlas.json', info.artifacts.repo_atlas_json],
+  ];
+  return candidates.filter(([, artifactPath]) => Boolean(artifactPath)).map(([relativePath]) => relativePath);
+}
+
+function writeCodeGraphSummary(info: ReturnType<typeof getRunInfo>): void {
+  const cg = info.codegraph;
+  console.log('CodeGraph:');
+  console.log(`  status: ${cg.state}`);
+  console.log(`  mode: ${cg.mode ?? 'unknown'}`);
+  console.log(`  used for context: ${cg.usedForContext ? 'yes' : 'no'}`);
+  console.log(`  reason: ${cg.usageReason}`);
+  console.log(`  usage note: ${cg.usageNote}`);
+  console.log(`  repo atlas: ${cg.repoAtlasGenerated ? 'generated' : 'not generated'}`);
+  console.log(`  repo atlas reason: ${cg.repoAtlasReason}`);
+  console.log(`  repo atlas note: ${cg.repoAtlasNote}`);
+  const artifacts = codeGraphRelativeArtifactLines(info);
+  console.log('  artifacts:');
+  if (artifacts.length === 0) {
+    console.log('    - none');
+  } else {
+    for (const artifact of artifacts) console.log(`    - ${artifact}`);
+  }
+  const warnings = cg.displayWarnings.length > 0 ? cg.displayWarnings : cg.warnings;
+  if (warnings.length > 0) {
+    console.log('  warnings:');
+    for (const warning of warnings) console.log(`    - ${warning}`);
+  }
+}
+
 function resolveRunDir(repoRoot: string, runSelector: string): { runId: string; runDir: string } {
   const paths = getWorkspacePaths(repoRoot);
   if (runSelector === 'latest') {
@@ -1543,7 +1627,8 @@ export function createCli(): Command {
     .description('Show a VibecodeLight run')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
-    .action((runId: string, options: { repo: string; json?: boolean }) => {
+    .option('--artifact <name>', 'Print a whitelisted run artifact (for example codegraph or scan/repo_atlas.md)')
+    .action((runId: string, options: { repo: string; json?: boolean; artifact?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const paths = getWorkspacePaths(repoRoot);
       let resolvedRun: { runId: string; runDir: string };
@@ -1575,6 +1660,29 @@ export function createCli(): Command {
         return;
       }
 
+      if (options.artifact) {
+        try {
+          const artifact = resolveRunArtifactPath(resolvedRun.runDir, options.artifact);
+          process.stdout.write(fs.readFileSync(artifact.absolutePath, 'utf8'));
+        } catch (err) {
+          const error = err instanceof LlmAdapterError ? {
+            code: err.code,
+            message: err.message,
+            path: err.path ?? options.artifact,
+            details: err.details,
+          } : {
+            code: 'ARTIFACT_READ_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+            path: options.artifact,
+            details: [],
+          };
+          if (options.json) console.log(JSON.stringify({ ok: false, error }));
+          else console.error(`runs show failed: ${error.message}`);
+          process.exitCode = 1;
+        }
+        return;
+      }
+
       const info = getRunInfo(resolvedRun.runDir);
       const artifacts = Object.values(info.artifacts).filter((value): value is string => typeof value === 'string');
 
@@ -1595,8 +1703,7 @@ export function createCli(): Command {
       console.log(`runDir: ${info.runDir}`);
       console.log(`final_prompt: ${info.artifacts.final_prompt ?? 'not found'}`);
       console.log(`send_metadata: ${info.artifacts.send_metadata ?? 'not present'}`);
-      console.log(info.codegraph.label);
-      if (info.codegraph.mode) console.log(`mode: ${info.codegraph.mode}`);
+      writeCodeGraphSummary(info);
       console.log('artifacts:');
       const artifactLines: Array<[string, string | undefined]> = [
         ['user_prompt.md', info.artifacts.user_prompt],
@@ -1607,6 +1714,11 @@ export function createCli(): Command {
         ['output/context_pack.md', info.artifacts.context_pack],
         ['skills/selected_skills.json', info.artifacts.selected_skills],
         ['output/final_prompt.md', info.artifacts.final_prompt],
+        ['terminal/send_metadata.json', info.artifacts.send_metadata],
+        ['scan/codegraph_usage.json', info.artifacts.codegraph_usage],
+        ['scan/codegraph_context.md', info.artifacts.codegraph_context],
+        ['scan/repo_atlas.md', info.artifacts.repo_atlas],
+        ['scan/repo_atlas.json', info.artifacts.repo_atlas_json],
       ];
       for (const [label, artifactPath] of artifactLines) {
         console.log(`  ${label}: ${artifactPath ? 'exists' : 'missing'}`);

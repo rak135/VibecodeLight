@@ -66,7 +66,29 @@ describe('desktop renderer preview diagnostics', () => {
     expect(html).toContain("rows.push(['codegraph warning', warningValue])");
     // The detail block under the status label also surfaces warnings.
     expect(html).toContain('cg-warning');
-    // Renderer never reads codegraph_usage.json directly.
-    expect(html).not.toMatch(/codegraph_usage\.json/);
+  });
+
+  test('artifact tab row includes first-class CodeGraph tab between Context Pack and Diagnostics', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+
+    expect(html).toMatch(/Final Prompt[\s\S]*Flash Output[\s\S]*Context Pack[\s\S]*CodeGraph[\s\S]*Diagnostics/);
+    expect(html).toContain('data-tab="codegraph"');
+    expect(html).toContain('id="tab-codegraph"');
+    expect(html).toContain('id="codegraph-preview"');
+  });
+
+  test('CodeGraph tab renders usage state and only shows artifact buttons for existing paths', () => {
+    const html = fs.readFileSync(indexHtml, 'utf8');
+
+    expect(html).toContain('function renderCodeGraphPanel');
+    expect(html).toContain('used for context: ');
+    expect(html).toContain('repo atlas generated: ');
+    expect(html).toContain('scan/codegraph_usage.json');
+    expect(html).toContain('scan/codegraph_context.md');
+    expect(html).toContain('scan/repo_atlas.md');
+    expect(html).toContain('scan/repo_atlas.json');
+    expect(html).toContain('readRunArtifact(result.run_id, artifact.path)');
+    expect(html).toContain('artifact.exists');
+    expect(html).toContain('cg-artifact-btn');
   });
 });

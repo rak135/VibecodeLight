@@ -818,9 +818,13 @@ pnpm vibecode prompt "task" --mock --auto-approve
 pnpm vibecode runs list
 pnpm vibecode runs show latest
 pnpm vibecode runs show latest --json
+pnpm vibecode runs show latest --artifact codegraph
+pnpm vibecode runs show latest --artifact scan/repo_atlas.md
 ```
 
 `prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. By default it does not send anything to a terminal, so no `terminal/send_metadata.json` is created. Adding `--auto-approve` sends the saved `output/final_prompt.md` into a terminal without a separate approval step and writes `terminal/send_metadata.json` with `auto_approve: true` (still no `after/` post-run artifacts). The artifact is the truth — the exact rendered file is what is sent.
+
+`runs show` includes a first-class CodeGraph summary (`used for context`, reason, Repo Atlas status, warnings, and available `scan/` artifacts). The same structured `codegraph` object is present in `runs show --json`; `--artifact codegraph` prints `scan/codegraph_usage.json` for agent assertions without Electron.
 
 ### Internal scanner CLI
 

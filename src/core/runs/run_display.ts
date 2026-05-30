@@ -19,6 +19,10 @@ export interface RunInfo {
     selected_skills?: string;
     final_prompt?: string;
     send_metadata?: string;
+    codegraph_usage?: string;
+    codegraph_context?: string;
+    repo_atlas?: string;
+    repo_atlas_json?: string;
   };
   has_final_prompt: boolean;
   has_send_metadata: boolean;
@@ -60,6 +64,10 @@ export function getRunInfo(runDir: string): RunInfo {
     selected_skills: existing(path.join(runDir, 'skills', 'selected_skills.json')),
     final_prompt: existing(path.join(runDir, 'output', 'final_prompt.md')),
     send_metadata: existing(path.join(runDir, 'terminal', 'send_metadata.json')),
+    codegraph_usage: existing(path.join(runDir, 'scan', 'codegraph_usage.json')),
+    codegraph_context: existing(path.join(runDir, 'scan', 'codegraph_context.md')),
+    repo_atlas: existing(path.join(runDir, 'scan', 'repo_atlas.md')),
+    repo_atlas_json: existing(path.join(runDir, 'scan', 'repo_atlas.json')),
   };
 
   return {

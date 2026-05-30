@@ -500,6 +500,15 @@ input, textarea, select { font: inherit; color: inherit; }
 .cg-chip .cg-dot.ready { background: var(--success); }
 .cg-chip .cg-dot.warn { background: var(--warn); }
 .cg-chip .cg-dot.muted { background: var(--muted); }
+.cg-panel { margin: 0; }
+.cg-artifact-btn {
+  width: fit-content; margin: 2px 0; padding: 3px 7px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 10.5px; cursor: pointer;
+}
+.cg-artifact-btn:hover { background: var(--surface-3); color: var(--text); }
+.cg-artifact-content { margin-top: 8px; max-height: 180px; overflow: auto; }
 
 /* ------------- Per-tile prompt overlay (translucent) ------------- */
 .overlay-layer {
