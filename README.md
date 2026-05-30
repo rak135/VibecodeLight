@@ -59,6 +59,8 @@ selected repository
 → exact prompt sent into a real terminal
 → post-run artifacts
 → per-run git commit
+task normalizer (optional)
+CodeGraph integration (optional)
 ```
 
 Every prompt should become an inspectable artifact.
@@ -95,6 +97,8 @@ Electron shell + composer preview
 send final prompt into terminal (send_metadata.json)
 auto-approve send (desktop composer auto-send after build, and CLI `vibecode prompt --auto-approve`; send_metadata.auto_approve)
 per-run git commit
+task normalizer (optional)
+CodeGraph integration (optional)
 ```
 
 Deferred / not yet implemented:
@@ -140,9 +144,11 @@ The terminal must be a real PTY terminal, not a simulated textarea.
 ```text
 User writes task
   ↓
+Task Normalizer (optional) — translates non-English task into English search hints
+  ↓
 VibecodeLight creates a new run
   ↓
-TypeScript creates run layout and scanner_config.json
+TypeScript creates run layout, task_intent artifacts, and scanner_config.json
   ↓
 Python scanner performs deterministic read-only repository scan
   ↓
@@ -342,6 +348,8 @@ It contains run artifacts such as:
 ```text
 .vibecode/runs/<run_id>/
   user_prompt.md
+  task_intent.json
+  task_intent.md
   run_manifest.json
   scanner_config.json
   scan/
@@ -375,6 +383,23 @@ Canonical current files:
 
 Generated `.vibecode/` artifacts are not committed.
 
+### Optional Task Normalizer
+
+Task Normalizer is an optional, off-by-default feature that translates and expands the user task into English technical search hints before context selection. It does **not** select files, does not invent repository symbols, and is not a source of truth for relevance.
+
+- When enabled, it writes `.vibecode/runs/<run_id>/task_intent.json` and `task_intent.md`. The task intent contains the normalized English task, search hints, keyword groups, constraints, and validation hints.
+- When disabled, it still writes a deterministic disabled artifact (`enabled: false`).
+- If the normalizer fails, the pipeline continues with the raw task. The failure is recorded in the artifact (`ok: false`, `source: "fallback"`).
+- **Not a file selector.** The normalizer produces linguistic/task-intent signals only — no relevant files, no exact source paths, no implementation plan.
+- The python scanner receives expanded search signals via `scanner_config.json` (normalized English task, search hints, keyword groups).
+- Flash compaction and `task_slice.md` surface selection reasons from normalized task terms.
+- CodeGraph queries use the enriched English task when the normalizer runs successfully.
+- `flash_input.md` includes a visible **Task Intent** section showing the normalized English task, search hints, and constraints.
+
+Opting in is per-build and explicit. CLI: `vibecode prompt --task-normalizer` or `vibecode prompt --no-task-normalizer` (and the matching `context-build` variants). Desktop: the **Task Normalizer** toggle in the composer header (ON = enabled, OFF = disabled; persisted in `localStorage` under `vibelight.taskNormalizerEnabled`).
+
+The normalizer uses the flash LLM provider for inference. By default (disabled), no LLM call is made and no cost is incurred. Default tests use a mock normalizer — no live provider calls.
+
 ### Optional CodeGraph
 
 CodeGraph is an optional, off-by-default code-intelligence tool. By default VibecodeLight only detects it. A context build may explicitly opt into using an existing initialized local CodeGraph index as read-only input; VibecodeLight still never auto-runs `codegraph init`, `index`, `sync`, or `watch`, and never creates `.codegraph/` during context build.
@@ -397,6 +422,8 @@ Canonical run layout:
 ```text
 .vibecode/runs/<run_id>/
   user_prompt.md
+  task_intent.json
+  task_intent.md
   run_manifest.json
   scanner_config.json
 
@@ -835,6 +862,35 @@ pnpm vibecode runs show latest --artifact scan/codegraph_repo_atlas.md
 `prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. By default it does not send anything to a terminal, so no `terminal/send_metadata.json` is created. Adding `--auto-approve` sends the saved `output/final_prompt.md` into a terminal without a separate approval step and writes `terminal/send_metadata.json` with `auto_approve: true` (still no `after/` post-run artifacts). The artifact is the truth — the exact rendered file is what is sent. For CodeGraph-derived Repo Atlas artifacts, the canonical scan paths are `scan/codegraph_repo_atlas.md` / `scan/codegraph_repo_atlas.json`; the legacy compatibility aliases `scan/repo_atlas.md` / `scan/repo_atlas.json` are also written.
 
 `runs show` includes a first-class CodeGraph summary (`used for context`, reason, Repo Atlas status, warnings, and available `scan/` artifacts). The same structured `codegraph` object is present in `runs show --json`; `--artifact codegraph` prints `scan/codegraph_usage.json` for agent assertions without Electron.
+
+### Optional Task Normalizer
+
+Task Normalizer is an optional, off-by-default feature that translates and expands the user task into English technical search hints before context selection. It does **not** select files, does not invent repository symbols, and is not a source of truth for relevance.
+
+- When enabled, it writes `.vibecode/runs/<run_id>/task_intent.json` and `task_intent.md`. The task intent contains the normalized English task, search hints, keyword groups, constraints, and validation hints.
+- When disabled, it still writes a deterministic disabled artifact (`enabled: false`).
+- If the normalizer fails, the pipeline continues with the raw task. The failure is recorded in the artifact (`ok: false`, `source: "fallback"`).
+- **Not a file selector.** The normalizer produces linguistic/task-intent signals only — no relevant files, no exact source paths, no implementation plan.
+- The python scanner receives expanded search signals via `scanner_config.json` (normalized English task, search hints, keyword groups).
+- Flash compaction and `task_slice.md` surface selection reasons from normalized task terms.
+- CodeGraph queries use the enriched English task when the normalizer runs successfully.
+- `flash_input.md` includes a visible **Task Intent** section showing the normalized English task, search hints, and constraints.
+
+Opting in is per-build and explicit. CLI: `vibecode prompt --task-normalizer` or `vibecode prompt --no-task-normalizer` (and the matching `context-build` variants). Desktop: the **Task Normalizer** toggle in the composer header (ON = enabled, OFF = disabled; persisted in `localStorage` under `vibelight.taskNormalizerEnabled`).
+
+The normalizer uses the flash LLM provider for inference. By default (disabled), no LLM call is made and no cost is incurred. Default tests use a mock normalizer — no live provider calls.
+
+### Optional Task Normalizer CLI
+
+```powershell
+pnpm vibecode prompt "task" --task-normalizer                  # enable task normalizer
+pnpm vibecode prompt "task" --no-task-normalizer               # disable (default)
+pnpm vibecode context-build "task" --task-normalizer
+pnpm vibecode context-build "task" --no-task-normalizer
+pnpm vibecode runs show latest --artifact task-intent          # read task_intent.json
+```
+
+`runs show latest` includes a Task Normalizer summary (enabled, ok status, detected language, normalized English task, search hints, warnings) in both human and `--json` output when `task_intent.json` is present.
 
 ### Optional CodeGraph CLI
 

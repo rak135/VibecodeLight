@@ -172,6 +172,7 @@ vibecode-light/
       pty/
       llm/
       env/
+      task_normalizer/
 
   docs/
     VISION.md
@@ -450,6 +451,8 @@ Canonical run layout:
 ```text
 .vibecode/runs/<run_id>/
   user_prompt.md
+  task_intent.json          # task normalizer output
+  task_intent.md            # human-readable task intent summary
   run_manifest.json
   scanner_config.json
 
