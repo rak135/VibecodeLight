@@ -71,6 +71,8 @@ describe('MockFlashAdapter', () => {
     expect(second).toBe(first);
     expect(JSON.parse(first)).toEqual({
       task_summary: `Mock flash run for ${runId}.\nInput anchor: # Flash Input`,
+      constraints: [],
+      validation_hints: [],
       selected_skills: [],
       relevant_files: ['README.md'],
       files_to_read_with_tools: ['README.md'],

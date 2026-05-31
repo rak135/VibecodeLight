@@ -11,6 +11,8 @@ function makeRunDir(tmpDir: string, opts?: {
   withSkillContents?: boolean;
   withFlashMeta?: boolean;
   withTaskSummary?: string;
+  withConstraints?: string[];
+  withValidationHints?: string[];
   withFlashOutputTaskSummary?: string;
   withTaskIntent?: boolean;
   withScanCommands?: boolean;
@@ -18,6 +20,7 @@ function makeRunDir(tmpDir: string, opts?: {
   withArchDocs?: boolean;
   withGitStatus?: boolean;
   withExactTextMatches?: boolean;
+  withScanExactTextHits?: boolean;
 }): string {
   const runId = 'test-run-001';
   const runDir = path.join(tmpDir, runId);
@@ -84,6 +87,8 @@ function makeRunDir(tmpDir: string, opts?: {
       commands_to_run: ['pnpm test', 'pnpm exec tsc --noEmit'],
       cautions: ['Do not break the public API.'],
       ...(opts.withTaskSummary ? { task_summary: opts.withTaskSummary } : {}),
+      ...(opts.withConstraints ? { constraints: opts.withConstraints } : {}),
+      ...(opts.withValidationHints ? { validation_hints: opts.withValidationHints } : {}),
       warnings: [],
     };
     fs.writeFileSync(path.join(runDir, 'flash', 'flash_output_meta.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
@@ -110,8 +115,31 @@ function makeRunDir(tmpDir: string, opts?: {
     );
   }
 
-  // optional: flash/flash_output.md with a Task Summary not mirrored into flash_output_meta.json.
-  // This matches older finalized runs whose metadata predates task_summary extraction.
+  // optional: scan/exact_text_hits.json
+  if (opts?.withScanExactTextHits) {
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    const exactTextHits = {
+      exact_text_hits: [
+        {
+          term: 'Translates and expands your task into English search hints before context selection. Does not select files.',
+          source: 'parenthesized',
+          match_type: 'exact_text',
+          path: 'src/app/desktop/renderer/index.html',
+          line: 114,
+          excerpt: 'title="Translates and expands your task into English search hints before context selection. Does not select files."',
+        },
+      ],
+      warnings: [],
+    };
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'exact_text_hits.json'),
+      JSON.stringify(exactTextHits, null, 2) + '\n',
+      'utf8',
+    );
+  }
+
+  // optional: flash/flash_output.md containing a Task Summary that should not be
+  // used as a renderer fallback. The current renderer only trusts flash_output_meta.json.
   if (opts?.withFlashOutputTaskSummary) {
     fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
     fs.writeFileSync(
@@ -258,26 +286,19 @@ describe('renderFinalPrompt', () => {
     expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Product Shape'));
   });
 
-  test('final_prompt.md falls back to flash_output task summary when metadata predates task_summary extraction', () => {
+  test('final_prompt.md renders constraints and validation hints from flash metadata', () => {
     const taskSummary = 'Remove the task normalizer description text from the GUI and retain only the toggle switch.';
-    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withFlashOutputTaskSummary: taskSummary });
+    const runDir = makeRunDir(tmpDir, {
+      withFlashMeta: true,
+      withTaskSummary: taskSummary,
+      withConstraints: ['do not remove the toggle switch'],
+      withValidationHints: ['verify the Task Normalizer toggle remains visible'],
+      withExactTextMatches: true,
+    });
 
     renderFinalPrompt(runDir);
 
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-    expect(content).toContain('## Task Summary');
-    expect(content).toContain(taskSummary);
-    expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Product Shape'));
-  });
-
-  test('final_prompt.md falls back to Task Normalizer intent and renders constraints and validation hints', () => {
-    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withTaskIntent: true, withExactTextMatches: true });
-
-    renderFinalPrompt(runDir);
-
-    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-    expect(content).toContain('## Task Summary');
-    expect(content).toContain('Remove the Task Normalizer description from the GUI and keep only the toggle switch.');
     expect(content).toContain('## Constraints');
     expect(content).toContain('- do not remove the toggle switch');
     expect(content).toContain('## Validation Hints');
@@ -285,6 +306,30 @@ describe('renderFinalPrompt', () => {
     expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Constraints'));
     expect(content.indexOf('## Constraints')).toBeLessThan(content.indexOf('## Validation Hints'));
     expect(content.indexOf('## Validation Hints')).toBeLessThan(content.indexOf('## Exact Text Matches'));
+    expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Product Shape'));
+  });
+
+  test('final_prompt.md does not parse flash_output.md as a task summary fallback', () => {
+    const taskSummary = 'Remove the task normalizer description text from the GUI and retain only the toggle switch.';
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withFlashOutputTaskSummary: taskSummary });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    expect(content).not.toContain(`## Task Summary\n${taskSummary}`);
+    expect(content).toContain('## Renderer Warnings');
+    expect(content).toContain('Missing task_summary in flash_output_meta.json.');
+  });
+
+  test('final_prompt.md does not use Task Normalizer intent as a missing task summary fallback', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withTaskIntent: true, withExactTextMatches: true });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    expect(content).not.toContain('## Task Summary\nRemove the Task Normalizer description from the GUI and keep only the toggle switch.');
+    expect(content).toContain('## Renderer Warnings');
+    expect(content).toContain('Missing task_summary in flash_output_meta.json.');
     expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Product Shape'));
   });
 
@@ -301,14 +346,33 @@ describe('renderFinalPrompt', () => {
     expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Relevant Files'));
   });
 
-  test('final_prompt.md renders without task summary when flash meta omits it', () => {
+  test('final_prompt.md renders exact text matches from scan exact_text_hits.json', () => {
+    const taskSummary = 'Remove the task normalizer description text from the GUI and retain only the toggle switch.';
+    const runDir = makeRunDir(tmpDir, {
+      withFlashMeta: true,
+      withTaskSummary: taskSummary,
+      withScanExactTextHits: true,
+    });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    expect(content).toContain('## Exact Text Matches');
+    expect(content).toContain('src/app/desktop/renderer/index.html');
+    expect(content).toContain('exact text match');
+  });
+
+  test('final_prompt.md shows explicit renderer warning when flash meta omits task_summary', () => {
     const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
 
     const result = renderFinalPrompt(runDir);
 
     expect(result.ok).toBe(true);
+    expect(result.warnings).toContain('Missing task_summary in flash_output_meta.json.');
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
     expect(content).not.toContain('## Task Summary');
+    expect(content).toContain('## Renderer Warnings');
+    expect(content).toContain('- Missing task_summary in flash_output_meta.json.');
     expect(content).toContain('## Product Shape');
   });
 

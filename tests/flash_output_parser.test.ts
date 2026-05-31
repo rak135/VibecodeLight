@@ -114,9 +114,11 @@ describe('parseFlashOutput', () => {
     expect(meta.selected_skills).toEqual(['test-driven-development', 'subagent-driven-development']);
   });
 
-  test('task summary can be extracted', () => {
+  test('task summary, constraints, and validation hints can be extracted', () => {
     const meta = extractFlashOutputMeta([
       { name: 'Task Summary', body: '  Remove the task normalizer description and keep only the toggle.\n\n' },
+      { name: 'Constraints', body: '- do not remove the toggle switch\n' },
+      { name: 'Validation Hints', body: '- verify the Task Normalizer toggle remains visible\n' },
       { name: 'Relevant Files', body: '' },
       { name: 'Files To Read With Tools', body: '' },
       { name: 'Relevant Tests', body: '' },
@@ -127,6 +129,8 @@ describe('parseFlashOutput', () => {
     ]);
 
     expect(meta.task_summary).toBe('Remove the task normalizer description and keep only the toggle.');
+    expect(meta.constraints).toEqual(['do not remove the toggle switch']);
+    expect(meta.validation_hints).toEqual(['verify the Task Normalizer toggle remains visible']);
   });
 
   test('relevant_files list can be extracted', () => {

@@ -1,9 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 import type { FlashOutputMeta } from '../context/flash_output_meta.js';
-import { parseFlashOutput } from '../context/markdown_flash_output_parser.js';
 import type { RunManifest } from '../models/index.js';
 
 // ---------------------------------------------------------------------------
@@ -65,20 +63,6 @@ function readOptionalJson<T>(filePath: string): T | null {
   }
 }
 
-function readOptionalFlashOutputTaskSummary(flashOutputPath: string): string | undefined {
-  if (!fs.existsSync(flashOutputPath)) return undefined;
-  try {
-    const parsed = parseFlashOutput(fs.readFileSync(flashOutputPath, 'utf8'), flashOutputPath);
-    return parsed.sections.find((section) => section.name === 'Task Summary')?.body.trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function readOptionalTaskIntent(taskIntentPath: string): TaskIntent | null {
-  return readOptionalJson<TaskIntent>(taskIntentPath);
-}
-
 // ---------------------------------------------------------------------------
 // Template builder
 // ---------------------------------------------------------------------------
@@ -96,6 +80,15 @@ interface RelevanceSelectionArtifact {
   selected_files?: Array<{ path?: unknown; reasons?: unknown }>;
 }
 
+interface ExactTextHitsArtifact {
+  exact_text_hits?: Array<{
+    path?: unknown;
+    term?: unknown;
+    match_type?: unknown;
+    line?: unknown;
+  }>;
+}
+
 function exactTextSelectionItems(selection: RelevanceSelectionArtifact | null): string[] {
   const items = Array.isArray(selection?.selected_files) ? selection.selected_files : [];
   const out: string[] = [];
@@ -111,6 +104,18 @@ function exactTextSelectionItems(selection: RelevanceSelectionArtifact | null): 
   return uniqueItems(out);
 }
 
+function exactTextHitItems(hits: ExactTextHitsArtifact | null): string[] {
+  const items = Array.isArray(hits?.exact_text_hits) ? hits.exact_text_hits : [];
+  const out: string[] = [];
+  for (const item of items) {
+    if (typeof item.path !== 'string' || item.path.length === 0) continue;
+    if (typeof item.term !== 'string' || item.term.length === 0) continue;
+    const location = typeof item.line === 'number' ? ` line ${item.line}` : '';
+    out.push(`${item.path}${location} — exact text match: "${item.term}"`);
+  }
+  return uniqueItems(out);
+}
+
 interface BuildFinalPromptOptions {
   task: string;
   manifest: RunManifest;
@@ -118,23 +123,32 @@ interface BuildFinalPromptOptions {
   skillContents: string;
   hasSelectedSkills: boolean;
   flashMeta: FlashOutputMeta | null;
-  task_summary?: string;
-  taskIntent?: TaskIntent | null;
   scanCommands: string[];
   repoInstructionFiles: string[];
   deterministicRelevantFiles: string[];
+  rendererWarnings: string[];
 }
 
 function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
-  const { task, manifest, contextPack, skillContents, hasSelectedSkills, flashMeta, task_summary, taskIntent, scanCommands, repoInstructionFiles, deterministicRelevantFiles } = opts;
+  const {
+    task,
+    manifest,
+    contextPack,
+    skillContents,
+    hasSelectedSkills,
+    flashMeta,
+    scanCommands,
+    repoInstructionFiles,
+    deterministicRelevantFiles,
+    rendererWarnings,
+  } = opts;
 
   const relevantFiles = uniqueItems([...(flashMeta?.relevant_files ?? [])]);
   const filesToInspect = uniqueItems([...deterministicRelevantFiles, ...(flashMeta?.files_to_read_with_tools ?? [])]);
   const cautions = flashMeta?.cautions ?? [];
-  const normalizedTaskSummary = taskIntent?.enabled && taskIntent.ok ? taskIntent.normalized_english_task.trim() : '';
-  const taskSummary = task_summary?.trim() || normalizedTaskSummary;
-  const constraints = taskIntent?.enabled && taskIntent.ok ? taskIntent.negative_constraints : [];
-  const validationHints = taskIntent?.enabled && taskIntent.ok ? taskIntent.validation_hints : [];
+  const taskSummary = flashMeta?.task_summary?.trim() ?? '';
+  const constraints = flashMeta?.constraints ?? [];
+  const validationHints = flashMeta?.validation_hints ?? [];
 
   // Commands: prefer flash meta, fall back to scan commands
   const commands = flashMeta?.commands_to_run?.length
@@ -153,13 +167,14 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     : '_No repository instruction files detected._\n';
 
   const contextPackBlocks: string[] = [];
+  if (rendererWarnings.length > 0) {
+    contextPackBlocks.push(`## Renderer Warnings\n${listItems(rendererWarnings).trimEnd()}`);
+  }
   if (taskSummary) {
     contextPackBlocks.push(`## Task Summary\n${taskSummary}`);
   }
-  if (taskIntent?.enabled && taskIntent.ok) {
-    contextPackBlocks.push(`## Constraints\n${listItems(constraints).trimEnd()}`);
-    contextPackBlocks.push(`## Validation Hints\n${listItems(validationHints).trimEnd()}`);
-  }
+  contextPackBlocks.push(`## Constraints\n${listItems(constraints).trimEnd()}`);
+  contextPackBlocks.push(`## Validation Hints\n${listItems(validationHints).trimEnd()}`);
   if (deterministicRelevantFiles.length > 0) {
     contextPackBlocks.push(`## Exact Text Matches\n${listItems(deterministicRelevantFiles).trimEnd()}`);
   }
@@ -229,17 +244,19 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
 
     // --- Optional artifacts ---
     const flashMetaPath = path.join(runDir, 'flash', 'flash_output_meta.json');
-    const flashOutputPath = path.join(runDir, 'flash', 'flash_output.md');
-    const taskIntentPath = path.join(runDir, 'task_intent.json');
     const relevanceSelectionPath = path.join(runDir, 'flash', 'relevance_selection.json');
+    const exactTextHitsPath = path.join(runDir, 'scan', 'exact_text_hits.json');
     const scanCommandsPath = path.join(runDir, 'scan', 'commands.json');
     const repoInstructionsPath = path.join(runDir, 'scan', 'repo_instructions.json');
 
     const flashMeta = readOptionalMeta(flashMetaPath);
-    const taskIntent = readOptionalTaskIntent(taskIntentPath);
-    const deterministicRelevantFiles = exactTextSelectionItems(
-      readOptionalJson<RelevanceSelectionArtifact>(relevanceSelectionPath),
-    );
+    if (!flashMeta?.task_summary?.trim()) {
+      warnings.push('Missing task_summary in flash_output_meta.json.');
+    }
+    const deterministicRelevantFiles = uniqueItems([
+      ...exactTextHitItems(readOptionalJson<ExactTextHitsArtifact>(exactTextHitsPath)),
+      ...exactTextSelectionItems(readOptionalJson<RelevanceSelectionArtifact>(relevanceSelectionPath)),
+    ]);
 
     const scanCommandsJson = readOptionalJson<{ commands?: unknown }>(scanCommandsPath);
     // The Python scanner may write commands as a categorised object {install,run,test}
@@ -265,11 +282,10 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       skillContents,
       hasSelectedSkills,
       flashMeta,
-      task_summary: flashMeta?.task_summary ?? readOptionalFlashOutputTaskSummary(flashOutputPath),
-      taskIntent,
       scanCommands,
       repoInstructionFiles,
       deterministicRelevantFiles,
+      rendererWarnings: warnings,
     });
 
     // --- Write output/final_prompt.md ---
