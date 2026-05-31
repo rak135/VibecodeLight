@@ -840,6 +840,10 @@ describe('renderFinalPrompt', () => {
     // Repo atlas content appears after task-specific Context Pack sections.
     expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Repo Atlas Summary'));
     expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Repo Atlas Summary'));
+
+    // Task Normalizer diagnostic sections must never appear in final_prompt.md.
+    expect(content).not.toMatch(/^## Task Intent$/m);
+    expect(content).not.toMatch(/^## Search Hints$/m);
   });
 
   // -------------------------------------------------------------------------
@@ -1020,6 +1024,104 @@ describe('renderFinalPrompt', () => {
     expect(indexHtmlBullets).toBe(1);
     expect(filesSection).not.toContain('(line 114)');
     expect(filesSection).not.toContain('`src/app/desktop/renderer/index.html`');
+  });
+
+  // -------------------------------------------------------------------------
+  // Task Normalizer diagnostic stripping
+  // -------------------------------------------------------------------------
+
+  test('final_prompt.md strips Task Intent / Search Hints / Constraints diagnostic sections from the context pack body', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withTaskSummary: 'Real task summary.' });
+    // Simulate flash leaking Task Normalizer diagnostic sections into the
+    // Context Pack body (this is what was producing the duplicate block at
+    // the end of final_prompt.md).
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      [
+        '## Product Shape',
+        'Vibecode app.',
+        '',
+        '## Task Intent',
+        'Remove the task normalizer description.',
+        '',
+        '## Constraints',
+        '- Do not remove toggle switch',
+        '',
+        '## Search Hints',
+        '- GUI',
+        '- task normalizer',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    expect(content).toContain('## Task Summary');
+    expect(content).toContain('## Product Shape');
+    expect(content).not.toMatch(/^## Task Intent$/m);
+    expect(content).not.toMatch(/^## Search Hints$/m);
+    expect(content).not.toContain('Remove the task normalizer description.');
+    expect(content).not.toContain('- GUI');
+  });
+
+  test('final_prompt.md does not render duplicate Constraints from context pack when flash meta already provides them', () => {
+    const runDir = makeRunDir(tmpDir, {
+      withFlashMeta: true,
+      withTaskSummary: 'Real task summary.',
+      withConstraints: ['do not remove the toggle switch'],
+    });
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      [
+        '## Product Shape',
+        'Vibecode app.',
+        '',
+        '## Constraints',
+        '- Do not remove toggle switch',
+        '- Remove task normalizer description',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    const constraintsCount = (content.match(/^## Constraints$/gm) ?? []).length;
+    expect(constraintsCount).toBe(1);
+    // The single surviving Constraints block must be the one rendered from
+    // flash_output_meta, not the duplicate from the context pack body.
+    expect(content).toContain('- do not remove the toggle switch');
+    expect(content).not.toContain('- Remove task normalizer description');
+  });
+
+  test('final_prompt.md omits the context pack body entirely if it only contained Task Normalizer diagnostics', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withTaskSummary: 'Real task summary.' });
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      [
+        '## Task Intent',
+        'Remove the task normalizer description.',
+        '',
+        '## Constraints',
+        '- Do not remove toggle switch',
+        '',
+        '## Search Hints',
+        '- GUI',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    expect(content).toContain('## Task Summary');
+    expect(content).not.toMatch(/^## Task Intent$/m);
+    expect(content).not.toMatch(/^## Search Hints$/m);
+    expect(content).not.toContain('- GUI');
   });
 
   test('final_prompt.md unwraps an outer ```markdown fence around the context pack body', () => {

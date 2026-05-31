@@ -201,6 +201,49 @@ export function unwrapOuterMarkdownFence(content: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Task Normalizer diagnostic section stripping
+// ---------------------------------------------------------------------------
+
+/**
+ * Headings produced by the Task Normalizer diagnostic flow that occasionally
+ * leak into the flash-authored Context Pack body. They duplicate signal that
+ * is already represented authoritatively elsewhere in final_prompt.md
+ * (Task Summary, Cautions, Exact Text Matches, Relevant Files) and are
+ * therefore stripped before rendering.
+ *
+ * task_intent.json itself is left untouched on disk; this only filters what
+ * the implementation agent sees in final_prompt.md.
+ */
+const TASK_NORMALIZER_DIAGNOSTIC_HEADINGS = new Set([
+  'Task Intent',
+  'Search Hints',
+  'Constraints',
+]);
+
+export function stripTaskNormalizerDiagnostics(content: string): string {
+  if (!content) return content;
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  let skipping = false;
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+?)\s*$/);
+    if (h2) {
+      const name = h2[1].trim();
+      if (TASK_NORMALIZER_DIAGNOSTIC_HEADINGS.has(name)) {
+        skipping = true;
+        continue;
+      }
+      skipping = false;
+    } else if (/^#\s+/.test(line)) {
+      skipping = false;
+    }
+    if (!skipping) out.push(line);
+  }
+  while (out.length > 0 && out[out.length - 1].trim() === '') out.pop();
+  return out.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // File-kind classifier (used only for final prompt rendering priority)
 // ---------------------------------------------------------------------------
 
@@ -499,7 +542,10 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     contextPackBlocks.push(`## Cautions\n${listItems(cautions).trimEnd()}`);
   }
   if (contextPack.trim().length > 0) {
-    contextPackBlocks.push(unwrapOuterMarkdownFence(contextPack).trim());
+    const cleaned = stripTaskNormalizerDiagnostics(unwrapOuterMarkdownFence(contextPack)).trim();
+    if (cleaned.length > 0) {
+      contextPackBlocks.push(cleaned);
+    }
   }
 
   const sections: string[] = [
