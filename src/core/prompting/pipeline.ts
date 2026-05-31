@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 
-import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { buildCodeGraphContext, writeCodeGraphContextArtifacts, type CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
 import { LlmAdapterError } from '../../adapters/llm/errors.js';
@@ -23,6 +22,7 @@ import {
   getPreviousRunSummary,
   markFlashInputProviderCalled,
 } from '../context/index.js';
+import { buildCodeGraphTask } from './codegraph_task.js';
 import { renderFinalPrompt } from './renderer.js';
 import { resolveFlashSystemPrompt, writeFlashSystemPromptArtifacts } from '../../core/prompts/flash_system_prompt.js';
 import type { PipelineEvent, PipelineProgressCallback } from './pipeline_events.js';
@@ -96,23 +96,6 @@ function errorResult(code: string, message: string, pathValue = '', details: str
       details,
     },
   };
-}
-
-function buildCodeGraphTask(rawTask: string, taskIntent: TaskIntent): string {
-  if (!taskIntent.enabled || !taskIntent.ok) return rawTask;
-
-  const parts = [
-    `Original task:\n${rawTask}`,
-    `\nNormalized task:\n${taskIntent.normalized_english_task}`,
-  ];
-  if (taskIntent.search_hints.length > 0) {
-    parts.push(`\nSearch hints:\n${taskIntent.search_hints.slice(0, 10).map((hint) => `- ${hint}`).join('\n')}`);
-  }
-  if (taskIntent.negative_constraints.length > 0) {
-    parts.push(`\nConstraints:\n${taskIntent.negative_constraints.slice(0, 5).map((constraint) => `- ${constraint}`).join('\n')}`);
-  }
-  const combined = parts.join('');
-  return combined.length <= 2000 ? combined : rawTask;
 }
 
 export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<PromptPipelineResult> {

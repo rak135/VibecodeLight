@@ -6,6 +6,7 @@ This is evidence, not relevance scoring. No numeric scores are produced.
 For each keyword extracted from the task we emit one hit per match site:
     {
         "keyword": "<token>",
+        "provenance": "raw_task" | "normalized_task" | "search_hint" | "keyword_group:<name>",
         "match_type": "path" | "filename" | "symbol" | "heading",
         "path": "<rel>",
         "line"?: <int>,           # for symbols/headings
@@ -15,7 +16,7 @@ For each keyword extracted from the task we emit one hit per match site:
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, NamedTuple
 
 # Common English/programming stopwords to drop from the task before matching.
 # Kept short and conservative.
@@ -39,21 +40,74 @@ _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]+")
 _MIN_LEN = 3
 
 
-def _tokenize_task(task: str) -> list[str]:
-    if not task:
+class KeywordSignal(NamedTuple):
+    keyword: str
+    provenance: str
+
+
+def _tokenize_text(text: str) -> list[str]:
+    if not text:
         return []
-    tokens = _TOKEN_RE.findall(task.lower())
+    tokens = _TOKEN_RE.findall(text.lower())
     seen: set[str] = set()
     out: list[str] = []
-    for t in tokens:
-        if len(t) < _MIN_LEN:
+    for token in tokens:
+        if len(token) < _MIN_LEN:
             continue
-        if t in _STOPWORDS:
+        if token in _STOPWORDS:
             continue
-        if t in seen:
+        if token in seen:
             continue
-        seen.add(t)
-        out.append(t)
+        seen.add(token)
+        out.append(token)
+    return out
+
+
+def _tokenize_task(task: str) -> list[str]:
+    return _tokenize_text(task)
+
+
+def _add_keyword_signals(signals: list[KeywordSignal], text: str, provenance: str, seen: set[tuple[str, str]]) -> None:
+    for token in _tokenize_text(text):
+        key = (token, provenance)
+        if key in seen:
+            continue
+        seen.add(key)
+        signals.append(KeywordSignal(keyword=token, provenance=provenance))
+
+
+def _build_keyword_signals(
+    task: str,
+    normalized_english_task: str = "",
+    search_hints: Iterable[str] | None = None,
+    keyword_groups: dict[str, Iterable[str]] | None = None,
+) -> list[KeywordSignal]:
+    seen: set[tuple[str, str]] = set()
+    signals: list[KeywordSignal] = []
+    _add_keyword_signals(signals, task, "raw_task", seen)
+    _add_keyword_signals(signals, normalized_english_task, "normalized_task", seen)
+    for hint in search_hints or []:
+        if isinstance(hint, str):
+            _add_keyword_signals(signals, hint, "search_hint", seen)
+    for group_name, terms in (keyword_groups or {}).items():
+        if not isinstance(group_name, str):
+            continue
+        if not isinstance(terms, Iterable) or isinstance(terms, (str, bytes)):
+            continue
+        for term in terms:
+            if isinstance(term, str):
+                _add_keyword_signals(signals, term, f"keyword_group:{group_name}", seen)
+    return signals
+
+
+def _unique_keywords(signals: Iterable[KeywordSignal]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for signal in signals:
+        if signal.keyword in seen:
+            continue
+        seen.add(signal.keyword)
+        out.append(signal.keyword)
     return out
 
 
@@ -73,6 +127,9 @@ def run_keyword_scan(
     file_inventory: Iterable[dict[str, Any]],
     symbols: Iterable[dict[str, Any]],
     doc_payloads: Iterable[dict[str, Any]],
+    normalized_english_task: str = "",
+    search_hints: Iterable[str] | None = None,
+    keyword_groups: dict[str, Iterable[str]] | None = None,
 ) -> dict[str, Any]:
     """
     file_inventory: list of records with at least "path".
@@ -80,7 +137,8 @@ def run_keyword_scan(
     doc_payloads: list of doc payload dicts (each with key like "docs"/"architecture_docs"/"repo_instructions"
         whose value is a list of entries with "path" and "headings").
     """
-    keywords = _tokenize_task(task)
+    keyword_signals = _build_keyword_signals(task, normalized_english_task, search_hints, keyword_groups)
+    keywords = _unique_keywords(keyword_signals)
     hits: list[dict[str, Any]] = []
     warnings: list[str] = []
 
@@ -111,13 +169,15 @@ def run_keyword_scan(
                     if isinstance(text, str):
                         heading_index.append((text.lower(), path, int(h.get("level") or 0)))
 
-    for kw in keywords:
+    for signal in keyword_signals:
+        kw = signal.keyword
+        provenance = signal.provenance
         # Path / filename
         for p in inv_paths:
             mt = _path_match(kw, p)
             if mt is None:
                 continue
-            hits.append({"keyword": kw, "match_type": mt, "path": p})
+            hits.append({"keyword": kw, "provenance": provenance, "match_type": mt, "path": p})
 
         # Symbols (name match, case-insensitive substring)
         for s in sym_list:
@@ -127,6 +187,7 @@ def run_keyword_scan(
             if kw in name.lower():
                 hit: dict[str, Any] = {
                     "keyword": kw,
+                    "provenance": provenance,
                     "match_type": "symbol",
                     "path": s.get("path", ""),
                 }
@@ -143,6 +204,7 @@ def run_keyword_scan(
                 hits.append(
                     {
                         "keyword": kw,
+                        "provenance": provenance,
                         "match_type": "heading",
                         "path": path,
                         "excerpt": text_lower,
@@ -151,6 +213,9 @@ def run_keyword_scan(
 
     return {
         "task": task,
+        "normalized_english_task": normalized_english_task,
+        "search_hints": list(search_hints or []),
+        "keyword_groups": keyword_groups or {},
         "keywords": keywords,
         "keyword_hits": hits,
         "warnings": warnings,

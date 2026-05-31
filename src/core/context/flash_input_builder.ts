@@ -3,6 +3,7 @@ import {
   FlashInputManifest,
 } from './flash_input_manifest.js';
 import { buildCompactFlashContext } from './flash_compaction.js';
+import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 
 // Note: getPreviousRunSummary is called by the CLI/orchestrator and passed as previousRunSummary string.
 // The builder only formats what it receives.
@@ -13,6 +14,7 @@ export interface BuildFlashInputOptions {
   repo_root: string;
   runDir: string;
   previousRunSummary?: string | undefined;
+  taskIntent?: TaskIntent | undefined;
   manifest?: FlashInputManifest;
 }
 
@@ -33,5 +35,6 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
     repo_root: opts.repo_root,
     runDir: opts.runDir,
     previousRunSummary: opts.previousRunSummary,
+    taskIntent: opts.taskIntent,
   }).flashInput;
 }

@@ -105,3 +105,52 @@ class TestKeywordHits:
             assert h["match_type"] in (
                 "path", "filename", "symbol", "heading", "content_excerpt"
             ), f"unexpected match_type: {h['match_type']}"
+
+    def test_scanner_config_normalized_task_search_hints_and_keyword_groups_expand_hits(self, tmp_path: Path):
+        ui_dir = tmp_path / "src" / "ui"
+        ui_dir.mkdir(parents=True)
+        (ui_dir / "renderer_panel.ts").write_text("export function toggleRenderer() { return true; }\n", encoding="utf-8")
+        (tmp_path / "raw_only.ts").write_text("export const rawOnly = true;\n", encoding="utf-8")
+        scanner_config = tmp_path / "scanner_config.json"
+        scanner_config.write_text(
+            json.dumps(
+                {
+                    "run_id": "keyword-normalized-fixture",
+                    "task": "Oprav přepínač panelu",
+                    "repo_root": str(tmp_path),
+                    "out_dir": "scan",
+                    "normalized_english_task": "Fix renderer panel behavior",
+                    "search_hints": ["renderer", "toggle"],
+                    "keyword_groups": {"ui_terms": ["panel"], "test_terms": ["renderer"]},
+                }
+            ),
+            encoding="utf-8",
+        )
+        out_dir = tmp_path / "scan"
+
+        result = run_scanner(
+            [
+                "--repo",
+                str(tmp_path),
+                "--task",
+                "Oprav přepínač panelu",
+                "--scanner-config",
+                str(scanner_config),
+                "--out",
+                str(out_dir),
+            ]
+        )
+
+        assert result.returncode == 0, result.stderr
+        data = json.loads((out_dir / "keyword_hits.json").read_text(encoding="utf-8"))
+        hits = data["keyword_hits"]
+        renderer_hits = [h for h in hits if h["keyword"] == "renderer" and h["path"] == "src/ui/renderer_panel.ts"]
+        toggle_hits = [h for h in hits if h["keyword"] == "toggle" and h["path"] == "src/ui/renderer_panel.ts"]
+        panel_hits = [h for h in hits if h["keyword"] == "panel" and h["path"] == "src/ui/renderer_panel.ts"]
+
+        assert any(h.get("provenance") == "normalized_task" for h in renderer_hits), hits
+        assert any(h.get("provenance") == "search_hint" for h in renderer_hits), hits
+        assert any(h.get("provenance") == "search_hint" for h in toggle_hits), hits
+        assert any(h.get("provenance") == "keyword_group:ui_terms" for h in panel_hits), hits
+        assert "renderer" in data["keywords"]
+        assert "toggle" in data["keywords"]

@@ -315,6 +315,32 @@ def _gather_git_diff_stat(repo_root: Path) -> tuple[str, str | None]:
     return out or "(no changes)\n", None
 
 
+def _load_scanner_config(scanner_config_path: Path | None) -> dict[str, Any]:
+    if scanner_config_path is None or not scanner_config_path.exists():
+        return {}
+    try:
+        data = json.loads(scanner_config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _keyword_groups(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    groups: dict[str, list[str]] = {}
+    for key, terms in value.items():
+        if isinstance(key, str):
+            groups[key] = _string_list(terms)
+    return groups
+
+
 def run_base_scan(
     repo_root: Path,
     task: str,
@@ -330,6 +356,12 @@ def run_base_scan(
 
     warnings: list[str] = []
     errors: list[str] = []
+    scanner_config = _load_scanner_config(scanner_config_path)
+    normalized_english_task = scanner_config.get("normalized_english_task", "")
+    if not isinstance(normalized_english_task, str):
+        normalized_english_task = ""
+    search_hints = _string_list(scanner_config.get("search_hints"))
+    keyword_groups = _keyword_groups(scanner_config.get("keyword_groups"))
 
     # 1. Load gitignore
     gitignore_patterns = _load_gitignore_patterns(repo_root)
@@ -378,6 +410,9 @@ def run_base_scan(
         "task": task,
         "run_id": run_id,
         "scanner_config_path": str(scanner_config_path) if scanner_config_path else None,
+        "normalized_english_task": normalized_english_task,
+        "search_hints": search_hints,
+        "keyword_groups": keyword_groups,
     }
     (out_dir / "config_snapshot.json").write_text(
         json.dumps(config_snapshot, indent=2), encoding="utf-8"
@@ -479,6 +514,9 @@ def run_base_scan(
             architecture_docs_result,
             repo_instructions_result,
         ],
+        normalized_english_task=normalized_english_task,
+        search_hints=search_hints,
+        keyword_groups=keyword_groups,
     )
     warnings.extend(keyword_result.get("warnings", []))
     (out_dir / "keyword_hits.json").write_text(

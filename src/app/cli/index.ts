@@ -55,6 +55,7 @@ import {
   parseFlashOutput,
 } from '../../core/context/index.js';
 import { resolveFlashSystemPrompt, writeFlashSystemPromptArtifacts } from '../../core/prompts/flash_system_prompt.js';
+import { buildCodeGraphTask } from '../../core/prompting/codegraph_task.js';
 import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
 import type { PipelineEvent, PromptPipelineResult } from '../../core/prompting/index.js';
 import {
@@ -654,7 +655,38 @@ export async function runContextBuild(opts: {
   /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
   codegraphCommand?: string;
 }): Promise<ContextBuildResult> {
-  const taskIntent = await runTaskNormalizer({ task: opts.task, enabled: opts.taskNormalizerEnabled === true });
+  const taskNormalizerEnabled = opts.taskNormalizerEnabled === true;
+  const normalizerWarnings: string[] = [];
+  let normalizerProviderConfig: Parameters<typeof runTaskNormalizer>[0]['providerConfig'];
+  let normalizerModelInfo: Parameters<typeof runTaskNormalizer>[0]['modelInfo'];
+  if (taskNormalizerEnabled) {
+    const ensured = ensureLocalConfig({ repoRoot: opts.repoRoot, env: process.env });
+    const resolved = resolveFlashConfig({
+      repoRoot: opts.repoRoot,
+      env: process.env,
+      live: true,
+      mock: false,
+      localCreatedFromGlobal: ensured.createdFromGlobal,
+    });
+    normalizerWarnings.push(...resolved.resolution.warnings);
+    normalizerProviderConfig = resolved.providerConfig ?? undefined;
+    if (normalizerProviderConfig) {
+      normalizerModelInfo = {
+        provider: resolved.resolution.provider ?? 'unknown',
+        model: resolved.resolution.model ?? 'unknown',
+      };
+    } else if (resolved.error) {
+      normalizerWarnings.push(`TASK_NORMALIZER_PROVIDER_FALLBACK: ${resolved.error.code}: ${resolved.error.message}`);
+      normalizerWarnings.push(...resolved.error.details);
+    }
+  }
+
+  const taskIntent = await runTaskNormalizer({
+    task: opts.task,
+    enabled: taskNormalizerEnabled,
+    providerConfig: normalizerProviderConfig,
+    modelInfo: normalizerModelInfo,
+  });
   const result = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot, taskIntent });
 
   if (result.status === 'error') {
@@ -679,11 +711,12 @@ export async function runContextBuild(opts: {
   fs.mkdirSync(flashDir, { recursive: true });
 
   const codegraphMode = opts.codegraphMode ?? 'detect-only';
+  const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
   let codegraphResult: CodeGraphContextResult = { ok: true, used: false, mode: codegraphMode, reason: 'DETECT_ONLY', warnings: [] };
   try {
     codegraphResult = await buildCodeGraphContext({
       repoRoot: opts.repoRoot,
-      task: opts.task,
+      task: codegraphTask,
       mode: codegraphMode,
       ...(opts.codegraphRunner ? { runner: opts.codegraphRunner } : {}),
       ...(opts.codegraphReadinessProvider ? { readinessProvider: opts.codegraphReadinessProvider } : {}),
@@ -715,6 +748,7 @@ export async function runContextBuild(opts: {
       runDir: result.runDir,
       previousRunSummary,
       manifest: flashManifest,
+      taskIntent,
     });
     const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
     const flashInputPath = path.join(flashDir, 'flash_input.md');
@@ -756,7 +790,7 @@ export async function runContextBuild(opts: {
       scanDir: result.scanDir,
       flashDir,
       artifacts: [...new Set(artifactPaths)],
-      warnings: [...result.warnings, ...codegraphResult.warnings, ...flashManifest.warnings],
+      warnings: [...result.warnings, ...normalizerWarnings, ...(taskIntent.ok ? [] : taskIntent.warnings), ...codegraphResult.warnings, ...flashManifest.warnings],
     };
   } catch (error) {
     const diagnostic = error instanceof Error ? error.message : String(error);
