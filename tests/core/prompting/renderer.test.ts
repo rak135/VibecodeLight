@@ -339,7 +339,7 @@ describe('renderFinalPrompt', () => {
     renderFinalPrompt(runDir);
 
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-    const exactLine = '- src/app/desktop/renderer/index.html — selected by: exact text match: "Translates and expands your task into English search hints"';
+    const exactLine = '- src/app/desktop/renderer/index.html — exact text match: "Translates and expands your task into English search hints"';
 
     expect(content).toContain('## Exact Text Matches');
     expect(content).toContain(exactLine);
@@ -418,11 +418,11 @@ describe('renderFinalPrompt', () => {
 
     renderFinalPrompt(runDir);
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-    const exactLine = `- src/app/desktop/renderer/index.html — selected by: exact text match: "${exactText}"`;
+    const exactLine = `- src/app/desktop/renderer/index.html — exact text match: "${exactText}"`;
 
     expect(content).toContain(exactLine);
     expect(content.indexOf(exactLine)).toBeLessThan(content.indexOf('- src/core/feature.ts'));
-    expect(content).toContain('# Files To Inspect');
+    expect(content).toContain('## Files To Inspect');
     expect(content).toContain('src/app/desktop/renderer/index.html');
     expect(content).not.toMatch(/score 10000/i);
   });
@@ -547,17 +547,24 @@ describe('renderFinalPrompt', () => {
     const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
     renderFinalPrompt(runDir);
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-    expect(content).toMatch(/^# Task/m);
-    expect(content).toMatch(/^# Repository Context/m);
-    expect(content).toMatch(/^# Context Pack/m);
-    expect(content).toMatch(/^# Selected Skills/m);
-    expect(content).toMatch(/^# Relevant Files/m);
-    expect(content).toMatch(/^# Files To Inspect/m);
-    expect(content).toMatch(/^# Suggested Commands/m);
-    expect(content).toMatch(/^# Cautions/m);
-    expect(content).toMatch(/^# Repository Instructions/m);
-    expect(content).toMatch(/^# Validation Expectations/m);
-    expect(content).toMatch(/^# Output Requirements/m);
+    // Top-level sections (single #)
+    expect(content).toMatch(/^# Task$/m);
+    expect(content).toMatch(/^# Repository Context$/m);
+    expect(content).toMatch(/^# Context Pack$/m);
+    expect(content).toMatch(/^# Selected Skills$/m);
+    expect(content).toMatch(/^# Repository Instructions$/m);
+    expect(content).toMatch(/^# Validation Expectations$/m);
+    expect(content).toMatch(/^# Output Requirements$/m);
+    // Task-specific lists live only under Context Pack (## headings)
+    expect(content).toMatch(/^## Relevant Files$/m);
+    expect(content).toMatch(/^## Files To Inspect$/m);
+    expect(content).toMatch(/^## Suggested Commands$/m);
+    expect(content).toMatch(/^## Cautions$/m);
+    // And must not be duplicated at the top level
+    expect(content).not.toMatch(/^# Relevant Files$/m);
+    expect(content).not.toMatch(/^# Files To Inspect$/m);
+    expect(content).not.toMatch(/^# Suggested Commands$/m);
+    expect(content).not.toMatch(/^# Cautions$/m);
   });
 
   test('renders without crash when commands.json has object-shaped commands (real scanner format)', () => {
@@ -598,5 +605,240 @@ describe('renderFinalPrompt', () => {
     );
     const result = renderFinalPrompt(runDir);
     expect(result.ok).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Dedupe / filtering / empty-section regression tests
+  // -------------------------------------------------------------------------
+
+  test('final_prompt.md does not duplicate Relevant Files / Files To Inspect / Suggested Commands / Cautions at top level', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    const countMatches = (re: RegExp) => (content.match(re) ?? []).length;
+    expect(countMatches(/^## Relevant Files$/gm)).toBe(1);
+    expect(countMatches(/^## Files To Inspect$/gm)).toBe(1);
+    expect(countMatches(/^## Suggested Commands$/gm)).toBe(1);
+    expect(countMatches(/^## Cautions$/gm)).toBe(1);
+    expect(countMatches(/^# Relevant Files$/gm)).toBe(0);
+    expect(countMatches(/^# Files To Inspect$/gm)).toBe(0);
+    expect(countMatches(/^# Suggested Commands$/gm)).toBe(0);
+    expect(countMatches(/^# Cautions$/gm)).toBe(0);
+  });
+
+  test('final_prompt.md filters exact text evidence: prefers implementation, drops prompt-system self-tests, deduplicates lines', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
+    const term =
+      'Translates and expands your task into English search hints before context selection. Does not select files.';
+
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'exact_text_hits.json'),
+      JSON.stringify(
+        {
+          exact_text_hits: [
+            { term, path: 'src/app/desktop/renderer/index.html', line: 114, match_type: 'exact_text' },
+            { term, path: 'src/app/desktop/renderer/index.html', line: 120, match_type: 'exact_text' },
+            { term, path: 'tests/app/desktop/flash_settings_task_normalizer.test.ts', line: 27, match_type: 'exact_text' },
+            { term, path: 'tests/core/compact_flash_input.test.ts', line: 168, match_type: 'exact_text' },
+            { term, path: 'tests/core/prompting/renderer.test.ts', line: 124, match_type: 'exact_text' },
+            { term, path: 'tests/core/prompting/renderer.test.ts', line: 129, match_type: 'exact_text' },
+            { term, path: 'tests/integration/context_build.test.ts', line: 118, match_type: 'exact_text' },
+          ],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+
+    // Mark the desktop test as a relevant test so it qualifies as a related test match.
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    const meta = {
+      selected_skills: ['test-skill'],
+      relevant_files: ['src/app/desktop/renderer/index.html'],
+      files_to_read_with_tools: [],
+      relevant_tests: ['tests/app/desktop/flash_settings_task_normalizer.test.ts'],
+      commands_to_run: ['pnpm exec tsc --noEmit'],
+      cautions: [],
+      task_summary: 'Remove the description text. Keep the toggle.',
+      warnings: [],
+    };
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'flash_output_meta.json'),
+      JSON.stringify(meta, null, 2) + '\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    // Implementation primary match present, lines grouped.
+    expect(content).toContain('src/app/desktop/renderer/index.html');
+    expect(content).toMatch(/src\/app\/desktop\/renderer\/index\.html \(lines 114, 120\)/);
+
+    // Related desktop test included only because it's in relevant_tests.
+    expect(content).toContain('tests/app/desktop/flash_settings_task_normalizer.test.ts');
+
+    // Prompt-system self-tests are NOT in relevant_tests → excluded.
+    expect(content).not.toContain('tests/core/prompting/renderer.test.ts');
+    expect(content).not.toContain('tests/core/compact_flash_input.test.ts');
+    expect(content).not.toContain('tests/integration/context_build.test.ts');
+
+    // Omission marker appears because hits were dropped.
+    expect(content).toContain('Additional exact matches omitted; see scan/exact_text_hits.json.');
+
+    // Lines for the same path are grouped on one bullet inside Exact Text Matches.
+    const exactSection = content.slice(
+      content.indexOf('## Exact Text Matches'),
+      content.indexOf('## Relevant Files'),
+    );
+    const indexHtmlBullets = (exactSection.match(/^- src\/app\/desktop\/renderer\/index\.html\b/gm) ?? []).length;
+    expect(indexHtmlBullets).toBe(1);
+  });
+
+  test('final_prompt.md omits empty Constraints and Validation Hints sections', () => {
+    const runDir = makeRunDir(tmpDir, {
+      withFlashMeta: true,
+      withTaskSummary: 'Trivial task summary.',
+      // no constraints, no validation hints
+    });
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    expect(content).not.toMatch(/^## Constraints$/m);
+    expect(content).not.toMatch(/^## Validation Hints$/m);
+    expect(content).not.toContain('_None_');
+  });
+
+  test('final_prompt.md regression for the Czech task normalizer prompt is concise and well-structured', () => {
+    const term =
+      'Translates and expands your task into English search hints before context selection. Does not select files.';
+    const taskSummary =
+      'Remove the description text "' + term + '" from the GUI settings panel. Keep only the existing toggle switch for the task normalizer feature.';
+
+    const runDir = path.join(tmpDir, 'test-run-001');
+    fs.writeFileSync(
+      path.join(runDir, 'user_prompt.md'),
+      'odstraň z GUI popis task normalizeru - (' + term + ')\nNechci tam žádný popis task normalizeru, jen ten přepínač co tam je teď\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(runDir, 'run_manifest.json'),
+      JSON.stringify(
+        { run_id: 'test-run-001', created_at: '2026-05-31T00:00:00.000Z', task: 'task', status: 'done' },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    fs.mkdirSync(path.join(runDir, 'output'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      '## Task Slice\n\nRemove the description of the task normalizer.\n\n## Repo Atlas Summary\n\nVibecodeLight is an Electron/TypeScript desktop + CLI workspace.\n',
+      'utf8',
+    );
+    fs.mkdirSync(path.join(runDir, 'skills'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'skills', 'selected_skills.json'),
+      JSON.stringify({ selected: [], warnings: [], missing_skills: [] }, null, 2) + '\n',
+      'utf8',
+    );
+    fs.writeFileSync(path.join(runDir, 'skills', 'selected_skill_contents.md'), '', 'utf8');
+
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'flash_output_meta.json'),
+      JSON.stringify(
+        {
+          selected_skills: [],
+          relevant_files: ['src/app/desktop/renderer/index.html', 'tests/app/desktop/flash_settings_task_normalizer.test.ts'],
+          files_to_read_with_tools: [],
+          relevant_tests: ['tests/app/desktop/flash_settings_task_normalizer.test.ts'],
+          commands_to_run: [
+            'pnpm exec tsc --noEmit',
+            'pnpm lint',
+            'pnpm test -- tests/app/desktop/flash_settings_task_normalizer.test.ts',
+          ],
+          cautions: [
+            'Do not remove the toggle switch itself, only the descriptive text associated with it.',
+          ],
+          task_summary: taskSummary,
+          constraints: [],
+          validation_hints: [],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'relevance_selection.json'),
+      JSON.stringify(
+        {
+          selected_files: [
+            { path: 'src/app/desktop/renderer/index.html', reasons: [`exact text match: "${term}"`] },
+            { path: 'tests/app/desktop/flash_settings_task_normalizer.test.ts', reasons: [`exact text match: "${term}"`] },
+            { path: 'tests/core/compact_flash_input.test.ts', reasons: [`exact text match: "${term}"`] },
+            { path: 'tests/core/prompting/renderer.test.ts', reasons: [`exact text match: "${term}"`] },
+            { path: 'tests/integration/context_build.test.ts', reasons: [`exact text match: "${term}"`] },
+          ],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'exact_text_hits.json'),
+      JSON.stringify(
+        {
+          exact_text_hits: [
+            { term, path: 'src/app/desktop/renderer/index.html', line: 114, match_type: 'exact_text' },
+            { term, path: 'src/app/desktop/renderer/index.html', line: 120, match_type: 'exact_text' },
+            { term, path: 'tests/app/desktop/flash_settings_task_normalizer.test.ts', line: 27, match_type: 'exact_text' },
+            { term, path: 'tests/core/compact_flash_input.test.ts', line: 168, match_type: 'exact_text' },
+            { term, path: 'tests/core/prompting/renderer.test.ts', line: 124, match_type: 'exact_text' },
+            { term, path: 'tests/integration/context_build.test.ts', line: 118, match_type: 'exact_text' },
+          ],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    // Has Task Summary and concise Exact Text Matches.
+    expect(content).toContain('## Task Summary');
+    expect(content).toContain('## Exact Text Matches');
+
+    // index.html is the primary implementation match with grouped lines.
+    expect(content).toMatch(/src\/app\/desktop\/renderer\/index\.html \(lines 114, 120\)/);
+
+    // No duplicated top-level sections.
+    expect(content).not.toMatch(/^# Relevant Files$/m);
+    expect(content).not.toMatch(/^# Files To Inspect$/m);
+    expect(content).not.toMatch(/^# Suggested Commands$/m);
+    expect(content).not.toMatch(/^# Cautions$/m);
+
+    // Prompt-system self-tests are not surfaced by default.
+    expect(content).not.toContain('tests/core/prompting/renderer.test.ts');
+    expect(content).not.toContain('tests/core/compact_flash_input.test.ts');
+    expect(content).not.toContain('tests/integration/context_build.test.ts');
+
+    // No "_None_" placeholders.
+    expect(content).not.toContain('_None_');
+
+    // Repo atlas content appears after task-specific Context Pack sections.
+    expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Repo Atlas Summary'));
+    expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Repo Atlas Summary'));
   });
 });

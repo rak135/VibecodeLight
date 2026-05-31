@@ -64,7 +64,7 @@ function readOptionalJson<T>(filePath: string): T | null {
 }
 
 // ---------------------------------------------------------------------------
-// Template builder
+// Helpers
 // ---------------------------------------------------------------------------
 
 function listItems(items: string[]): string {
@@ -75,6 +75,53 @@ function listItems(items: string[]): string {
 function uniqueItems(items: string[]): string[] {
   return Array.from(new Set(items));
 }
+
+// ---------------------------------------------------------------------------
+// File-kind classifier (used only for final prompt rendering priority)
+// ---------------------------------------------------------------------------
+
+export type FileKind = 'implementation' | 'test' | 'docs' | 'generated' | 'unknown';
+
+export function classifyPath(p: string): FileKind {
+  const lower = p.replace(/\\/g, '/').toLowerCase();
+  if (
+    lower.startsWith('node_modules/') ||
+    lower.includes('/node_modules/') ||
+    lower.startsWith('dist/') ||
+    lower.startsWith('build/') ||
+    lower.startsWith('coverage/') ||
+    lower.startsWith('.next/') ||
+    lower.includes('.generated.') ||
+    lower.endsWith('.min.js')
+  ) {
+    return 'generated';
+  }
+  if (
+    lower.startsWith('tests/') ||
+    lower.includes('/tests/') ||
+    lower.startsWith('test/') ||
+    lower.includes('/test/') ||
+    /\.(test|spec)\.[a-z0-9]+$/.test(lower)
+  ) {
+    return 'test';
+  }
+  if (lower.startsWith('docs/') || lower.endsWith('.md')) {
+    return 'docs';
+  }
+  if (
+    lower.startsWith('src/') ||
+    lower.startsWith('app/') ||
+    lower.startsWith('packages/') ||
+    lower.startsWith('lib/')
+  ) {
+    return 'implementation';
+  }
+  return 'unknown';
+}
+
+// ---------------------------------------------------------------------------
+// Exact text evidence collection / filtering
+// ---------------------------------------------------------------------------
 
 interface RelevanceSelectionArtifact {
   selected_files?: Array<{ path?: unknown; reasons?: unknown }>;
@@ -89,32 +136,147 @@ interface ExactTextHitsArtifact {
   }>;
 }
 
-function exactTextSelectionItems(selection: RelevanceSelectionArtifact | null): string[] {
-  const items = Array.isArray(selection?.selected_files) ? selection.selected_files : [];
-  const out: string[] = [];
-  for (const item of items) {
-    if (typeof item.path !== 'string' || item.path.length === 0) continue;
-    const reasons = Array.isArray(item.reasons)
-      ? item.reasons.filter((reason): reason is string => typeof reason === 'string')
-      : [];
-    const exactReasons = reasons.filter((reason) => reason.toLowerCase().includes('exact text match'));
-    if (exactReasons.length === 0) continue;
-    out.push(`${item.path} — selected by: ${exactReasons.join('; ')}`);
-  }
-  return uniqueItems(out);
+interface ExactGroup {
+  path: string;
+  lines: number[];
+  terms: string[];
+  selectedByExact: boolean;
+  kind: FileKind;
 }
 
-function exactTextHitItems(hits: ExactTextHitsArtifact | null): string[] {
-  const items = Array.isArray(hits?.exact_text_hits) ? hits.exact_text_hits : [];
-  const out: string[] = [];
-  for (const item of items) {
-    if (typeof item.path !== 'string' || item.path.length === 0) continue;
-    if (typeof item.term !== 'string' || item.term.length === 0) continue;
-    const location = typeof item.line === 'number' ? ` line ${item.line}` : '';
-    out.push(`${item.path}${location} — exact text match: "${item.term}"`);
+function collectExactTextGroups(
+  hits: ExactTextHitsArtifact | null,
+  selection: RelevanceSelectionArtifact | null,
+): ExactGroup[] {
+  const byPath = new Map<
+    string,
+    { lineSet: Set<number>; terms: Set<string>; selected: boolean }
+  >();
+
+  const ensureEntry = (key: string) => {
+    let entry = byPath.get(key);
+    if (!entry) {
+      entry = { lineSet: new Set<number>(), terms: new Set<string>(), selected: false };
+      byPath.set(key, entry);
+    }
+    return entry;
+  };
+
+  if (Array.isArray(hits?.exact_text_hits)) {
+    for (const item of hits.exact_text_hits) {
+      if (typeof item.path !== 'string' || item.path.length === 0) continue;
+      if (typeof item.term !== 'string' || item.term.length === 0) continue;
+      const entry = ensureEntry(item.path);
+      if (typeof item.line === 'number' && Number.isFinite(item.line)) {
+        entry.lineSet.add(item.line);
+      }
+      entry.terms.add(item.term);
+    }
   }
-  return uniqueItems(out);
+
+  if (Array.isArray(selection?.selected_files)) {
+    for (const item of selection.selected_files) {
+      if (typeof item.path !== 'string' || item.path.length === 0) continue;
+      const reasons = Array.isArray(item.reasons)
+        ? item.reasons.filter((reason): reason is string => typeof reason === 'string')
+        : [];
+      const exactReasons = reasons.filter((reason) =>
+        reason.toLowerCase().includes('exact text match'),
+      );
+      if (exactReasons.length === 0) continue;
+      const entry = ensureEntry(item.path);
+      entry.selected = true;
+      for (const reason of exactReasons) {
+        const m = reason.match(/exact text match:\s*"([^"]+)"/i);
+        if (m) entry.terms.add(m[1]);
+      }
+    }
+  }
+
+  const groups: ExactGroup[] = [];
+  for (const [key, entry] of byPath.entries()) {
+    groups.push({
+      path: key,
+      lines: [...entry.lineSet].sort((a, b) => a - b),
+      terms: [...entry.terms],
+      selectedByExact: entry.selected,
+      kind: classifyPath(key),
+    });
+  }
+  return groups;
 }
+
+const MAX_PRIMARY_FILES = 3;
+const MAX_RELATED_TESTS = 2;
+const MAX_LINES_PER_FILE = 2;
+
+interface FilteredExactGroups {
+  kept: ExactGroup[];
+  omittedCount: number;
+}
+
+function filterExactTextGroups(
+  groups: ExactGroup[],
+  relevantSignals: Set<string>,
+): FilteredExactGroups {
+  const impl: ExactGroup[] = [];
+  const tests: ExactGroup[] = [];
+  const docs: ExactGroup[] = [];
+  const unknowns: ExactGroup[] = [];
+  for (const g of groups) {
+    if (g.kind === 'implementation') impl.push(g);
+    else if (g.kind === 'test') tests.push(g);
+    else if (g.kind === 'docs') docs.push(g);
+    else if (g.kind === 'unknown') unknowns.push(g);
+    // generated: dropped silently
+  }
+
+  // Stable order: keep input order within each bucket.
+  const keptImpl = impl.slice(0, MAX_PRIMARY_FILES);
+
+  let keptTests: ExactGroup[];
+  if (keptImpl.length > 0) {
+    keptTests = tests
+      .filter((g) => relevantSignals.has(g.path))
+      .slice(0, MAX_RELATED_TESTS);
+  } else {
+    // No implementation hits — surface up to MAX_RELATED_TESTS tests so the
+    // signal is still visible. Prefer those flagged as relevant first.
+    const relevantFirst = [
+      ...tests.filter((g) => relevantSignals.has(g.path)),
+      ...tests.filter((g) => !relevantSignals.has(g.path)),
+    ];
+    keptTests = relevantFirst.slice(0, MAX_RELATED_TESTS);
+  }
+
+  // Docs only when no impl/test signal exists — usually irrelevant.
+  let keptDocs: ExactGroup[] = [];
+  if (keptImpl.length === 0 && keptTests.length === 0) {
+    keptDocs = docs.slice(0, MAX_PRIMARY_FILES);
+  }
+
+  const kept = [...keptImpl, ...keptTests, ...keptDocs];
+  const considered = impl.length + tests.length + docs.length + unknowns.length;
+  const omittedCount = considered - kept.length;
+  return { kept, omittedCount };
+}
+
+function renderExactGroupLine(g: ExactGroup): string {
+  const linesDisplay = g.lines.slice(0, MAX_LINES_PER_FILE);
+  let location = '';
+  if (linesDisplay.length === 1) location = ` (line ${linesDisplay[0]})`;
+  else if (linesDisplay.length > 1) location = ` (lines ${linesDisplay.join(', ')})`;
+  // Prefer the longest term — usually the full sentence over an excerpt.
+  const term = g.terms.length > 0
+    ? g.terms.slice().sort((a, b) => b.length - a.length)[0]
+    : '';
+  const termPart = term ? ` — exact text match: "${term}"` : ' — exact text match';
+  return `${g.path}${location}${termPart}`;
+}
+
+// ---------------------------------------------------------------------------
+// Template builder
+// ---------------------------------------------------------------------------
 
 interface BuildFinalPromptOptions {
   task: string;
@@ -125,7 +287,8 @@ interface BuildFinalPromptOptions {
   flashMeta: FlashOutputMeta | null;
   scanCommands: string[];
   repoInstructionFiles: string[];
-  deterministicRelevantFiles: string[];
+  exactGroups: ExactGroup[];
+  exactOmittedCount: number;
   rendererWarnings: string[];
 }
 
@@ -139,49 +302,80 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     flashMeta,
     scanCommands,
     repoInstructionFiles,
-    deterministicRelevantFiles,
+    exactGroups,
+    exactOmittedCount,
     rendererWarnings,
   } = opts;
 
-  const relevantFiles = uniqueItems([...(flashMeta?.relevant_files ?? [])]);
-  const filesToInspect = uniqueItems([...deterministicRelevantFiles, ...(flashMeta?.files_to_read_with_tools ?? [])]);
+  const exactPaths = exactGroups.map((g) => g.path);
+  const exactTextLines = exactGroups.map(renderExactGroupLine);
+
+  const relevantFiles = uniqueItems([
+    ...exactPaths,
+    ...(flashMeta?.relevant_files ?? []),
+  ]);
+  const filesToInspect = uniqueItems([
+    ...exactPaths,
+    ...(flashMeta?.files_to_read_with_tools ?? []),
+  ]);
   const cautions = flashMeta?.cautions ?? [];
   const taskSummary = flashMeta?.task_summary?.trim() ?? '';
   const constraints = flashMeta?.constraints ?? [];
   const validationHints = flashMeta?.validation_hints ?? [];
 
-  // Commands: prefer flash meta, fall back to scan commands
   const commands = flashMeta?.commands_to_run?.length
     ? flashMeta.commands_to_run
     : scanCommands;
 
-  // Skills section: use selected_skills.json to determine if skills were actually selected,
-  // not just whether selected_skill_contents.md is non-empty (it may contain a header with no bodies).
-  const skillsSection = hasSelectedSkills && skillContents.trim().length > 0
-    ? skillContents.trim()
-    : '_No selected skills were provided for this run._';
+  const skillsSection =
+    hasSelectedSkills && skillContents.trim().length > 0
+      ? skillContents.trim()
+      : '_No selected skills were provided for this run._';
 
-  // Instruction files section
-  const instructionSection = repoInstructionFiles.length > 0
-    ? listItems(repoInstructionFiles)
-    : '_No repository instruction files detected._\n';
+  const instructionSection =
+    repoInstructionFiles.length > 0
+      ? listItems(repoInstructionFiles)
+      : '_No repository instruction files detected._\n';
 
   const contextPackBlocks: string[] = [];
   if (rendererWarnings.length > 0) {
-    contextPackBlocks.push(`## Renderer Warnings\n${listItems(rendererWarnings).trimEnd()}`);
+    contextPackBlocks.push(
+      `## Renderer Warnings\n${listItems(rendererWarnings).trimEnd()}`,
+    );
   }
   if (taskSummary) {
     contextPackBlocks.push(`## Task Summary\n${taskSummary}`);
   }
-  contextPackBlocks.push(`## Constraints\n${listItems(constraints).trimEnd()}`);
-  contextPackBlocks.push(`## Validation Hints\n${listItems(validationHints).trimEnd()}`);
-  if (deterministicRelevantFiles.length > 0) {
-    contextPackBlocks.push(`## Exact Text Matches\n${listItems(deterministicRelevantFiles).trimEnd()}`);
+  if (constraints.length > 0) {
+    contextPackBlocks.push(`## Constraints\n${listItems(constraints).trimEnd()}`);
   }
-  contextPackBlocks.push(`## Relevant Files\n${listItems(relevantFiles).trimEnd()}`);
-  contextPackBlocks.push(`## Files To Inspect\n${listItems(filesToInspect).trimEnd()}`);
-  contextPackBlocks.push(`## Suggested Commands\n${listItems(commands).trimEnd()}`);
-  contextPackBlocks.push(`## Cautions\n${listItems(cautions).trimEnd()}`);
+  if (validationHints.length > 0) {
+    contextPackBlocks.push(
+      `## Validation Hints\n${listItems(validationHints).trimEnd()}`,
+    );
+  }
+  if (exactTextLines.length > 0) {
+    const body = listItems(exactTextLines).trimEnd();
+    const tail =
+      exactOmittedCount > 0
+        ? '\n\nAdditional exact matches omitted; see scan/exact_text_hits.json.'
+        : '';
+    contextPackBlocks.push(`## Exact Text Matches\n${body}${tail}`);
+  }
+  if (relevantFiles.length > 0) {
+    contextPackBlocks.push(`## Relevant Files\n${listItems(relevantFiles).trimEnd()}`);
+  }
+  if (filesToInspect.length > 0) {
+    contextPackBlocks.push(
+      `## Files To Inspect\n${listItems(filesToInspect).trimEnd()}`,
+    );
+  }
+  if (commands.length > 0) {
+    contextPackBlocks.push(`## Suggested Commands\n${listItems(commands).trimEnd()}`);
+  }
+  if (cautions.length > 0) {
+    contextPackBlocks.push(`## Cautions\n${listItems(cautions).trimEnd()}`);
+  }
   if (contextPack.trim().length > 0) {
     contextPackBlocks.push(contextPack.trim());
   }
@@ -194,14 +388,6 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     `# Context Pack\n\n${contextPackBlocks.join('\n\n')}\n`,
 
     `# Selected Skills\n\n${skillsSection}\n`,
-
-    `# Relevant Files\n\n${listItems(relevantFiles)}`,
-
-    `# Files To Inspect\n\n${listItems(filesToInspect)}`,
-
-    `# Suggested Commands\n\n${listItems(commands)}`,
-
-    `# Cautions\n\n${listItems(cautions)}`,
 
     `# Repository Instructions\n\nRead and follow repository instruction files before making changes:\n\n${instructionSection}`,
 
@@ -237,9 +423,12 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
     const manifest = JSON.parse(manifestRaw) as RunManifest;
     const task = userPrompt.trim();
 
-    // Determine if any skills were actually selected (use the JSON, not file contents)
-    const selectedSkillsData = JSON.parse(selectedSkillsRaw) as { selected_skills?: string[]; selected?: string[] };
-    const selectedSkillsList = selectedSkillsData.selected_skills ?? selectedSkillsData.selected ?? [];
+    const selectedSkillsData = JSON.parse(selectedSkillsRaw) as {
+      selected_skills?: string[];
+      selected?: string[];
+    };
+    const selectedSkillsList =
+      selectedSkillsData.selected_skills ?? selectedSkillsData.selected ?? [];
     const hasSelectedSkills = selectedSkillsList.length > 0;
 
     // --- Optional artifacts ---
@@ -253,19 +442,32 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
     if (!flashMeta?.task_summary?.trim()) {
       warnings.push('Missing task_summary in flash_output_meta.json.');
     }
-    const deterministicRelevantFiles = uniqueItems([
-      ...exactTextHitItems(readOptionalJson<ExactTextHitsArtifact>(exactTextHitsPath)),
-      ...exactTextSelectionItems(readOptionalJson<RelevanceSelectionArtifact>(relevanceSelectionPath)),
+
+    const hitsArtifact = readOptionalJson<ExactTextHitsArtifact>(exactTextHitsPath);
+    const selectionArtifact = readOptionalJson<RelevanceSelectionArtifact>(relevanceSelectionPath);
+
+    const allExactGroups = collectExactTextGroups(hitsArtifact, selectionArtifact);
+    const relevantSignals = new Set<string>([
+      ...(flashMeta?.relevant_tests ?? []),
+      ...(flashMeta?.relevant_files ?? []),
+      ...(flashMeta?.files_to_read_with_tools ?? []),
     ]);
+    const { kept: exactGroups, omittedCount: exactOmittedCount } = filterExactTextGroups(
+      allExactGroups,
+      relevantSignals,
+    );
 
     const scanCommandsJson = readOptionalJson<{ commands?: unknown }>(scanCommandsPath);
     // The Python scanner may write commands as a categorised object {install,run,test}
     // or as a flat string array. Guard with Array.isArray so we never call .map on an object.
-    const scanCommands = Array.isArray(scanCommandsJson?.commands) ? (scanCommandsJson.commands as string[]) : [];
+    const scanCommands = Array.isArray(scanCommandsJson?.commands)
+      ? (scanCommandsJson.commands as string[])
+      : [];
 
-    // repo_instructions.json may have { files: string[] } or { repo_instructions: Array<{path,content}> }
-    // The Python scanner writes the latter format; accept both shapes gracefully.
-    const repoInstructionsJson = readOptionalJson<{ files?: unknown; repo_instructions?: unknown }>(repoInstructionsPath);
+    const repoInstructionsJson = readOptionalJson<{
+      files?: unknown;
+      repo_instructions?: unknown;
+    }>(repoInstructionsPath);
     const repoInstructionFiles: string[] = Array.isArray(repoInstructionsJson?.files)
       ? (repoInstructionsJson.files as string[])
       : Array.isArray(repoInstructionsJson?.repo_instructions)
@@ -284,7 +486,8 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       flashMeta,
       scanCommands,
       repoInstructionFiles,
-      deterministicRelevantFiles,
+      exactGroups,
+      exactOmittedCount,
       rendererWarnings: warnings,
     });
 
@@ -313,7 +516,6 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       warnings,
     };
   } catch (err) {
-    // If it's a structured PromptRenderError thrown by readRequired
     if (
       err !== null &&
       typeof err === 'object' &&
