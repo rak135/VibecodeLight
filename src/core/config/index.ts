@@ -34,6 +34,16 @@ export {
   writeConfigResolution,
   getConfigPaths,
 } from './config_service.js';
+export {
+  readCodeGraphTransportSetting,
+  writeCodeGraphTransportSetting,
+  resetCodeGraphTransportSetting,
+} from './codegraph_transport_config.js';
+export type {
+  CodeGraphTransportSetting,
+  CodeGraphTransportSettingSource,
+  WriteCodeGraphTransportSettingResult,
+} from './codegraph_transport_config.js';
 export type {
   FieldSource,
   SelectedConfigSource,

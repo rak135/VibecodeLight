@@ -37,6 +37,19 @@ Added in Phase 1B (optional pipeline transport):
   (next to the existing CodeGraph toggle). It is persisted in `localStorage`
   under `vibecode.codegraphTransport` and remembered across app restarts.
   Invalid persisted values fall back to `cli`.
+- CLI parity is available through a settings command, not a prompt flag. CLI
+  runs read the global user config setting `defaults.codegraph.transport` from
+  `%LOCALAPPDATA%/vibecodelight/config.yaml`:
+
+  ```text
+  vibecode codegraph transport get --json
+  vibecode codegraph transport set cli|mcp|auto
+  vibecode codegraph transport reset --json
+  ```
+
+  prompt-level transport flags are intentionally not the primary UX; `prompt`
+  and `context-build` consume the persisted setting when CodeGraph mode is
+  `use-existing`.
 - Detect-only mode does *not* query context regardless of transport; the
   requested transport is still recorded in `scan/codegraph_usage.json` with
   `transport_used: "none"` and `used_for_context: false`.

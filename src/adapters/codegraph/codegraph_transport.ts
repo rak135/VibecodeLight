@@ -16,10 +16,20 @@
  */
 export type CodeGraphTransport = 'cli' | 'mcp' | 'auto';
 
+/** Stable list of supported pipeline transports. */
+export const CODEGRAPH_TRANSPORT_VALUES: readonly CodeGraphTransport[] = ['cli', 'mcp', 'auto'];
+
 /** Default transport when no preference is recorded by the GUI/CLI. */
 export const DEFAULT_CODEGRAPH_TRANSPORT: CodeGraphTransport = 'cli';
 
-const TRANSPORTS = new Set<CodeGraphTransport>(['cli', 'mcp', 'auto']);
+const TRANSPORTS = new Set<CodeGraphTransport>(CODEGRAPH_TRANSPORT_VALUES);
+
+/** Parse user input when invalid values should be rejected instead of defaulted. */
+export function parseCodeGraphTransport(value: unknown): CodeGraphTransport | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim().toLowerCase();
+  return TRANSPORTS.has(trimmed as CodeGraphTransport) ? (trimmed as CodeGraphTransport) : undefined;
+}
 
 /**
  * Normalize an arbitrary persisted/user input into a valid transport. Unknown

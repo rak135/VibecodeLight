@@ -221,9 +221,40 @@ false`.
   (next to the CodeGraph ON/OFF toggle). The choice is persisted in
   `localStorage` under `vibecode.codegraphTransport` and restored when the app
   reopens. Invalid persisted values fall back to `cli`.
-- CLI: there is no public prompt-level flag for the transport in this phase.
-  The internal `runContextBuild` helper accepts `codegraphTransport` and an
-  injectable `codegraphMcpRunner` for tests.
+- CLI: the same conceptual setting is persisted in the global user config
+  (`%LOCALAPPDATA%/vibecodelight/config.yaml`) at
+  `defaults.codegraph.transport`. Inspect and change it without starting
+  CodeGraph:
+
+  ```text
+  vibecode codegraph transport get --json
+  vibecode codegraph transport set cli|mcp|auto
+  vibecode codegraph transport reset --json
+  ```
+
+  CLI `prompt` and `context-build` runs read this persisted setting whenever
+  CodeGraph mode is `use-existing` and no internal test seam override is
+  provided. prompt-level transport flags are intentionally not the primary UX;
+  use the persisted setting instead. The internal `runContextBuild` helper still
+  accepts `codegraphTransport` and an injectable `codegraphMcpRunner` for tests.
+
+Behavior summary:
+
+- `cli` remains the default and uses the existing CLI adapter.
+- `mcp` is strict: no fallback to CLI; failures are surfaced and the run
+  continues without CodeGraph context.
+- `auto` prefers MCP and falls back to CLI on MCP failure, recording
+  `fallback_used: true` in `scan/codegraph_usage.json`.
+- `detect-only` never calls CodeGraph context through CLI or MCP, regardless of
+  the selected transport.
+
+Verification:
+
+```text
+vibecode codegraph mcp self-test --repo <path> --json
+vibecode context-build "task" --codegraph-mode use-existing --json
+vibecode runs show latest --artifact codegraph
+```
 
 ### `scan/codegraph_usage.json` (Phase 1B fields)
 

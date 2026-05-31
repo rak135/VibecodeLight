@@ -25,7 +25,9 @@ import {
   type CodeGraphMcpContextRunner,
 } from '../../adapters/codegraph/codegraph_mcp.js';
 import {
+  CODEGRAPH_TRANSPORT_VALUES,
   DEFAULT_CODEGRAPH_TRANSPORT,
+  parseCodeGraphTransport,
   type CodeGraphTransport,
 } from '../../adapters/codegraph/codegraph_transport.js';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
@@ -35,8 +37,11 @@ import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_ad
 import {
   ensureLocalConfig,
   getConfigPaths,
+  readCodeGraphTransportSetting,
+  resetCodeGraphTransportSetting,
   resolveFlashConfig,
   syncConfig,
+  writeCodeGraphTransportSetting,
   writeConfigResolution,
 } from '../../core/config/index.js';
 import { createRun } from '../../core/runs/run_store.js';
@@ -132,6 +137,10 @@ export interface PromptCommandOptions {
   flashProvider?: string;
   flashModel?: string;
   codegraphMode?: CodeGraphContextMode;
+  /** Test seam/settings override: public CLI uses persisted settings instead of a prompt flag. */
+  codegraphTransport?: CodeGraphTransport;
+  /** Test seam: inject an MCP runner without spawning a real server. */
+  codegraphMcpRunner?: CodeGraphMcpContextRunner;
   taskNormalizerEnabled?: boolean;
   json?: boolean;
   stdout?: TextWriter;
@@ -162,6 +171,7 @@ function createCliSendTerminal(repoRoot: string): PromptSendTerminal {
 export async function runPromptCommand(options: PromptCommandOptions): Promise<PromptPipelineResult> {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
+  const codegraphTransport = options.codegraphTransport ?? readCodeGraphTransportSetting({ env: process.env }).transport;
   const result = await runPromptPipeline({
     task: options.task,
     repoRoot: options.repoRoot,
@@ -170,6 +180,8 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
     flashProvider: options.flashProvider,
     flashModel: options.flashModel,
     codegraphMode: options.codegraphMode,
+    codegraphTransport,
+    ...(options.codegraphMcpRunner ? { codegraphMcpRunner: options.codegraphMcpRunner } : {}),
     taskNormalizerEnabled: options.taskNormalizerEnabled === true,
     adapter: options.adapter,
     onProgress: options.json ? undefined : (event) => writePromptProgressEvent(event, stderr),
@@ -477,6 +489,39 @@ function formatCodeGraphStatusLine(status: { available: boolean; initialized: bo
   return parts.join(' · ');
 }
 
+function codeGraphTransportSettingData(setting: {
+  transport: CodeGraphTransport;
+  default: CodeGraphTransport;
+  source: 'global' | 'default';
+  globalConfigPath: string;
+  globalConfigExists: boolean;
+}): Record<string, unknown> {
+  return {
+    transport: setting.transport,
+    default: setting.default,
+    source: setting.source,
+    global_config_path: setting.globalConfigPath,
+    global_config_exists: setting.globalConfigExists,
+  };
+}
+
+function printCodeGraphTransportSetting(setting: ReturnType<typeof readCodeGraphTransportSetting>, json?: boolean): void {
+  if (json) {
+    console.log(JSON.stringify({
+      ok: true,
+      data: codeGraphTransportSettingData(setting),
+      artifacts: [],
+      warnings: setting.warnings,
+    }));
+    return;
+  }
+  console.log(`codegraph.transport: ${setting.transport}`);
+  console.log(`source: ${setting.source}`);
+  console.log(`default: ${setting.default}`);
+  console.log(`global_config: ${setting.globalConfigPath} (${setting.globalConfigExists ? 'exists' : 'absent'})`);
+  for (const warning of setting.warnings) console.log(`warning: ${warning}`);
+}
+
 function buildCodeGraphActionFailure(action: 'status' | 'init' | 'sync' | 'reindex', repoRoot: string, message: string, details: string[] = []): CliStructuredError {
   return makeCliStructuredError(
     `CODEGRAPH_${action.toUpperCase()}_FAILED`,
@@ -732,7 +777,7 @@ export async function runContextBuild(opts: {
   fs.mkdirSync(flashDir, { recursive: true });
 
   const codegraphMode = opts.codegraphMode ?? 'detect-only';
-  const codegraphTransport: CodeGraphTransport = opts.codegraphTransport ?? DEFAULT_CODEGRAPH_TRANSPORT;
+  const codegraphTransport: CodeGraphTransport = opts.codegraphTransport ?? readCodeGraphTransportSetting({ env: process.env }).transport;
   const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
   let codegraphResult: CodeGraphContextResult = {
     ok: true,
@@ -1741,6 +1786,72 @@ export function createCli(): Command {
         return;
       }
       console.log(formatCodeGraphStatusLine(result));
+      for (const warning of result.warnings) console.log(`warning: ${warning}`);
+    });
+
+  const codegraphTransport = codegraph
+    .command('transport')
+    .description('Inspect and set the persisted CodeGraph context transport (cli | mcp | auto)');
+
+  codegraphTransport
+    .command('get')
+    .description('Show the persisted CodeGraph transport setting (defaults to cli)')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { json?: boolean }) => {
+      printCodeGraphTransportSetting(readCodeGraphTransportSetting({ env: process.env }), options.json);
+    });
+
+  codegraphTransport
+    .command('set <transport>')
+    .description('Persist the CodeGraph transport setting in the global user config')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((transportValue: string, options: { json?: boolean }) => {
+      const transport = parseCodeGraphTransport(transportValue);
+      if (!transport) {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            'INVALID_CODEGRAPH_TRANSPORT',
+            `invalid CodeGraph transport: ${transportValue}`,
+            '',
+            [`Expected one of: ${CODEGRAPH_TRANSPORT_VALUES.join(', ')}.`],
+          ),
+          { json: options.json, prefix: 'codegraph transport set failed' },
+        );
+        return;
+      }
+      const result = writeCodeGraphTransportSetting({ transport, env: process.env });
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: codeGraphTransportSettingData(result),
+          artifacts: [result.artifactPath],
+          warnings: result.warnings,
+        }));
+        return;
+      }
+      console.log(`codegraph.transport: ${result.transport}`);
+      console.log(`global_config: ${result.globalConfigPath}`);
+      for (const warning of result.warnings) console.log(`warning: ${warning}`);
+    });
+
+  codegraphTransport
+    .command('reset')
+    .description('Reset CodeGraph transport to the default (cli)')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { json?: boolean }) => {
+      const result = resetCodeGraphTransportSetting({ env: process.env });
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: codeGraphTransportSettingData(result),
+          artifacts: result.globalConfigExists ? [result.artifactPath] : [],
+          warnings: result.warnings,
+        }));
+        return;
+      }
+      console.log(`codegraph.transport: ${result.transport}`);
+      console.log(`source: ${result.source}`);
+      console.log(`global_config: ${result.globalConfigPath} (${result.globalConfigExists ? 'exists' : 'absent'})`);
       for (const warning of result.warnings) console.log(`warning: ${warning}`);
     });
 
