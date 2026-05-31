@@ -508,9 +508,27 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     ...(codegraphArtifacts.repoAtlasJsonArtifact ? [codegraphArtifacts.repoAtlasJsonArtifact] : []),
     ...Object.values(scan.artifacts),
   ];
-  const warnings = [...scan.warnings, ...resolved.resolution.warnings, ...codegraphResult.warnings];
+  const warnings: string[] = [];
+  const warningDetails: Array<{ label: string; message: string; detail?: string; artifact_path?: string }> = [];
+  const addWarnings = (
+    label: string,
+    items: readonly string[] | undefined,
+    opts: { detail?: string; artifact_path?: string } = {},
+  ): void => {
+    if (!items || items.length === 0) return;
+    for (const item of items) {
+      warnings.push(item);
+      const entry: { label: string; message: string; detail?: string; artifact_path?: string } = { label, message: item };
+      if (opts.detail !== undefined) entry.detail = opts.detail;
+      if (opts.artifact_path !== undefined) entry.artifact_path = opts.artifact_path;
+      warningDetails.push(entry);
+    }
+  };
+  addWarnings('Scanner', scan.warnings);
+  addWarnings('Provider', resolved.resolution.warnings);
+  addWarnings('CodeGraph', codegraphResult.warnings);
   if (!taskIntent.ok && taskIntent.source === 'fallback') {
-    warnings.push(...taskIntent.warnings);
+    addWarnings('Task Normalizer', taskIntent.warnings);
   }
 
   try {
@@ -563,14 +581,14 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     if (compactPaths.repo_atlas_path) {
       artifacts.push(compactPaths.repo_atlas_path);
     }
-    warnings.push(...flashManifest.warnings);
+    addWarnings('Flash input', flashManifest.warnings);
 
     const resolvedSystemPrompt = resolveFlashSystemPrompt({
       repoRoot: opts.repoRoot,
       bundledPromptPath: BUNDLED_FLASH_SYSTEM_PROMPT_PATH,
       env: process.env,
     });
-    warnings.push(...resolvedSystemPrompt.warnings);
+    addWarnings('Flash system prompt', resolvedSystemPrompt.warnings);
 
     emitProgress({
       phase: 'flash_input_built',
@@ -680,7 +698,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
 
     const contextResult = finalizeContext(scan.runDir);
     artifacts.push(...contextResult.artifacts);
-    warnings.push(...contextResult.warnings);
+    addWarnings('Context', contextResult.warnings);
     emitProgress({
       phase: 'context_pack_written',
       status: 'completed',
@@ -728,7 +746,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
 
     const finalPromptPath = path.join(scan.runDir, 'output', 'final_prompt.md');
     artifacts.push(...(renderResult.artifacts ?? [finalPromptPath]));
-    warnings.push(...(renderResult.warnings ?? []));
+    addWarnings('Final prompt', renderResult.warnings);
     emitProgress({
       phase: 'final_prompt_rendered',
       status: 'completed',
@@ -748,6 +766,20 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     });
 
     if (warnings.length > 0) {
+      // Surface each warning as its own event so the user can see what went
+      // wrong, not just a count. The aggregate summary event below remains
+      // for back-compat with downstream consumers.
+      for (const entry of warningDetails) {
+        emitProgress({
+          phase: 'pipeline_warning',
+          status: 'warning',
+          label: entry.label,
+          message: entry.message,
+          ...(entry.detail !== undefined ? { detail: entry.detail } : {}),
+          ...(entry.artifact_path !== undefined ? { artifact_path: entry.artifact_path } : {}),
+          run_id: scan.run_id,
+        });
+      }
       emitProgress({
         phase: 'pipeline_completed_with_warnings',
         status: 'warning',

@@ -46,6 +46,7 @@ export type PipelineEventPhase =
   | 'final_prompt_rendered'
   | 'final_prompt_written'
   // Outcome
+  | 'pipeline_warning'
   | 'pipeline_completed_with_warnings'
   | 'pipeline_failed'
   | 'failed';

@@ -64,6 +64,46 @@ describe('desktop composer progress IPC', () => {
     });
   });
 
+  test('pipeline_warning event preserves label, message, detail, and artifact_path across IPC', async () => {
+    const { registerDesktopComposerIpcHandlers } = await import('../../../src/app/desktop/composer_bridge.js');
+    const ipc = createFakeIpc();
+    const sender = { send: vi.fn() };
+    const previewService = vi.fn(async (request) => {
+      request.onProgress?.({
+        phase: 'pipeline_warning',
+        status: 'warning',
+        label: 'Scanner',
+        message: 'pnpm not available on PATH.',
+        detail: 'Scanner command discovery',
+        artifact_path: 'scan/commands.json',
+        run_id: '2026-05-31_001',
+        elapsed_ms: 5,
+      });
+      return {
+        ok: false as const,
+        error: { code: 'STOPPED_BY_TEST', message: 'done', details: [] },
+      };
+    });
+
+    registerDesktopComposerIpcHandlers(ipc, {
+      getRepoPath: () => '/repo',
+      previewService,
+    });
+
+    await ipc.invoke('composer:generatePreview', { sender }, 'do work', 'mock');
+
+    expect(sender.send).toHaveBeenCalledWith('composer:progress', {
+      phase: 'pipeline_warning',
+      status: 'warning',
+      label: 'Scanner',
+      message: 'pnpm not available on PATH.',
+      detail: 'Scanner command discovery',
+      artifact_path: 'scan/commands.json',
+      run_id: '2026-05-31_001',
+      elapsed_ms: 5,
+    });
+  });
+
   test('failed progress event forwards only safe serializable diagnostic fields', async () => {
     const { registerDesktopComposerIpcHandlers } = await import('../../../src/app/desktop/composer_bridge.js');
     const ipc = createFakeIpc();

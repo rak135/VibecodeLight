@@ -17,6 +17,7 @@ function makeRepo(prefix: string): string {
 async function runMock(opts: { taskNormalizerEnabled?: boolean; task?: string } = {}): Promise<{
   events: PipelineEvent[];
   runDir: string;
+  warnings: string[];
   persistedProgressJsonl?: string;
 }> {
   const repoRoot = makeRepo('vibecode-pipeline-progress-cov-');
@@ -37,6 +38,7 @@ async function runMock(opts: { taskNormalizerEnabled?: boolean; task?: string } 
     return {
       events,
       runDir: result.runDir,
+      warnings: result.warnings,
       ...(persistedProgressJsonl !== undefined ? { persistedProgressJsonl } : {}),
     };
   } finally {
@@ -163,6 +165,60 @@ describe('pipeline progress event coverage (full pipeline)', () => {
     expect(exact).toBeTruthy();
     expect(exact?.status).toBe('completed');
     expect(exact?.label).toBe('Exact text scan');
+  });
+});
+
+describe('pipeline warning detail events', () => {
+  test('every warning string in PromptPipelineResult.warnings has a matching pipeline_warning event', async () => {
+    const { events, warnings } = await runMock();
+    const warningEvents = events.filter((e) => e.phase === 'pipeline_warning');
+    // The set of warning event messages must match the set of warning strings,
+    // and there must be one event per warning (1:1 surfacing).
+    expect(warningEvents.length).toBe(warnings.length);
+    for (const warning of warnings) {
+      const match = warningEvents.find((e) => e.message === warning);
+      expect(match).toBeTruthy();
+      expect(match?.status).toBe('warning');
+      expect(typeof match?.label).toBe('string');
+      expect(match?.label.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  test('pipeline_warning events precede the pipeline_completed_with_warnings summary, which precedes run_completed', async () => {
+    const { events, warnings } = await runMock();
+    if (warnings.length === 0) {
+      // No warnings → no pipeline_warning events, and no summary event.
+      expect(events.find((e) => e.phase === 'pipeline_warning')).toBeUndefined();
+      expect(events.find((e) => e.phase === 'pipeline_completed_with_warnings')).toBeUndefined();
+      return;
+    }
+    const phasesList = phases(events);
+    const firstWarning = phasesList.indexOf('pipeline_warning');
+    const lastWarning = phasesList.lastIndexOf('pipeline_warning');
+    const summary = phasesList.indexOf('pipeline_completed_with_warnings');
+    const completed = phasesList.indexOf('run_completed');
+    expect(firstWarning).toBeGreaterThan(-1);
+    expect(summary).toBeGreaterThan(lastWarning);
+    expect(completed).toBeGreaterThan(summary);
+  });
+
+  test('persisted progress_events.jsonl contains the individual pipeline_warning events alongside the summary', async () => {
+    const { persistedProgressJsonl, warnings } = await runMock();
+    expect(persistedProgressJsonl).toBeTruthy();
+    const persisted = (persistedProgressJsonl ?? '')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as PipelineEvent);
+    const persistedWarningEvents = persisted.filter((e) => e.phase === 'pipeline_warning');
+    expect(persistedWarningEvents.length).toBe(warnings.length);
+    for (const warning of warnings) {
+      const match = persistedWarningEvents.find((e) => e.message === warning);
+      expect(match).toBeTruthy();
+      expect(match?.status).toBe('warning');
+    }
+    if (warnings.length > 0) {
+      expect(persisted.some((e) => e.phase === 'pipeline_completed_with_warnings')).toBe(true);
+    }
   });
 });
 

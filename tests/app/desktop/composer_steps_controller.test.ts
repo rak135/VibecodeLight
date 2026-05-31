@@ -163,6 +163,47 @@ describe('composer step controller', () => {
     expect(ctrl.getState().activeStepId).toBe('pipeline-progress');
   });
 
+  test('pipeline_warning events are buffered and survive a switch to Context Flash and back', () => {
+    const ctrl = ComposerSteps.createStepController();
+    ctrl.startRun();
+    ctrl.addProgressEvent({
+      phase: 'pipeline_warning',
+      label: 'Scanner',
+      message: 'pnpm not available on PATH.',
+      status: 'warning',
+    });
+    ctrl.addProgressEvent({
+      phase: 'pipeline_warning',
+      label: 'Scanner',
+      message: 'npm not available on PATH.',
+      status: 'warning',
+    });
+    ctrl.addProgressEvent({
+      phase: 'pipeline_completed_with_warnings',
+      label: 'Run',
+      message: 'Pipeline completed with 2 warnings.',
+      status: 'warning',
+    });
+    ctrl.markWarned();
+
+    // Switch to Context Flash and back.
+    expect(ctrl.selectStep('context-flash')).toBe(true);
+    expect(ctrl.selectStep('pipeline-progress')).toBe(true);
+
+    const state = ctrl.getState();
+    const warningMessages = state.events
+      .filter((e) => e.phase === 'pipeline_warning')
+      .map((e) => e.message);
+    expect(warningMessages).toEqual([
+      'pnpm not available on PATH.',
+      'npm not available on PATH.',
+    ]);
+    expect(state.events.some((e) => e.phase === 'pipeline_completed_with_warnings')).toBe(true);
+    // Pipeline Progress is selected after switching back so the user can read
+    // the warning rows.
+    expect(state.activeStepId).toBe('pipeline-progress');
+  });
+
   test('onChange callback fires on every state transition', () => {
     const calls: string[] = [];
     const ctrl = ComposerSteps.createStepController({

@@ -72,4 +72,20 @@ describe('desktop renderer pipeline progress UI', () => {
   test('step labels are keyboard-accessible buttons', () => {
     expect(html).toMatch(/class="ov-label ov-step-button"\s+role="button"\s+tabindex="0"/);
   });
+
+  // Individual pipeline_warning events must be rendered as real rows — they
+  // are not back-compat synonyms and must not be hidden by the SKIP list.
+  test('pipeline_warning phase is NOT filtered from the rendered progress list', () => {
+    const skipBlock = html.match(/PIPELINE_PROGRESS_SKIP_PHASES\s*=\s*new Set\(\[([\s\S]*?)\]\)/);
+    expect(skipBlock).toBeTruthy();
+    const body = skipBlock?.[1] ?? '';
+    expect(body).not.toContain("'pipeline_warning'");
+  });
+
+  test('warning status renders with the warn glyph and styling class', () => {
+    // status='warning' rows show the bang glyph and pick up the warn class so
+    // the user can visually distinguish them from completed/failed rows.
+    expect(html).toMatch(/case 'warning':\s*return '!';/);
+    expect(html).toContain("if (status === 'warning') item.classList.add('warn')");
+  });
 });
