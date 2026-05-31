@@ -50,6 +50,7 @@ def test_scan_manifest_lists_code_map_artifacts(tmp_path):
         "entrypoints.json",
         "tests.json",
         "schemas.json",
+        "exact_text_hits.json",
         "keyword_hits.json",
         "recent_history.json",
     ]:

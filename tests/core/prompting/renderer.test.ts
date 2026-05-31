@@ -160,6 +160,40 @@ describe('renderFinalPrompt', () => {
     expect(content).toContain('docs/ARCHITECTURE.md');
   });
 
+  test('final_prompt.md prepends exact text match files from deterministic relevance selection', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
+    const exactText = 'Translates and expands your task into English search hints before context selection. Does not select files.';
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'relevance_selection.json'),
+      JSON.stringify({
+        selected_files: [
+          {
+            path: 'src/app/desktop/renderer/index.html',
+            score: 10000,
+            reasons: [`exact text match: "${exactText}"`],
+          },
+          {
+            path: 'src/app/desktop/renderer/flash_settings.js',
+            score: 80,
+            reasons: ['path matches task term settings'],
+          },
+        ],
+      }, null, 2),
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    const exactLine = `- src/app/desktop/renderer/index.html — selected by: exact text match: "${exactText}"`;
+
+    expect(content).toContain(exactLine);
+    expect(content.indexOf(exactLine)).toBeLessThan(content.indexOf('- src/core/feature.ts'));
+    expect(content).toContain('# Files To Inspect');
+    expect(content).toContain('src/app/desktop/renderer/index.html');
+    expect(content).not.toMatch(/score 10000/i);
+  });
+
   test('final_prompt.md includes commands from flash metadata', () => {
     const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
     renderFinalPrompt(runDir);

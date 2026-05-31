@@ -94,6 +94,7 @@ export const FULL_ARTIFACT_REFERENCES = [
   'scan/entrypoints.json',
   'scan/tests.json',
   'scan/schemas.json',
+  'scan/exact_text_hits.json',
   'scan/keyword_hits.json',
   'scan/recent_history.json',
   'skills/skills_catalog.json',
@@ -194,10 +195,23 @@ function taskTokens(task: string): string[] {
   );
 }
 
-function scorePath(filePath: string, tokens: string[], hintBoosts: Map<string, string[]>, extraReason?: string): ScoredPath {
+function scorePath(
+  filePath: string,
+  tokens: string[],
+  hintBoosts: Map<string, string[]>,
+  extraReason?: string,
+  exactReasons: string[] = [],
+): ScoredPath {
   const lower = filePath.toLowerCase();
   const reasons: string[] = [];
   let score = 0;
+  if (exactReasons.length > 0) {
+    score += 100_000;
+    if (!/(^|\/)tests?\//.test(filePath) && !/\.test\./.test(filePath) && !/\.spec\./.test(filePath)) {
+      score += 1_000;
+    }
+    reasons.push(...exactReasons);
+  }
   for (const token of tokens) {
     if (lower.includes(token)) {
       score += 10;
@@ -244,6 +258,21 @@ function collectKeywordBoosts(runDir: string): Map<string, string> {
     if (filePath && !boosts.has(filePath)) boosts.set(filePath, `keyword hit: ${getString(record, 'match_type') || 'task match'}`);
   }
   return boosts;
+}
+
+function collectExactTextReasons(runDir: string): Map<string, string[]> {
+  const records = asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.exact_text_hits), ['exact_text_hits', 'hits']);
+  const reasons = new Map<string, string[]>();
+  for (const record of records.slice(0, 50)) {
+    const filePath = getPath(record);
+    if (!filePath) continue;
+    const term = getString(record, 'term') || getString(record, 'normalized_term') || getString(record, 'keyword');
+    const reason = term
+      ? `exact text match: "${truncate(term, 180).replace(/\n/g, ' ')}"`
+      : 'exact text match';
+    reasons.set(filePath, unique([...(reasons.get(filePath) ?? []), reason]));
+  }
+  return reasons;
 }
 
 function collectHintBoosts(taskIntent?: TaskIntent): Map<string, string[]> {
@@ -310,16 +339,17 @@ function selectRelevant(runDir: string, task: string, taskIntent?: TaskIntent): 
   const allTokens = unique([...tokens, ...normalizedTokens, ...hintTokens, ...keywordGroupTokens]);
   const inventoryPaths = collectInventoryPaths(runDir);
   const boosts = collectKeywordBoosts(runDir);
+  const exactTextReasons = collectExactTextReasons(runDir);
   const hintBoosts = collectHintBoosts(taskIntent);
-  const paths = unique([...inventoryPaths, ...Array.from(boosts.keys())]);
+  const paths = unique([...inventoryPaths, ...Array.from(boosts.keys()), ...Array.from(exactTextReasons.keys())]);
   const scoredFiles = sortedTop(
-    paths.map((filePath) => scorePath(filePath, allTokens, hintBoosts, boosts.get(filePath))),
+    paths.map((filePath) => scorePath(filePath, allTokens, hintBoosts, boosts.get(filePath), exactTextReasons.get(filePath) ?? [])),
     40,
   );
 
   const testRecords = asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.tests), ['tests', 'test_files']);
   const testPaths = unique(testRecords.map(getPath).filter(Boolean).concat(paths.filter((p) => /(^|\/)tests?\//.test(p) || /\.test\./.test(p))));
-  const selectedTests = sortedTop(testPaths.map((filePath) => scorePath(filePath, allTokens, hintBoosts, boosts.get(filePath))), 15);
+  const selectedTests = sortedTop(testPaths.map((filePath) => scorePath(filePath, allTokens, hintBoosts, boosts.get(filePath), exactTextReasons.get(filePath) ?? [])), 15);
 
   const docRecords = [
     ...asRecords(readJson(runDir, FLASH_INPUT_OPTIONAL_INPUTS.repo_instructions), ['repo_instructions', 'instructions']),

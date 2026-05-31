@@ -29,6 +29,7 @@ export const FLASH_INPUT_OPTIONAL_INPUTS = {
   entrypoints: 'scan/entrypoints.json',
   tests: 'scan/tests.json',
   schemas: 'scan/schemas.json',
+  exact_text_hits: 'scan/exact_text_hits.json',
   keyword_hits: 'scan/keyword_hits.json',
   recent_history: 'scan/recent_history.json',
 } as const;

@@ -72,6 +72,29 @@ function listItems(items: string[]): string {
   return items.map((item) => `- ${item}`).join('\n') + '\n';
 }
 
+function uniqueItems(items: string[]): string[] {
+  return Array.from(new Set(items));
+}
+
+interface RelevanceSelectionArtifact {
+  selected_files?: Array<{ path?: unknown; reasons?: unknown }>;
+}
+
+function exactTextSelectionItems(selection: RelevanceSelectionArtifact | null): string[] {
+  const items = Array.isArray(selection?.selected_files) ? selection.selected_files : [];
+  const out: string[] = [];
+  for (const item of items) {
+    if (typeof item.path !== 'string' || item.path.length === 0) continue;
+    const reasons = Array.isArray(item.reasons)
+      ? item.reasons.filter((reason): reason is string => typeof reason === 'string')
+      : [];
+    const exactReasons = reasons.filter((reason) => reason.toLowerCase().includes('exact text match'));
+    if (exactReasons.length === 0) continue;
+    out.push(`${item.path} — selected by: ${exactReasons.join('; ')}`);
+  }
+  return uniqueItems(out);
+}
+
 interface BuildFinalPromptOptions {
   task: string;
   manifest: RunManifest;
@@ -81,13 +104,14 @@ interface BuildFinalPromptOptions {
   flashMeta: FlashOutputMeta | null;
   scanCommands: string[];
   repoInstructionFiles: string[];
+  deterministicRelevantFiles: string[];
 }
 
 function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
-  const { task, manifest, contextPack, skillContents, hasSelectedSkills, flashMeta, scanCommands, repoInstructionFiles } = opts;
+  const { task, manifest, contextPack, skillContents, hasSelectedSkills, flashMeta, scanCommands, repoInstructionFiles, deterministicRelevantFiles } = opts;
 
-  const relevantFiles = flashMeta?.relevant_files ?? [];
-  const filesToInspect = flashMeta?.files_to_read_with_tools ?? [];
+  const relevantFiles = uniqueItems([...deterministicRelevantFiles, ...(flashMeta?.relevant_files ?? [])]);
+  const filesToInspect = uniqueItems([...deterministicRelevantFiles, ...(flashMeta?.files_to_read_with_tools ?? [])]);
   const cautions = flashMeta?.cautions ?? [];
 
   // Commands: prefer flash meta, fall back to scan commands
@@ -164,10 +188,14 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
 
     // --- Optional artifacts ---
     const flashMetaPath = path.join(runDir, 'flash', 'flash_output_meta.json');
+    const relevanceSelectionPath = path.join(runDir, 'flash', 'relevance_selection.json');
     const scanCommandsPath = path.join(runDir, 'scan', 'commands.json');
     const repoInstructionsPath = path.join(runDir, 'scan', 'repo_instructions.json');
 
     const flashMeta = readOptionalMeta(flashMetaPath);
+    const deterministicRelevantFiles = exactTextSelectionItems(
+      readOptionalJson<RelevanceSelectionArtifact>(relevanceSelectionPath),
+    );
 
     const scanCommandsJson = readOptionalJson<{ commands?: unknown }>(scanCommandsPath);
     // The Python scanner may write commands as a categorised object {install,run,test}
@@ -195,6 +223,7 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       flashMeta,
       scanCommands,
       repoInstructionFiles,
+      deterministicRelevantFiles,
     });
 
     // --- Write output/final_prompt.md ---

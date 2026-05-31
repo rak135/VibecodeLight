@@ -113,4 +113,32 @@ describe('context-build command', () => {
     expect(flashInput).toContain(firstPayload.data.run_id);
     expect(flashInput).toContain('previous summary first task');
   });
+
+  test('context-build prioritizes exact UI text from raw task before generic normalizer hints', () => {
+    const exactText = 'Translates and expands your task into English search hints before context selection. Does not select files.';
+    const rendererDir = path.join(tmpRepo, 'src', 'app', 'desktop', 'renderer');
+    fs.mkdirSync(rendererDir, { recursive: true });
+    fs.writeFileSync(path.join(rendererDir, 'index.html'), `<label>${exactText}</label>\n`, 'utf8');
+    fs.writeFileSync(path.join(tmpRepo, 'src', 'app', 'desktop', 'renderer', 'flash_settings.js'), 'export const taskNormalizerSettings = true;\n', 'utf8');
+    fs.writeFileSync(path.join(tmpRepo, 'src', 'app', 'desktop', 'composer_bridge_task_normalizer.test.ts'), 'test("task normalizer settings", () => {});\n', 'utf8');
+    const task = `odstraň z GUI popis task normalizeru - (${exactText})\nNechci tam žádný popis task normalizeru, jen ten přepínač co tam je teď`;
+
+    const result = runCli(['context-build', task, '--repo', tmpRepo, '--task-normalizer', '--json']);
+
+    expect(result.status).toBe(0);
+    const payload = JSON.parse(result.stdout.trim());
+    const exactHits = JSON.parse(fs.readFileSync(path.join(payload.data.runDir, 'scan', 'exact_text_hits.json'), 'utf8'));
+    const taskSlice = fs.readFileSync(path.join(payload.data.runDir, 'flash', 'task_slice.md'), 'utf8');
+    const selection = JSON.parse(fs.readFileSync(path.join(payload.data.runDir, 'flash', 'relevance_selection.json'), 'utf8'));
+
+    expect(exactHits.exact_text_hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provenance: 'exact_phrase',
+        match_type: 'exact_text',
+        path: 'src/app/desktop/renderer/index.html',
+      }),
+    ]));
+    expect(selection.selected_files[0].path).toBe('src/app/desktop/renderer/index.html');
+    expect(taskSlice).toContain(`src/app/desktop/renderer/index.html — selected by: exact text match: "${exactText}"`);
+  });
 });

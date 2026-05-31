@@ -447,6 +447,7 @@ Canonical run layout:
     tests.json
     tooling.json
     schemas.json
+    exact_text_hits.json   # deterministic exact user-provided phrase matches in scanned text files
     keyword_hits.json
     recent_history.json
     previous_run_summary.json

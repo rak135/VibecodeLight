@@ -163,6 +163,74 @@ describe('compact Repo Atlas + Task Slice flash input', () => {
     fs.rmSync(fixture.repoRoot, { recursive: true, force: true });
   });
 
+  test('prioritizes exact text hit files above generic ranked files and explains the evidence', () => {
+    const fixture = makeRunFixture();
+    const exactText = 'Translates and expands your task into English search hints before context selection. Does not select files.';
+    fs.writeFileSync(
+      path.join(fixture.runDir, 'scan', 'exact_text_hits.json'),
+      JSON.stringify({
+        task: `odstraň z GUI popis task normalizeru - (${exactText})`,
+        exact_phrases: [{ text: exactText, normalized_text: exactText, source: 'parenthesized' }],
+        exact_text_hits: [
+          {
+            term: exactText,
+            provenance: 'exact_phrase',
+            match_type: 'exact_text',
+            path: 'src/app/desktop/renderer/index.html',
+            line: 144,
+            excerpt: exactText,
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const manifest = buildFlashInputManifest({
+      run_id: fixture.runId,
+      task: `odstraň z GUI popis task normalizeru - (${exactText})`,
+      repo_root: fixture.repoRoot,
+      runDir: fixture.runDir,
+    });
+    buildFlashInput({
+      run_id: fixture.runId,
+      task: `odstraň z GUI popis task normalizeru - (${exactText})`,
+      repo_root: fixture.repoRoot,
+      runDir: fixture.runDir,
+      manifest,
+      taskIntent: {
+        enabled: true,
+        ok: true,
+        source: 'llm',
+        original_task: `odstraň z GUI popis task normalizeru - (${exactText})`,
+        original_language: 'cs',
+        normalized_english_task: 'Remove task normalizer description from GUI settings switch',
+        search_hints: ['task normalizer settings switch renderer'],
+        keyword_groups: {
+          core_terms: [],
+          ui_terms: ['settings', 'switch', 'renderer'],
+          persistence_terms: [],
+          cli_terms: [],
+          test_terms: [],
+        },
+        negative_constraints: [],
+        validation_hints: [],
+        uncertainties: [],
+        warnings: [],
+        model: { provider: 'mock', model: 'mock', live: false },
+      },
+    });
+
+    const selection = JSON.parse(fs.readFileSync(path.join(fixture.flashDir, 'relevance_selection.json'), 'utf8'));
+    const taskSlice = fs.readFileSync(path.join(fixture.flashDir, 'task_slice.md'), 'utf8');
+
+    expect(selection.selected_files[0].path).toBe('src/app/desktop/renderer/index.html');
+    expect(selection.selected_files[0].reasons).toContain(`exact text match: "${exactText}"`);
+    expect(taskSlice).toContain(`src/app/desktop/renderer/index.html — selected by: exact text match: "${exactText}"`);
+    expect(taskSlice).not.toMatch(/score \d+/i);
+
+    fs.rmSync(fixture.repoRoot, { recursive: true, force: true });
+  });
+
   test('flash_input.md uses Repo Atlas and Task Slice and does not embed full scan dumps', () => {
     const { fixture, content } = buildFixtureInput();
 

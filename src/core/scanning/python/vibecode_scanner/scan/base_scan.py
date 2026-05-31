@@ -26,6 +26,7 @@ from .docs_scan import (
 )
 from .entrypoint_scan import run_entrypoint_scan
 from .environment_scan import run_environment_scan
+from .exact_text_scan import run_exact_text_scan
 from .history_scan import run_history_scan
 from .import_scan import run_import_scan
 from .keyword_scan import run_keyword_scan
@@ -504,7 +505,18 @@ def run_base_scan(
         json.dumps(schema_result, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    # 21. keyword_hits.json (uses already-computed inventory/symbols/docs)
+    # 21. exact_text_hits.json (high-confidence pasted strings from raw user task)
+    exact_text_result = run_exact_text_scan(
+        repo_root=repo_root,
+        task=task,
+        file_inventory=inventory,
+    )
+    warnings.extend(exact_text_result.get("warnings", []))
+    (out_dir / "exact_text_hits.json").write_text(
+        json.dumps(exact_text_result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 22. keyword_hits.json (uses already-computed inventory/symbols/docs)
     keyword_result = run_keyword_scan(
         task=task,
         file_inventory=inventory,
@@ -523,14 +535,14 @@ def run_base_scan(
         json.dumps(keyword_result, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    # 22. recent_history.json
+    # 23. recent_history.json
     history_result = run_history_scan(repo_root)
     warnings.extend(history_result.get("warnings", []))
     (out_dir / "recent_history.json").write_text(
         json.dumps(history_result, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    # 23. scan_manifest.json (last - references all others)
+    # 24. scan_manifest.json (last - references all others)
     produced_artifacts = {
         "scan_manifest.json": str(out_dir / "scan_manifest.json"),
         "repo_tree.txt": str(out_dir / "repo_tree.txt"),
@@ -551,6 +563,7 @@ def run_base_scan(
         "entrypoints.json": str(out_dir / "entrypoints.json"),
         "tests.json": str(out_dir / "tests.json"),
         "schemas.json": str(out_dir / "schemas.json"),
+        "exact_text_hits.json": str(out_dir / "exact_text_hits.json"),
         "keyword_hits.json": str(out_dir / "keyword_hits.json"),
         "recent_history.json": str(out_dir / "recent_history.json"),
     }
