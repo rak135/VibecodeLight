@@ -102,6 +102,8 @@ describe('desktop preload bridge boundary', () => {
       undefined,
       undefined,
       undefined,
+      false,
+      undefined,
     );
     await composer.generatePreview('integration smoke', 'use-existing');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -111,6 +113,8 @@ describe('desktop preload bridge boundary', () => {
       undefined,
       undefined,
       'use-existing',
+      false,
+      undefined,
     );
   });
 
@@ -140,6 +144,8 @@ describe('desktop preload bridge boundary', () => {
       'openrouter',
       'deepseek/deepseek-chat',
       'use-existing',
+      false,
+      undefined,
     );
   });
 

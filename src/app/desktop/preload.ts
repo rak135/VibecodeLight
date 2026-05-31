@@ -28,6 +28,14 @@ export interface ComposerPreviewIpcResult {
   taskIntentPath?: string;
   /** Optional CodeGraph detect-only status for this run (informational only). */
   codegraph?: CodeGraphStatusIpc;
+  /** CodeGraph transport requested for this run (cli/mcp/auto). */
+  codegraphTransportRequested?: CodeGraphTransportIpc;
+  /** CodeGraph transport that actually built the context, or 'none'. */
+  codegraphTransportUsed?: CodeGraphTransportIpc | 'none';
+  /** True when the run started on MCP and fell back to the CLI transport. */
+  codegraphFallbackUsed?: boolean;
+  /** Human-readable reason for the MCP→CLI fallback. */
+  codegraphFallbackReason?: string;
   terminalSend?: 'not_sent';
   /** The flash mode used: mock or live. */
   flash_mode?: 'mock' | 'live';
@@ -189,6 +197,7 @@ export interface CodeGraphStatusIpc {
 }
 
 export type CodeGraphContextModeIpc = 'detect-only' | 'use-existing';
+export type CodeGraphTransportIpc = 'cli' | 'mcp' | 'auto';
 export interface RunInfoIpc {
   run_id: string;
   task: string;
@@ -268,8 +277,8 @@ export interface VibecodePreloadApi {
     }>;
   };
   composer: {
-    generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean): Promise<ComposerPreviewIpcResult>;
-    generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean): Promise<ComposerPreviewIpcResult>;
+    generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc): Promise<ComposerPreviewIpcResult>;
+    generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc): Promise<ComposerPreviewIpcResult>;
     sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean): Promise<ComposerSendIpcResult>;
     onProgress(callback: (event: PipelineProgressEvent) => void): () => void;
   };
@@ -336,15 +345,29 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
     },
     composer: {
-      generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean) {
-        return taskNormalizerEnabled === true
-          ? ipcRenderer.invoke('composer:generatePreview', task, 'mock', undefined, undefined, codegraphMode, true) as Promise<ComposerPreviewIpcResult>
-          : ipcRenderer.invoke('composer:generatePreview', task, 'mock', undefined, undefined, codegraphMode) as Promise<ComposerPreviewIpcResult>;
+      generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc) {
+        return ipcRenderer.invoke(
+          'composer:generatePreview',
+          task,
+          'mock',
+          undefined,
+          undefined,
+          codegraphMode,
+          taskNormalizerEnabled === true,
+          codegraphTransport,
+        ) as Promise<ComposerPreviewIpcResult>;
       },
-      generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean) {
-        return taskNormalizerEnabled === true
-          ? ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel, codegraphMode, true) as Promise<ComposerPreviewIpcResult>
-          : ipcRenderer.invoke('composer:generatePreview', task, 'live', flashProvider, flashModel, codegraphMode) as Promise<ComposerPreviewIpcResult>;
+      generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc) {
+        return ipcRenderer.invoke(
+          'composer:generatePreview',
+          task,
+          'live',
+          flashProvider,
+          flashModel,
+          codegraphMode,
+          taskNormalizerEnabled === true,
+          codegraphTransport,
+        ) as Promise<ComposerPreviewIpcResult>;
       },
       sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean) {
         return ipcRenderer.invoke('composer:sendPreview', runId, targetSessionId, Boolean(autoApprove)) as Promise<ComposerSendIpcResult>;

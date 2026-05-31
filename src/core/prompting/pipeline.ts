@@ -3,6 +3,8 @@ import path from 'path';
 
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { buildCodeGraphContext, writeCodeGraphContextArtifacts, type CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
+import { DEFAULT_CODEGRAPH_TRANSPORT, type CodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
+import type { CodeGraphMcpContextRunner } from '../../adapters/codegraph/codegraph_mcp.js';
 import { LlmAdapterError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
@@ -43,6 +45,10 @@ export interface PromptPipelineOptions {
   live?: boolean;
   adapter?: LlmAdapter;
   codegraphMode?: CodeGraphContextMode;
+  /** Pipeline transport selection for the CodeGraph context build (Phase 1B). */
+  codegraphTransport?: CodeGraphTransport;
+  /** Test seam: inject an MCP context runner without spawning a real server. */
+  codegraphMcpRunner?: CodeGraphMcpContextRunner;
   flashProvider?: string;
   flashModel?: string;
   taskNormalizerEnabled?: boolean;
@@ -420,13 +426,17 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
   fs.mkdirSync(flashDir, { recursive: true });
 
   const codegraphMode: CodeGraphContextMode = opts.codegraphMode ?? 'detect-only';
+  const codegraphTransport: CodeGraphTransport = opts.codegraphTransport ?? DEFAULT_CODEGRAPH_TRANSPORT;
   const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
+  const transportLabel = (transport: CodeGraphTransport): string =>
+    transport === 'mcp' ? 'MCP' : transport === 'auto' ? 'Auto' : 'CLI';
   if (codegraphMode === 'detect-only') {
     emitProgress({
       phase: 'codegraph_detect_started',
       status: 'started',
       label: 'CodeGraph',
       message: 'Detecting CodeGraph (detect-only).',
+      detail: `transport requested: ${transportLabel(codegraphTransport)} (not used in detect-only)`,
       run_id: scan.run_id,
     });
   } else {
@@ -435,6 +445,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       status: 'started',
       label: 'CodeGraph',
       message: 'Building CodeGraph context from existing index.',
+      detail: `transport: ${transportLabel(codegraphTransport)}`,
       run_id: scan.run_id,
     });
   }
@@ -444,10 +455,17 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     repoRoot: opts.repoRoot,
     task: codegraphTask,
     mode: codegraphMode,
+    transport: codegraphTransport,
+    ...(opts.codegraphMcpRunner ? { mcpRunner: opts.codegraphMcpRunner } : {}),
   });
   const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: scan.runDir, result: codegraphResult });
   augmentExternalToolsWithCodeGraphContext(scan.scanDir, codegraphResult);
   const codegraphDuration = Date.now() - codegraphStart;
+  const transportUsedDisplay = codegraphResult.transportUsed === 'mcp'
+    ? 'MCP'
+    : codegraphResult.transportUsed === 'cli'
+      ? (codegraphResult.fallbackUsed ? 'CLI fallback' : 'CLI')
+      : 'none';
 
   if (codegraphMode === 'detect-only') {
     emitProgress({
@@ -456,8 +474,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       label: 'CodeGraph',
       message: 'CodeGraph detection completed.',
       detail: codegraphResult.reason
-        ? `${codegraphResult.reason} — not used for context`
-        : 'available, not used for context',
+        ? `${codegraphResult.reason} — not used for context — transport requested: ${transportLabel(codegraphTransport)}`
+        : `available, not used for context — transport requested: ${transportLabel(codegraphTransport)}`,
       run_id: scan.run_id,
       duration_ms: codegraphDuration,
     });
@@ -469,23 +487,43 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       run_id: scan.run_id,
     });
   } else if (codegraphResult.ok && codegraphResult.used) {
+    if (codegraphResult.fallbackUsed) {
+      emitProgress({
+        phase: 'codegraph_transport_fallback',
+        status: 'warning',
+        label: 'CodeGraph',
+        message: 'MCP context failed; falling back to CLI.',
+        detail: codegraphResult.fallbackReason ?? 'MCP failure — switched to CLI transport',
+        run_id: scan.run_id,
+      });
+    }
     emitProgress({
       phase: 'codegraph_context_completed',
       status: 'completed',
       label: 'CodeGraph',
       message: 'CodeGraph context attached.',
-      detail: codegraphResult.reason ?? 'existing index',
+      detail: `${codegraphResult.reason ?? 'existing index'} — transport: ${transportUsedDisplay}`,
       run_id: scan.run_id,
       duration_ms: codegraphDuration,
       ...(codegraphArtifacts.contextArtifact ? { artifact_path: codegraphArtifacts.contextArtifact } : {}),
     });
   } else {
+    if (codegraphResult.fallbackUsed) {
+      emitProgress({
+        phase: 'codegraph_transport_fallback',
+        status: 'warning',
+        label: 'CodeGraph',
+        message: 'MCP context failed; falling back to CLI.',
+        detail: codegraphResult.fallbackReason ?? 'MCP failure — switched to CLI transport',
+        run_id: scan.run_id,
+      });
+    }
     emitProgress({
       phase: 'codegraph_context_failed',
       status: 'warning',
       label: 'CodeGraph',
       message: 'CodeGraph context unavailable; continuing without it.',
-      detail: codegraphResult.error?.message ?? codegraphResult.reason ?? codegraphResult.warnings[0],
+      detail: `${codegraphResult.error?.message ?? codegraphResult.reason ?? codegraphResult.warnings[0] ?? 'unknown'} — transport requested: ${transportLabel(codegraphTransport)}`,
       run_id: scan.run_id,
       duration_ms: codegraphDuration,
     });

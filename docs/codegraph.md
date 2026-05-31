@@ -178,15 +178,85 @@ modifies external agent configs.
 
 ### What Phase 1A does not change
 
-- The prompt/context pipeline still uses the existing CodeGraph CLI adapter.
-  There is no MCP transport in `runPromptPipeline` and no
-  `scan/codegraph_mcp_usage.json` artifact.
 - CodeGraph mode defaults remain unchanged (detect-only by default).
 - Prompt/context build still never calls `codegraph init/sync/index` for MCP
   reasons.
 
-Future MCP work (optional MCP transport in the pipeline, agent config install,
-multi-agent control) lives in `docs/codegraph_mcp_roadmap.md`.
+Phase 1B adds an optional MCP transport for the prompt/context pipeline (see
+below). Future MCP work (agent config install, multi-agent control) lives in
+`docs/codegraph_mcp_roadmap.md`.
+
+## CodeGraph MCP transport (Phase 1B)
+
+Phase 1B adds an **optional MCP transport** to the prompt/context pipeline. The
+existing CLI adapter remains the stable default; MCP is opt-in.
+
+CodeGraph integration has two independent concepts:
+
+- **CodeGraph mode**: `detect-only` (default) or `use-existing`. Controls
+  whether the pipeline queries CodeGraph at all.
+- **CodeGraph transport**: `cli` (default), `mcp`, or `auto`. Controls *how*
+  the pipeline queries CodeGraph when mode is `use-existing`.
+
+Behaviour by transport (use-existing only):
+
+- `cli` — invokes the existing CodeGraph CLI adapter (`codegraph context …`).
+  Stable, deterministic, no MCP server is spawned.
+- `mcp` — spawns the upstream MCP server (`codegraph serve --mcp`), performs
+  the MCP handshake, and calls the `codegraph_context` tool. On failure the
+  pipeline emits a warning and continues *without* CodeGraph context — there
+  is **no silent fallback** in strict `mcp` mode.
+- `auto` — prefers MCP. If the MCP call fails, the pipeline emits a
+  `codegraph_transport_fallback` warning event, falls back to the CLI
+  adapter, and records `fallback_used: true` in `scan/codegraph_usage.json`.
+
+`detect-only` never queries CodeGraph, regardless of the transport setting.
+The requested transport is still recorded in `scan/codegraph_usage.json`
+(`transport_requested`) with `transport_used: "none"` and `used_for_context:
+false`.
+
+### How the transport is selected
+
+- Desktop: the **CodeGraph Transport** dropdown in the composer header
+  (next to the CodeGraph ON/OFF toggle). The choice is persisted in
+  `localStorage` under `vibecode.codegraphTransport` and restored when the app
+  reopens. Invalid persisted values fall back to `cli`.
+- CLI: there is no public prompt-level flag for the transport in this phase.
+  The internal `runContextBuild` helper accepts `codegraphTransport` and an
+  injectable `codegraphMcpRunner` for tests.
+
+### `scan/codegraph_usage.json` (Phase 1B fields)
+
+```jsonc
+{
+  "mode": "use-existing",
+  "used": true,
+  "used_for_context": true,
+  "transport_requested": "auto",
+  "transport_used": "cli",
+  "mcp_attempted": true,
+  "fallback_used": true,
+  "fallback_reason": "MCP context failed; fell back to CLI. …",
+  "reason": "EXISTING_INDEX",
+  "warnings": ["CodeGraph MCP failed; fell back to CLI."],
+  "context_artifact": "scan/codegraph_context.md",
+  "artifact": "scan/codegraph_context.md"
+}
+```
+
+Legacy `artifact` and `used` fields are preserved alongside the new
+`context_artifact` / `used_for_context` fields for back-compat.
+
+### What Phase 1B does not change
+
+- CLI remains the default transport; nothing about existing CLI behaviour
+  changes.
+- MCP is never required; the pipeline still works without `codegraph` on PATH.
+- Prompt/context build still never calls `codegraph init/sync/index/watch`,
+  regardless of transport.
+- Task Normalizer behaviour and `final_prompt.md` rendering are unchanged.
+- There is no VibecodeLight-owned CodeGraph MCP server; the MCP transport
+  talks to the upstream `codegraph serve --mcp` process only.
 
 ## Current artifact map
 
@@ -223,7 +293,6 @@ The following are not part of the current implementation:
 - a VibecodeLight-owned CodeGraph MCP server (Phase 1A integrates with the
   upstream `codegraph serve --mcp` server only)
 - `vibecode mcp serve` (VibecodeLight MCP gateway)
-- optional MCP transport for the prompt/context pipeline (Phase 1B)
 - agent config installation helpers (Phase 2 — Phase 1A only prints snippets)
 - HTTP server mode
 - background watch/serve/index orchestration during prompt build

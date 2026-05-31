@@ -2,6 +2,10 @@ import { generatePromptPreview } from './prompt_preview_service.js';
 import type { PromptPreviewResult, PipelineProgressEvent } from './prompt_preview_service.js';
 import type { CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
 import {
+  normalizeCodeGraphTransport,
+  type CodeGraphTransport,
+} from '../../adapters/codegraph/codegraph_transport.js';
+import {
   sendFinalPromptForRun,
   SendPromptIpcResult,
   DesktopTerminalServiceLike,
@@ -96,6 +100,7 @@ export interface ComposerBridgeOptions {
     flashProvider?: string;
     flashModel?: string;
     codegraphMode?: CodeGraphContextMode;
+    codegraphTransport?: CodeGraphTransport;
     taskNormalizerEnabled?: boolean;
     onProgress?: (event: PipelineProgressEvent) => void;
   }) => Promise<PromptPreviewResult>;
@@ -133,6 +138,7 @@ export function registerDesktopComposerIpcHandlers(
     const flashModel = typeof args[3] === 'string' ? args[3] : undefined;
     const codegraphMode: CodeGraphContextMode = args[4] === 'use-existing' ? 'use-existing' : 'detect-only';
     const taskNormalizerEnabled = args[5] === true;
+    const codegraphTransport: CodeGraphTransport = normalizeCodeGraphTransport(args[6]);
     const repoRoot = options.getRepoPath();
     const sender = (event as IpcEventWithSender | undefined)?.sender;
     return invokePreview({
@@ -142,6 +148,7 @@ export function registerDesktopComposerIpcHandlers(
       flashProvider,
       flashModel,
       codegraphMode,
+      codegraphTransport,
       taskNormalizerEnabled,
       onProgress: (pipelineEvent) => {
         sender?.send('composer:progress', toSafePipelineProgressEvent(pipelineEvent));

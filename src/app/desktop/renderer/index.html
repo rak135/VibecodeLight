@@ -110,6 +110,22 @@
                     <span class="sw"></span>
                     CodeGraph
                   </button>
+                  <!-- CodeGraph transport (Phase 1B): chooses how the pipeline queries
+                       the existing CodeGraph index. Independent of the ON/OFF toggle;
+                       detect-only records but ignores this. Persisted in localStorage
+                       under vibecode.codegraphTransport. -->
+                  <label id="codegraph-transport-label" for="codegraph-transport-select"
+                    title="Choose how CodeGraph context is queried. CLI is the stable default; MCP uses codegraph serve --mcp; Auto prefers MCP and falls back to CLI."
+                    style="margin-left:6px;display:inline-flex;gap:4px;align-items:center;font-size:11px;color:var(--muted,#888);text-transform:none;">
+                    Transport
+                    <select id="codegraph-transport-select"
+                      title="CLI is the stable default; MCP uses codegraph serve --mcp; Auto prefers MCP and falls back to CLI."
+                      style="font-size:11px;">
+                      <option value="cli">CLI</option>
+                      <option value="mcp">MCP</option>
+                      <option value="auto">Auto</option>
+                    </select>
+                  </label>
                   <button id="task-normalizer-toggle" class="toggle" type="button" role="switch" aria-checked="false"
                     style="margin-left:6px;display:inline-flex;align-items:center;text-transform:none;">
                     <span class="sw"></span>
@@ -357,6 +373,7 @@
       const composerLiveControls = $('composer-live-controls');
       const composerFlashKey = $('composer-flash-key');
       const codegraphToggle = $('codegraph-toggle');
+      const codegraphTransportSelect = $('codegraph-transport-select');
       const taskNormalizerToggle = $('task-normalizer-toggle');
       const composerModeRadios = overlay.querySelectorAll('input[name="composer-flash-mode"]');
 
@@ -514,6 +531,28 @@
           : 'detect-only';
       }
 
+      function restoreStoredCodeGraphTransport() {
+        if (!codegraphTransportSelect) return 'cli';
+        var transport = 'cli';
+        if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.readCodeGraphTransport) {
+          transport = window.VibecodeFlashSettings.readCodeGraphTransport(localStorage);
+        } else {
+          var raw = localStorage.getItem('vibecode.codegraphTransport');
+          if (raw === 'mcp' || raw === 'auto' || raw === 'cli') transport = raw;
+        }
+        codegraphTransportSelect.value = transport;
+        return transport;
+      }
+
+      function getCodeGraphTransport() {
+        if (!codegraphTransportSelect) return 'cli';
+        if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.normalizeCodeGraphTransport) {
+          return window.VibecodeFlashSettings.normalizeCodeGraphTransport(codegraphTransportSelect.value);
+        }
+        var v = codegraphTransportSelect.value;
+        return (v === 'mcp' || v === 'auto') ? v : 'cli';
+      }
+
       function setTaskNormalizerToggleState(on) {
         if (!taskNormalizerToggle) return;
         taskNormalizerToggle.classList.toggle('on', Boolean(on));
@@ -536,6 +575,7 @@
       restoreStoredCodeGraphToggleState();
       syncCodeGraphToggleAvailability();
       restoreStoredTaskNormalizerToggleState();
+      restoreStoredCodeGraphTransport();
 
       function refreshSendButton() {
         const ready = terminalReady();
@@ -1032,6 +1072,19 @@
           localStorage.setItem('vibecode.codegraph.on', on ? '1' : '0');
         });
       }
+      if (codegraphTransportSelect) {
+        codegraphTransportSelect.addEventListener('change', () => {
+          if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.writeCodeGraphTransport) {
+            const normalized = window.VibecodeFlashSettings.writeCodeGraphTransport(localStorage, codegraphTransportSelect.value);
+            codegraphTransportSelect.value = normalized;
+          } else {
+            const v = codegraphTransportSelect.value;
+            const normalized = (v === 'mcp' || v === 'auto') ? v : 'cli';
+            localStorage.setItem('vibecode.codegraphTransport', normalized);
+            codegraphTransportSelect.value = normalized;
+          }
+        });
+      }
       if (taskNormalizerToggle) {
         taskNormalizerToggle.addEventListener('click', () => {
           const on = taskNormalizerToggle.classList.toggle('on');
@@ -1346,8 +1399,14 @@
           ['flash_input_budget.json', result.flashInputBudgetPath || '—'],
           ['codegraph', codeGraphSummaryValue(result.codegraph)],
           ['codegraph used', codeGraphUsedSummaryValue(result.codegraph)],
+          ['codegraph transport requested', result.codegraphTransportRequested || '—'],
+          ['codegraph transport used', result.codegraphTransportUsed || '—'],
+          ['codegraph fallback used', typeof result.codegraphFallbackUsed === 'boolean' ? (result.codegraphFallbackUsed ? 'yes' : 'no') : '—'],
           ['CodeGraph-derived Repo Atlas', codeGraphRepoAtlasSummaryValue(result.codegraph)],
         ];
+        if (result.codegraphFallbackReason) {
+          rows.push(['codegraph fallback reason', result.codegraphFallbackReason]);
+        }
         const taskIntentWarningValue = taskIntentWarningsValue(result);
         if (taskIntentWarningValue) {
           rows.push(['task normalizer warning', taskIntentWarningValue]);
@@ -1418,6 +1477,7 @@
             model: composerFlashModel.value,
             providerList: composerProviderList,
             codegraphMode: getCodeGraphMode(),
+            codegraphTransport: getCodeGraphTransport(),
             taskNormalizerEnabled: taskNormalizerEnabled(),
           });
           if (outcome.blocked) {

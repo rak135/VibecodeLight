@@ -6,7 +6,7 @@ Current implemented behavior lives in `docs/codegraph.md`.
 
 Everything below is roadmap / not implemented yet unless `docs/codegraph.md` says otherwise.
 
-## Current MCP status (Phase 1A — implemented)
+## Current MCP status (Phase 1A + 1B — implemented)
 
 VibecodeLight integrates with the existing upstream CodeGraph MCP server
 started by `codegraph serve --mcp`. It does **not** implement its own
@@ -21,11 +21,36 @@ Implemented in Phase 1A:
   config snippet for Claude. Other agents return a structured
   `AGENT_CONFIG_FORMAT_NOT_IMPLEMENTED` diagnostic. Print-only — no file is
   written and no external agent config is modified.
-- The prompt/context pipeline is unchanged: it still uses the existing CLI
-  CodeGraph adapter; MCP is not on the pipeline path.
 
-Phase 1B (optional MCP transport for the pipeline) and Phase 2 (agent config
-install) are still future work — see the relevant sections below.
+Added in Phase 1B (optional pipeline transport):
+
+- The prompt/context pipeline now supports three CodeGraph transports for
+  building context when `use-existing` mode is selected:
+  - `cli` (default) — existing CodeGraph CLI adapter, unchanged behaviour.
+  - `mcp` — calls the upstream `codegraph serve --mcp` server's
+    `codegraph_context` tool. Strict: no silent fallback to the CLI; failures
+    surface as warnings and the run continues without CodeGraph context.
+  - `auto` — prefers MCP; on failure emits a `codegraph_transport_fallback`
+    warning event, falls back to the CLI, and records `fallback_used: true`
+    in `scan/codegraph_usage.json`.
+- The transport is selected from the desktop **CodeGraph Transport** dropdown
+  (next to the existing CodeGraph toggle). It is persisted in `localStorage`
+  under `vibecode.codegraphTransport` and remembered across app restarts.
+  Invalid persisted values fall back to `cli`.
+- Detect-only mode does *not* query context regardless of transport; the
+  requested transport is still recorded in `scan/codegraph_usage.json` with
+  `transport_used: "none"` and `used_for_context: false`.
+- `scan/codegraph_usage.json` gains: `transport_requested`, `transport_used`,
+  `mcp_attempted`, `fallback_used`, `fallback_reason?`, `used_for_context`,
+  and a `context_artifact` alias of the existing `artifact` field.
+- No public prompt-level CLI flag exposes the transport in this phase; the
+  pipeline-level option exists for tests via `runContextBuild` /
+  `runPromptPipeline`.
+- No auto-init/sync/index/watch is performed during prompt generation,
+  regardless of transport.
+
+Phase 2 (agent config install) is still future work — see the relevant
+section below.
 
 ## 1. Verdikt
 

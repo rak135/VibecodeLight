@@ -4,8 +4,24 @@ import { spawnSync } from 'child_process';
 
 import { CODEGRAPH_COMMAND } from './codegraph_cli.js';
 import { getCodeGraphStatus, type CodeGraphStatusResult, type CodeGraphRunResult } from './codegraph_actions.js';
+import {
+  buildCodeGraphMcpContext,
+  type CodeGraphMcpContextRunner,
+} from './codegraph_mcp.js';
+import {
+  DEFAULT_CODEGRAPH_TRANSPORT,
+  type CodeGraphTransport,
+} from './codegraph_transport.js';
 
 export type CodeGraphContextMode = 'detect-only' | 'use-existing';
+
+/**
+ * Which transport actually produced the CodeGraph context, or `none` when
+ * context was not queried (detect-only, or use-existing failures that did not
+ * yield context). Recorded in `scan/codegraph_usage.json` alongside the
+ * requested transport.
+ */
+export type CodeGraphTransportUsed = CodeGraphTransport | 'none';
 
 export interface CodeGraphContextResult {
   ok: boolean;
@@ -16,6 +32,24 @@ export interface CodeGraphContextResult {
   outputText?: string;
   warnings: string[];
   reason?: string;
+  /**
+   * Transport requested by the caller (cli/mcp/auto). Defaults to cli when
+   * absent. Optional in the type for back-compat with test fixtures and older
+   * call sites that pre-date Phase 1B.
+   */
+  transportRequested?: CodeGraphTransport;
+  /**
+   * Transport that actually built the context, or 'none' when nothing did.
+   * Optional for back-compat; the usage writer defaults to 'cli' if used and
+   * 'none' otherwise.
+   */
+  transportUsed?: CodeGraphTransportUsed;
+  /** True when the MCP transport was attempted (auto or mcp). */
+  mcpAttempted?: boolean;
+  /** True when MCP was attempted and the run fell back to the CLI transport. */
+  fallbackUsed?: boolean;
+  /** Optional human-readable explanation of why the fallback happened. */
+  fallbackReason?: string;
   error?: {
     code: string;
     message: string;
@@ -36,11 +70,15 @@ export interface BuildCodeGraphContextInput {
   repoRoot: string;
   task: string;
   mode?: CodeGraphContextMode;
+  /** Pipeline transport selection (defaults to cli). */
+  transport?: CodeGraphTransport;
   maxBytes?: number;
   timeoutMs?: number;
   command?: string;
   runner?: CodeGraphContextRunner;
   readinessProvider?: CodeGraphReadinessProvider;
+  /** Test seam for the MCP transport. */
+  mcpRunner?: CodeGraphMcpContextRunner;
 }
 
 export interface CodeGraphArtifactWriteResult {
@@ -231,39 +269,47 @@ function statusLooksStale(stdout: string): boolean {
   }
 }
 
-export async function buildCodeGraphContext(input: BuildCodeGraphContextInput): Promise<CodeGraphContextResult> {
-  const mode = input.mode ?? 'detect-only';
+interface CliTransportContext {
+  command: string;
+  runner: CodeGraphContextRunner;
+  readinessProvider: CodeGraphReadinessProvider;
+  maxBytes: number;
+  timeoutMs: number;
+}
+
+interface CliTransportPartial {
+  used: boolean;
+  command?: string[];
+  outputText?: string;
+  warnings: string[];
+  reason?: string;
+  error?: { code: string; message: string };
+}
+
+async function runCliTransport(
+  input: BuildCodeGraphContextInput,
+  ctx: CliTransportContext,
+): Promise<CliTransportPartial> {
   const warnings: string[] = [];
-  const command = input.command ?? CODEGRAPH_COMMAND;
-  const runner = input.runner ?? defaultCodeGraphContextRunner;
-  const readinessProvider = input.readinessProvider ?? ((repoRoot: string) => getCodeGraphStatus(repoRoot));
-  const maxBytes = input.maxBytes ?? DEFAULT_MAX_BYTES;
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-
-  if (mode === 'detect-only') {
-    return { ok: true, used: false, mode, reason: 'DETECT_ONLY', warnings };
-  }
-
-  const readiness = await readinessProvider(input.repoRoot);
+  const readiness = await ctx.readinessProvider(input.repoRoot);
   warnings.push(...(Array.isArray(readiness.warnings) ? readiness.warnings : []));
   if (!readiness.available) {
-    return { ok: true, used: false, mode, reason: 'CODEGRAPH_NOT_INSTALLED', warnings };
+    return { used: false, reason: 'CODEGRAPH_NOT_INSTALLED', warnings };
   }
   if (!readiness.initialized) {
-    return { ok: true, used: false, mode, reason: 'CODEGRAPH_NOT_INITIALIZED', warnings };
+    return { used: false, reason: 'CODEGRAPH_NOT_INITIALIZED', warnings };
   }
 
-  const statusRun = runner(command, ['status', '--json'], input.repoRoot, timeoutMs);
+  const statusRun = ctx.runner(ctx.command, ['status', '--json'], input.repoRoot, ctx.timeoutMs);
   if (!statusRun.ok) {
-    warnings.push(`CODEGRAPH_STATUS_FAILED: ${summarizeFailure(statusRun, 'status command failed')}`);
+    const message = summarizeFailure(statusRun, 'status command failed');
+    warnings.push(`CODEGRAPH_STATUS_FAILED: ${message}`);
     return {
-      ok: true,
       used: false,
-      mode,
-      command: [command, 'status', '--json'],
+      command: [ctx.command, 'status', '--json'],
       reason: 'CODEGRAPH_STATUS_FAILED',
       warnings,
-      error: { code: 'CODEGRAPH_STATUS_FAILED', message: summarizeFailure(statusRun, 'status command failed') },
+      error: { code: 'CODEGRAPH_STATUS_FAILED', message },
     };
   }
   if (statusLooksStale(statusRun.stdout)) {
@@ -282,15 +328,13 @@ export async function buildCodeGraphContext(input: BuildCodeGraphContextInput): 
     '--format',
     'markdown',
   ];
-  const contextRun = runner(command, args, input.repoRoot, timeoutMs);
-  const safeCommand = [command, ...args];
+  const contextRun = ctx.runner(ctx.command, args, input.repoRoot, ctx.timeoutMs);
+  const safeCommand = [ctx.command, ...args];
   if (!contextRun.ok) {
     const message = summarizeFailure(contextRun, 'context command failed');
     warnings.push(`CODEGRAPH_CONTEXT_FAILED: ${message}`);
     return {
-      ok: true,
       used: false,
-      mode,
       command: safeCommand,
       reason: 'CODEGRAPH_CONTEXT_FAILED',
       warnings,
@@ -298,17 +342,196 @@ export async function buildCodeGraphContext(input: BuildCodeGraphContextInput): 
     };
   }
 
-  const bounded = boundText(contextRun.stdout || '', maxBytes);
-  if (bounded.truncated) warnings.push(`CODEGRAPH_OUTPUT_TRUNCATED: output exceeded ${maxBytes} bytes`);
+  const bounded = boundText(contextRun.stdout || '', ctx.maxBytes);
+  if (bounded.truncated) warnings.push(`CODEGRAPH_OUTPUT_TRUNCATED: output exceeded ${ctx.maxBytes} bytes`);
 
   return {
-    ok: true,
     used: true,
-    mode,
     command: safeCommand,
     outputText: bounded.text,
     warnings,
     reason: 'EXISTING_INDEX',
+  };
+}
+
+interface McpTransportPartial {
+  used: boolean;
+  outputText?: string;
+  warnings: string[];
+  reason?: string;
+  command?: string[];
+  error?: { code: string; message: string };
+}
+
+async function runMcpTransport(
+  input: BuildCodeGraphContextInput,
+  ctx: { command: string; maxBytes: number; timeoutMs: number; mcpRunner?: CodeGraphMcpContextRunner },
+): Promise<McpTransportPartial> {
+  const warnings: string[] = [];
+  const mcpResult = await buildCodeGraphMcpContext({
+    repoRoot: input.repoRoot,
+    task: input.task,
+    command: ctx.command,
+    timeoutMs: ctx.timeoutMs,
+    maxNodes: 50,
+    maxCode: 10,
+    ...(ctx.mcpRunner ? { runner: ctx.mcpRunner } : {}),
+  });
+  warnings.push(...mcpResult.warnings);
+  const safeCommand = [ctx.command, 'serve', '--mcp'];
+  if (!mcpResult.ok) {
+    const code = mcpResult.error?.code ?? 'CODEGRAPH_MCP_CONTEXT_FAILED';
+    const message = mcpResult.error?.message ?? 'CodeGraph MCP context failed';
+    warnings.push(`${code}: ${message}`);
+    return {
+      used: false,
+      command: safeCommand,
+      reason: code,
+      warnings,
+      error: { code, message },
+    };
+  }
+  const bounded = boundText(mcpResult.text ?? '', ctx.maxBytes);
+  if (bounded.truncated) warnings.push(`CODEGRAPH_OUTPUT_TRUNCATED: output exceeded ${ctx.maxBytes} bytes`);
+  return {
+    used: true,
+    command: safeCommand,
+    outputText: bounded.text,
+    warnings,
+    reason: 'EXISTING_INDEX',
+  };
+}
+
+export async function buildCodeGraphContext(input: BuildCodeGraphContextInput): Promise<CodeGraphContextResult> {
+  const mode = input.mode ?? 'detect-only';
+  const transportRequested: CodeGraphTransport = input.transport ?? DEFAULT_CODEGRAPH_TRANSPORT;
+  const command = input.command ?? CODEGRAPH_COMMAND;
+  const runner = input.runner ?? defaultCodeGraphContextRunner;
+  const readinessProvider = input.readinessProvider ?? ((repoRoot: string) => getCodeGraphStatus(repoRoot));
+  const maxBytes = input.maxBytes ?? DEFAULT_MAX_BYTES;
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  if (mode === 'detect-only') {
+    return {
+      ok: true,
+      used: false,
+      mode,
+      reason: 'DETECT_ONLY',
+      warnings: [],
+      transportRequested,
+      transportUsed: 'none',
+      mcpAttempted: false,
+      fallbackUsed: false,
+    };
+  }
+
+  if (transportRequested === 'cli') {
+    const cli = await runCliTransport(input, {
+      command,
+      runner,
+      readinessProvider,
+      maxBytes,
+      timeoutMs,
+    });
+    return finalizeResult(cli, {
+      mode,
+      transportRequested,
+      transportUsed: cli.used ? 'cli' : 'none',
+      mcpAttempted: false,
+      fallbackUsed: false,
+    });
+  }
+
+  if (transportRequested === 'mcp') {
+    const mcp = await runMcpTransport(input, {
+      command,
+      maxBytes,
+      timeoutMs,
+      ...(input.mcpRunner ? { mcpRunner: input.mcpRunner } : {}),
+    });
+    return finalizeResult(mcp, {
+      mode,
+      transportRequested,
+      transportUsed: mcp.used ? 'mcp' : 'none',
+      mcpAttempted: true,
+      fallbackUsed: false,
+    });
+  }
+
+  // transport === 'auto': prefer MCP; fall back to CLI on MCP failure.
+  const mcp = await runMcpTransport(input, {
+    command,
+    maxBytes,
+    timeoutMs,
+    ...(input.mcpRunner ? { mcpRunner: input.mcpRunner } : {}),
+  });
+  if (mcp.used) {
+    return finalizeResult(mcp, {
+      mode,
+      transportRequested,
+      transportUsed: 'mcp',
+      mcpAttempted: true,
+      fallbackUsed: false,
+    });
+  }
+  const fallbackReason = mcp.error?.message
+    ? `MCP context failed; fell back to CLI. ${mcp.error.code}: ${mcp.error.message}`
+    : 'MCP context failed; fell back to CLI.';
+  const cli = await runCliTransport(input, {
+    command,
+    runner,
+    readinessProvider,
+    maxBytes,
+    timeoutMs,
+  });
+  const mergedWarnings = [
+    ...mcp.warnings,
+    'CodeGraph MCP failed; fell back to CLI.',
+    ...cli.warnings,
+  ];
+  const merged: CliTransportPartial = {
+    used: cli.used,
+    warnings: mergedWarnings,
+    ...(cli.command ? { command: cli.command } : {}),
+    ...(cli.outputText !== undefined ? { outputText: cli.outputText } : {}),
+    ...(cli.reason ? { reason: cli.reason } : {}),
+    ...(cli.error ? { error: cli.error } : {}),
+  };
+  return finalizeResult(merged, {
+    mode,
+    transportRequested,
+    transportUsed: cli.used ? 'cli' : 'none',
+    mcpAttempted: true,
+    fallbackUsed: true,
+    fallbackReason,
+  });
+}
+
+function finalizeResult(
+  partial: CliTransportPartial | McpTransportPartial,
+  meta: {
+    mode: CodeGraphContextMode;
+    transportRequested: CodeGraphTransport;
+    transportUsed: CodeGraphTransportUsed;
+    mcpAttempted: boolean;
+    fallbackUsed: boolean;
+    fallbackReason?: string;
+  },
+): CodeGraphContextResult {
+  return {
+    ok: true,
+    used: partial.used,
+    mode: meta.mode,
+    warnings: partial.warnings,
+    transportRequested: meta.transportRequested,
+    transportUsed: meta.transportUsed,
+    mcpAttempted: meta.mcpAttempted,
+    fallbackUsed: meta.fallbackUsed,
+    ...(partial.command ? { command: partial.command } : {}),
+    ...(partial.outputText !== undefined ? { outputText: partial.outputText } : {}),
+    ...(partial.reason ? { reason: partial.reason } : {}),
+    ...(partial.error ? { error: partial.error } : {}),
+    ...(meta.fallbackReason ? { fallbackReason: meta.fallbackReason } : {}),
   };
 }
 
@@ -579,14 +802,26 @@ function repoAtlasSkippedReason(result: CodeGraphContextResult): string {
 }
 
 function usageJson(result: CodeGraphContextResult, atlas?: { generated: boolean; reason: string }): Record<string, unknown> {
+  const transportRequested = result.transportRequested ?? DEFAULT_CODEGRAPH_TRANSPORT;
+  const transportUsed: CodeGraphTransportUsed = result.transportUsed
+    ?? (result.used ? (transportRequested === 'auto' ? 'cli' : transportRequested) : 'none');
   const usage: Record<string, unknown> = {
     mode: result.mode,
     used: result.used,
+    used_for_context: result.used,
+    transport_requested: transportRequested,
+    transport_used: transportUsed,
+    mcp_attempted: result.mcpAttempted ?? false,
+    fallback_used: result.fallbackUsed ?? false,
     reason: result.reason ?? (result.used ? 'EXISTING_INDEX' : 'UNKNOWN'),
     warnings: result.warnings,
   };
+  if (result.fallbackReason) usage.fallback_reason = result.fallbackReason;
   if (result.command) usage.command = result.command;
-  if (result.used) usage.artifact = CONTEXT_RELATIVE_ARTIFACT;
+  if (result.used) {
+    usage.artifact = CONTEXT_RELATIVE_ARTIFACT;
+    usage.context_artifact = CONTEXT_RELATIVE_ARTIFACT;
+  }
   Object.assign(usage, repoAtlasUsageFields(atlas?.generated === true, atlas?.reason ?? repoAtlasSkippedReason(result)));
   if (result.error) usage.error = result.error;
   return usage;

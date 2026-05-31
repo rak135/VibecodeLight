@@ -69,6 +69,30 @@
       storage.setItem(TASK_NORMALIZER_STORAGE_KEY, enabled ? '1' : '0');
     }
 
+    // CodeGraph pipeline transport selection (Phase 1B). The transport is
+    // independent of the CodeGraph ON/OFF toggle: detect-only ignores it.
+    var CODEGRAPH_TRANSPORT_STORAGE_KEY = 'vibecode.codegraphTransport';
+    var DEFAULT_CODEGRAPH_TRANSPORT = 'cli';
+    var CODEGRAPH_TRANSPORTS = ['cli', 'mcp', 'auto'];
+
+    function normalizeCodeGraphTransport(value) {
+      if (typeof value !== 'string') return DEFAULT_CODEGRAPH_TRANSPORT;
+      var trimmed = value.trim().toLowerCase();
+      return CODEGRAPH_TRANSPORTS.indexOf(trimmed) >= 0 ? trimmed : DEFAULT_CODEGRAPH_TRANSPORT;
+    }
+
+    function readCodeGraphTransport(storage) {
+      if (!storage || typeof storage.getItem !== 'function') return DEFAULT_CODEGRAPH_TRANSPORT;
+      return normalizeCodeGraphTransport(storage.getItem(CODEGRAPH_TRANSPORT_STORAGE_KEY));
+    }
+
+    function writeCodeGraphTransport(storage, transport) {
+      if (!storage || typeof storage.setItem !== 'function') return DEFAULT_CODEGRAPH_TRANSPORT;
+      var normalized = normalizeCodeGraphTransport(transport);
+      storage.setItem(CODEGRAPH_TRANSPORT_STORAGE_KEY, normalized);
+      return normalized;
+    }
+
     // The header pill reflects the flash mode the next preview will use. It
     // defaults to Mock so the GUI never implies a surprise live API call; only
     // when the user explicitly selects Live does it surface the resolved
@@ -195,12 +219,18 @@
       var composer = opts.composer;
       var mode = normalizeMode(opts.mode);
       var codegraphMode = normalizeCodeGraphMode(opts.codegraphMode);
+      var codegraphTransport = normalizeCodeGraphTransport(opts.codegraphTransport);
       var taskNormalizerEnabled = opts.taskNormalizerEnabled === true;
       if (mode === 'mock') {
-        var mockResult = taskNormalizerEnabled
-          ? await composer.generatePreview(opts.task, codegraphMode, true)
-          : await composer.generatePreview(opts.task, codegraphMode);
-        return { mode: 'mock', flashMode: 'mock', codegraphMode: codegraphMode, blocked: false, result: mockResult };
+        var mockResult = await composer.generatePreview(opts.task, codegraphMode, taskNormalizerEnabled, codegraphTransport);
+        return {
+          mode: 'mock',
+          flashMode: 'mock',
+          codegraphMode: codegraphMode,
+          codegraphTransport: codegraphTransport,
+          blocked: false,
+          result: mockResult,
+        };
       }
 
       var provider = findProvider(opts.providerList, opts.provider);
@@ -230,10 +260,22 @@
         };
       }
 
-      var liveResult = taskNormalizerEnabled
-        ? await composer.generatePreviewLive(opts.task, opts.provider, opts.model, codegraphMode, true)
-        : await composer.generatePreviewLive(opts.task, opts.provider, opts.model, codegraphMode);
-      return { mode: 'live', flashMode: 'live', codegraphMode: codegraphMode, blocked: false, result: liveResult };
+      var liveResult = await composer.generatePreviewLive(
+        opts.task,
+        opts.provider,
+        opts.model,
+        codegraphMode,
+        taskNormalizerEnabled,
+        codegraphTransport,
+      );
+      return {
+        mode: 'live',
+        flashMode: 'live',
+        codegraphMode: codegraphMode,
+        codegraphTransport: codegraphTransport,
+        blocked: false,
+        result: liveResult,
+      };
     }
 
     function safeDiagnostic(errLike) {
@@ -358,6 +400,11 @@
       composerKeyStatus: composerKeyStatus,
       readTaskNormalizerEnabled: readTaskNormalizerEnabled,
       writeTaskNormalizerEnabled: writeTaskNormalizerEnabled,
+      readCodeGraphTransport: readCodeGraphTransport,
+      writeCodeGraphTransport: writeCodeGraphTransport,
+      normalizeCodeGraphTransport: normalizeCodeGraphTransport,
+      CODEGRAPH_TRANSPORT_STORAGE_KEY: CODEGRAPH_TRANSPORT_STORAGE_KEY,
+      DEFAULT_CODEGRAPH_TRANSPORT: DEFAULT_CODEGRAPH_TRANSPORT,
       runComposerPreview: runComposerPreview,
       modelsForProvider: modelsForProvider,
       safeDiagnostic: safeDiagnostic,

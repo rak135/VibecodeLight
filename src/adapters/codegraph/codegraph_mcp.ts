@@ -402,6 +402,191 @@ async function defaultCodeGraphMcpRunner(
 }
 
 // ---------------------------------------------------------------------------
+// Context tool client (Phase 1B)
+// ---------------------------------------------------------------------------
+
+/** Default budget for MCP `codegraph_context` text output. */
+export const CODEGRAPH_MCP_CONTEXT_DEFAULT_MAX_BYTES = 32 * 1024;
+/** Default timeout for the MCP `codegraph_context` call. */
+export const CODEGRAPH_MCP_CONTEXT_DEFAULT_TIMEOUT_MS = 60_000;
+
+export interface CodeGraphMcpContextRunnerInput {
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  task: string;
+  timeoutMs: number;
+  /** Hint forwarded to upstream tool; mirrors the CLI `--max-nodes` budget. */
+  maxNodes?: number;
+  /** Hint forwarded to upstream tool; mirrors the CLI `--max-code` budget. */
+  maxCode?: number;
+}
+
+export type CodeGraphMcpContextRunnerOutcome =
+  | { ok: true; text: string; warnings?: string[] }
+  | { ok: false; code: string; message: string; warnings?: string[] };
+
+/**
+ * Pluggable MCP context runner. The default runner uses the official MCP stdio
+ * client transport. Tests inject a fake so they never spawn a real codegraph.
+ */
+export type CodeGraphMcpContextRunner = (
+  input: CodeGraphMcpContextRunnerInput,
+) => Promise<CodeGraphMcpContextRunnerOutcome>;
+
+export interface BuildCodeGraphMcpContextOptions {
+  repoRoot: string;
+  task: string;
+  command?: string;
+  args?: readonly string[];
+  runner?: CodeGraphMcpContextRunner;
+  timeoutMs?: number;
+  maxNodes?: number;
+  maxCode?: number;
+}
+
+export interface CodeGraphMcpContextResult {
+  ok: boolean;
+  text?: string;
+  warnings: string[];
+  error?: { code: string; message: string };
+}
+
+/**
+ * Build CodeGraph context via the upstream MCP server. Spawns
+ * `codegraph serve --mcp`, calls the `codegraph_context` tool with the task,
+ * and returns the bounded text payload. Never calls init/sync/index/watch.
+ */
+export async function buildCodeGraphMcpContext(
+  options: BuildCodeGraphMcpContextOptions,
+): Promise<CodeGraphMcpContextResult> {
+  const command = options.command ?? CODEGRAPH_COMMAND;
+  const args = (options.args ?? CODEGRAPH_MCP_SERVER_ARGS).slice();
+  const timeoutMs = options.timeoutMs ?? CODEGRAPH_MCP_CONTEXT_DEFAULT_TIMEOUT_MS;
+  const runner = options.runner ?? defaultCodeGraphMcpContextRunner;
+
+  let outcome: CodeGraphMcpContextRunnerOutcome;
+  const runnerInput: CodeGraphMcpContextRunnerInput = {
+    command,
+    args,
+    cwd: options.repoRoot,
+    task: options.task,
+    timeoutMs,
+    ...(options.maxNodes !== undefined ? { maxNodes: options.maxNodes } : {}),
+    ...(options.maxCode !== undefined ? { maxCode: options.maxCode } : {}),
+  };
+  try {
+    outcome = await runner(runnerInput);
+  } catch (error) {
+    outcome = {
+      ok: false,
+      code: 'CODEGRAPH_MCP_CONTEXT_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const warnings = outcome.warnings ? [...outcome.warnings] : [];
+  if (!outcome.ok) {
+    return { ok: false, warnings, error: { code: outcome.code, message: outcome.message } };
+  }
+  return { ok: true, text: outcome.text, warnings };
+}
+
+/**
+ * Default MCP context runner. Uses the official MCP stdio client transport
+ * from `@modelcontextprotocol/sdk` to perform the handshake and call
+ * `codegraph_context`. The SDK is loaded lazily so tests that inject a fake
+ * runner never load it.
+ */
+async function defaultCodeGraphMcpContextRunner(
+  input: CodeGraphMcpContextRunnerInput,
+): Promise<CodeGraphMcpContextRunnerOutcome> {
+  let ClientCtor: typeof import('@modelcontextprotocol/sdk/client/index.js').Client;
+  let StdioCtor: typeof import('@modelcontextprotocol/sdk/client/stdio.js').StdioClientTransport;
+  try {
+    ({ Client: ClientCtor } = await import('@modelcontextprotocol/sdk/client/index.js'));
+    ({ StdioClientTransport: StdioCtor } = await import('@modelcontextprotocol/sdk/client/stdio.js'));
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'CODEGRAPH_MCP_SDK_UNAVAILABLE',
+      message: `failed to load @modelcontextprotocol/sdk: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const transport = new StdioCtor({
+    command: input.command,
+    args: [...input.args],
+    cwd: input.cwd,
+    stderr: 'pipe',
+  });
+  const client = new ClientCtor(
+    { name: 'vibecode-codegraph-mcp-context', version: '0.1.0' },
+    { capabilities: {} },
+  );
+
+  const timer = new Promise<never>((_resolve, reject) => {
+    const handle = setTimeout(() => {
+      reject(new Error(`CodeGraph MCP context call timed out after ${input.timeoutMs} ms`));
+    }, input.timeoutMs);
+    if (typeof handle.unref === 'function') handle.unref();
+  });
+
+  const toolArgs: Record<string, unknown> = {
+    query: input.task,
+    task: input.task,
+    format: 'markdown',
+  };
+  if (typeof input.maxNodes === 'number') toolArgs.max_nodes = input.maxNodes;
+  if (typeof input.maxCode === 'number') toolArgs.max_code = input.maxCode;
+
+  try {
+    await Promise.race([client.connect(transport), timer]);
+    const callResult = (await Promise.race([
+      client.callTool({ name: 'codegraph_context', arguments: toolArgs }),
+      timer,
+    ])) as { content?: Array<{ type?: string; text?: string }>; isError?: boolean };
+    if (callResult.isError === true) {
+      const text = collectMcpTextContent(callResult.content);
+      return {
+        ok: false,
+        code: 'CODEGRAPH_MCP_CONTEXT_FAILED',
+        message: text.trim().length > 0 ? text.slice(0, 500) : 'codegraph_context tool reported isError=true',
+      };
+    }
+    const text = collectMcpTextContent(callResult.content);
+    if (text.trim().length === 0) {
+      return {
+        ok: false,
+        code: 'CODEGRAPH_MCP_CONTEXT_EMPTY',
+        message: 'codegraph_context returned no text content',
+      };
+    }
+    return { ok: true, text };
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'CODEGRAPH_MCP_CONTEXT_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+function collectMcpTextContent(content: Array<{ type?: string; text?: string }> | undefined): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((entry) => (entry && entry.type === 'text' && typeof entry.text === 'string' ? entry.text : ''))
+    .filter((entry) => entry.length > 0)
+    .join('\n')
+    .trim();
+}
+
+// ---------------------------------------------------------------------------
 // Agent config print
 // ---------------------------------------------------------------------------
 

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
+import type { CodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
 import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
 import { runPromptPipeline } from '../../core/prompting/pipeline.js';
 import type { PipelineEvent, PipelineProgressCallback } from '../../core/prompting/pipeline_events.js';
@@ -16,6 +17,8 @@ export interface PromptPreviewRequest {
   flashProvider?: string;
   flashModel?: string;
   codegraphMode?: CodeGraphContextMode;
+  /** Pipeline transport selection (cli/mcp/auto). Defaults to cli. */
+  codegraphTransport?: CodeGraphTransport;
   taskNormalizerEnabled?: boolean;
   onProgress?: PipelineProgressCallback;
 }
@@ -64,6 +67,14 @@ export interface PromptPreviewSuccess {
    * the context/final prompt in this phase (see CodeGraphStatus.usageNote).
    */
   codegraph: CodeGraphStatus;
+  /** Transport selection (cli/mcp/auto) requested for this run. */
+  codegraphTransportRequested?: CodeGraphTransport;
+  /** Transport that actually built the context, or 'none'. */
+  codegraphTransportUsed?: 'cli' | 'mcp' | 'auto' | 'none';
+  /** True when the run started on MCP and fell back to the CLI transport. */
+  codegraphFallbackUsed?: boolean;
+  /** Optional human-readable reason for the MCP→CLI fallback. */
+  codegraphFallbackReason?: string;
   terminalSend: 'not_sent';
   /** The flash mode that was used for this run: mock or live. */
   flash_mode: 'mock' | 'live';
@@ -100,6 +111,38 @@ function readTaskIntent(taskIntentPath: string | undefined): TaskIntent | undefi
   }
 }
 
+interface CodeGraphTransportInfo {
+  requested?: CodeGraphTransport;
+  used?: 'cli' | 'mcp' | 'auto' | 'none';
+  fallbackUsed?: boolean;
+  fallbackReason?: string;
+}
+
+function readCodeGraphTransportInfo(runDir: string): CodeGraphTransportInfo {
+  const usagePath = path.join(runDir, 'scan', 'codegraph_usage.json');
+  if (!fs.existsSync(usagePath)) return {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(usagePath, 'utf8')) as Record<string, unknown>;
+    const info: CodeGraphTransportInfo = {};
+    if (parsed.transport_requested === 'cli' || parsed.transport_requested === 'mcp' || parsed.transport_requested === 'auto') {
+      info.requested = parsed.transport_requested;
+    }
+    if (
+      parsed.transport_used === 'cli' ||
+      parsed.transport_used === 'mcp' ||
+      parsed.transport_used === 'auto' ||
+      parsed.transport_used === 'none'
+    ) {
+      info.used = parsed.transport_used;
+    }
+    if (typeof parsed.fallback_used === 'boolean') info.fallbackUsed = parsed.fallback_used;
+    if (typeof parsed.fallback_reason === 'string') info.fallbackReason = parsed.fallback_reason;
+    return info;
+  } catch {
+    return {};
+  }
+}
+
 export async function generatePromptPreview(request: PromptPreviewRequest): Promise<PromptPreviewResult> {
   const task = (request.task ?? '').trim();
   if (task.length === 0) {
@@ -133,6 +176,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     flashProvider: request.flashProvider,
     flashModel: request.flashModel,
     codegraphMode: request.codegraphMode,
+    codegraphTransport: request.codegraphTransport,
     taskNormalizerEnabled: request.taskNormalizerEnabled === true,
     onProgress: request.onProgress,
   });
@@ -187,6 +231,8 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     }
   }
 
+  const transportInfo = readCodeGraphTransportInfo(pipelineResult.runDir);
+
   return {
     ok: true,
     run_id: pipelineResult.run_id,
@@ -214,6 +260,10 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     taskNormalizerLanguage: pipelineResult.taskNormalizerLanguage,
     ...(pipelineResult.taskIntentPath ? { taskIntentPath: pipelineResult.taskIntentPath } : {}),
     codegraph: readRunCodeGraphStatus(pipelineResult.runDir),
+    ...(transportInfo.requested ? { codegraphTransportRequested: transportInfo.requested } : {}),
+    ...(transportInfo.used ? { codegraphTransportUsed: transportInfo.used } : {}),
+    ...(typeof transportInfo.fallbackUsed === 'boolean' ? { codegraphFallbackUsed: transportInfo.fallbackUsed } : {}),
+    ...(transportInfo.fallbackReason ? { codegraphFallbackReason: transportInfo.fallbackReason } : {}),
     terminalSend: 'not_sent',
     flash_mode: request.flashMode ?? 'mock',
     warnings: pipelineResult.warnings ?? [],

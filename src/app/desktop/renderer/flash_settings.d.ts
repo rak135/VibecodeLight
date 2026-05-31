@@ -5,6 +5,7 @@
 
 export type FlashMode = 'mock' | 'live';
 export type CodeGraphContextMode = 'detect-only' | 'use-existing';
+export type CodeGraphTransport = 'cli' | 'mcp' | 'auto';
 
 export interface FlashPill {
   available: boolean;
@@ -52,8 +53,8 @@ export interface ComposerKeyStatus {
 
 export interface ComposerPreviewOptions {
   composer: {
-    generatePreview(task: string, codegraphMode?: CodeGraphContextMode, taskNormalizerEnabled?: boolean): Promise<unknown>;
-    generatePreviewLive(task: string, provider?: string, model?: string, codegraphMode?: CodeGraphContextMode, taskNormalizerEnabled?: boolean): Promise<unknown>;
+    generatePreview(task: string, codegraphMode?: CodeGraphContextMode, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransport): Promise<unknown>;
+    generatePreviewLive(task: string, provider?: string, model?: string, codegraphMode?: CodeGraphContextMode, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransport): Promise<unknown>;
   };
   mode: FlashMode | string | undefined;
   task: string;
@@ -61,6 +62,7 @@ export interface ComposerPreviewOptions {
   model: string;
   providerList: ProviderListItem[];
   codegraphMode?: CodeGraphContextMode;
+  codegraphTransport?: CodeGraphTransport | string;
   taskNormalizerEnabled?: boolean;
 }
 
@@ -69,6 +71,7 @@ export interface ComposerPreviewOutcome {
   flashMode: FlashMode;
   blocked: boolean;
   codegraphMode?: CodeGraphContextMode;
+  codegraphTransport?: CodeGraphTransport;
   result?: unknown;
   diagnostic?: { code: string; message: string };
 }
@@ -106,6 +109,11 @@ export interface FlashSettingsModule {
   composerKeyStatus(providerList: ProviderListItem[], providerId: string): ComposerKeyStatus;
   readTaskNormalizerEnabled(storage: { getItem(key: string): string | null | undefined }): boolean;
   writeTaskNormalizerEnabled(storage: { setItem(key: string, value: string): void }, enabled: boolean): void;
+  readCodeGraphTransport(storage: { getItem(key: string): string | null | undefined }): CodeGraphTransport;
+  writeCodeGraphTransport(storage: { setItem(key: string, value: string): void }, transport: string | undefined): CodeGraphTransport;
+  normalizeCodeGraphTransport(value: unknown): CodeGraphTransport;
+  CODEGRAPH_TRANSPORT_STORAGE_KEY: 'vibecode.codegraphTransport';
+  DEFAULT_CODEGRAPH_TRANSPORT: 'cli';
   runComposerPreview(opts: ComposerPreviewOptions): Promise<ComposerPreviewOutcome>;
   modelsForProvider(providers: unknown, providerId: string): ProviderModelView[];
   safeDiagnostic(errLike: unknown): string;

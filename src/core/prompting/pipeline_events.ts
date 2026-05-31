@@ -26,6 +26,7 @@ export type PipelineEventPhase =
   | 'codegraph_use_existing_started'
   | 'codegraph_context_completed'
   | 'codegraph_context_failed'
+  | 'codegraph_transport_fallback'
   | 'codegraph_skipped'
   // Flash input
   | 'flash_input_started'

@@ -22,7 +22,12 @@ import {
 import {
   buildCodeGraphMcpAgentConfig,
   runCodeGraphMcpSelfTest,
+  type CodeGraphMcpContextRunner,
 } from '../../adapters/codegraph/codegraph_mcp.js';
+import {
+  DEFAULT_CODEGRAPH_TRANSPORT,
+  type CodeGraphTransport,
+} from '../../adapters/codegraph/codegraph_transport.js';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
@@ -441,7 +446,11 @@ function resolvePromptCodeGraphMode(options: {
   return { ok: true, mode: parsed.mode };
 }
 
-function codeGraphContextFallbackResult(mode: CodeGraphContextMode, error: unknown): CodeGraphContextResult {
+function codeGraphContextFallbackResult(
+  mode: CodeGraphContextMode,
+  error: unknown,
+  transport: CodeGraphTransport = DEFAULT_CODEGRAPH_TRANSPORT,
+): CodeGraphContextResult {
   const message = error instanceof Error ? error.message : String(error);
   return {
     ok: true,
@@ -449,6 +458,10 @@ function codeGraphContextFallbackResult(mode: CodeGraphContextMode, error: unkno
     mode,
     reason: 'CODEGRAPH_CONTEXT_FAILED',
     warnings: [`CODEGRAPH_CONTEXT_FAILED: ${message}`],
+    transportRequested: transport,
+    transportUsed: 'none',
+    mcpAttempted: transport === 'mcp' || transport === 'auto',
+    fallbackUsed: false,
     error: {
       code: 'CODEGRAPH_CONTEXT_FAILED',
       message,
@@ -651,6 +664,8 @@ export async function runContextBuild(opts: {
   repoRoot: string;
   jsonOutput?: boolean;
   codegraphMode?: CodeGraphContextMode;
+  /** Phase 1B transport selection. CLI defaults to cli; tests may pass mcp/auto. */
+  codegraphTransport?: CodeGraphTransport;
   taskNormalizerEnabled?: boolean;
   /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
   codegraphRunner?: CodeGraphContextRunner;
@@ -658,6 +673,8 @@ export async function runContextBuild(opts: {
   codegraphReadinessProvider?: CodeGraphReadinessProvider;
   /** Test seam for pipeline-level CodeGraph behavior; CLI never sets this. */
   codegraphCommand?: string;
+  /** Test seam for the MCP transport; CLI never sets this. */
+  codegraphMcpRunner?: CodeGraphMcpContextRunner;
 }): Promise<ContextBuildResult> {
   const taskNormalizerEnabled = opts.taskNormalizerEnabled === true;
   const normalizerWarnings: string[] = [];
@@ -715,19 +732,32 @@ export async function runContextBuild(opts: {
   fs.mkdirSync(flashDir, { recursive: true });
 
   const codegraphMode = opts.codegraphMode ?? 'detect-only';
+  const codegraphTransport: CodeGraphTransport = opts.codegraphTransport ?? DEFAULT_CODEGRAPH_TRANSPORT;
   const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
-  let codegraphResult: CodeGraphContextResult = { ok: true, used: false, mode: codegraphMode, reason: 'DETECT_ONLY', warnings: [] };
+  let codegraphResult: CodeGraphContextResult = {
+    ok: true,
+    used: false,
+    mode: codegraphMode,
+    reason: 'DETECT_ONLY',
+    warnings: [],
+    transportRequested: codegraphTransport,
+    transportUsed: 'none',
+    mcpAttempted: false,
+    fallbackUsed: false,
+  };
   try {
     codegraphResult = await buildCodeGraphContext({
       repoRoot: opts.repoRoot,
       task: codegraphTask,
       mode: codegraphMode,
+      transport: codegraphTransport,
       ...(opts.codegraphRunner ? { runner: opts.codegraphRunner } : {}),
       ...(opts.codegraphReadinessProvider ? { readinessProvider: opts.codegraphReadinessProvider } : {}),
       ...(opts.codegraphCommand ? { command: opts.codegraphCommand } : {}),
+      ...(opts.codegraphMcpRunner ? { mcpRunner: opts.codegraphMcpRunner } : {}),
     });
   } catch (error) {
-    codegraphResult = codeGraphContextFallbackResult(codegraphMode, error);
+    codegraphResult = codeGraphContextFallbackResult(codegraphMode, error, codegraphTransport);
   }
   const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: result.runDir, result: codegraphResult });
   augmentExternalToolsWithCodeGraphContext(result.scanDir, codegraphResult);
