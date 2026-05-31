@@ -19,12 +19,13 @@ function fakeStorage() {
 }
 
 describe('desktop renderer task normalizer switch', () => {
-  test('Task Normalizer switch exists in the composer UI with helper text', () => {
+  test('Task Normalizer switch exists in the composer UI without description copy', () => {
     const html = fs.readFileSync(indexHtml, 'utf8');
 
     expect(html).toContain('id="task-normalizer-toggle"');
     expect(html).toContain('Task Normalizer');
-    expect(html).toContain('Translates and expands your task into English search hints before context selection. Does not select files.');
+    expect(html).not.toContain('id="task-normalizer-helper"');
+    expect(html).not.toContain('Translates and expands your task into English search hints before context selection. Does not select files.');
   });
 
   test('Task Normalizer switch defaults to OFF', () => {
