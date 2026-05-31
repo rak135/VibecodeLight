@@ -160,17 +160,26 @@
                     </div>
                   </div>
 
-                  <!-- 01b pipeline progress (shown while building) -->
-                  <div class="ov-section" id="ov-progress-section" style="display:none">
-                    <div class="ov-label"><span class="num">·</span> pipeline progress</div>
-                    <div class="ov-progress glass" id="ov-progress-list"></div>
+                  <!-- 01 pipeline progress: first-class artifact view; stays visible after completion/warning/failure -->
+                  <div class="ov-section ov-step-panel active" id="ov-progress-section" data-step="pipeline-progress">
+                    <div class="ov-label ov-step-button" role="button" tabindex="0" data-step-target="pipeline-progress" aria-pressed="true">
+                      <span class="num">01</span> pipeline progress
+                    </div>
+                    <div class="ov-step-content">
+                      <div class="ov-progress glass" id="ov-progress-list"></div>
+                      <div class="ov-progress-empty" id="ov-progress-empty" hidden>No pipeline progress artifact found for this run.</div>
+                    </div>
                   </div>
 
-                  <!-- 02 context / run artifacts (real) -->
-                  <div class="ov-section" id="ov-summary-section" style="display:none">
-                    <div class="ov-label"><span class="num">02</span> context flash<span class="ts" id="ov-summary-ts"></span></div>
-                    <div class="ov-summary glass">
-                      <div class="ov-sum-grid" id="composer-summary"></div>
+                  <!-- 02 context flash: visible after run; disabled until context exists; user must click to switch -->
+                  <div class="ov-section ov-step-panel disabled" id="ov-summary-section" data-step="context-flash">
+                    <div class="ov-label ov-step-button" role="button" tabindex="0" data-step-target="context-flash" aria-pressed="false" aria-disabled="true">
+                      <span class="num">02</span> context flash<span class="ts" id="ov-summary-ts"></span>
+                    </div>
+                    <div class="ov-step-content">
+                      <div class="ov-summary glass">
+                        <div class="ov-sum-grid" id="composer-summary"></div>
+                      </div>
                     </div>
                   </div>
 
@@ -283,6 +292,7 @@
     <script src="vendor/xterm/xterm.js"></script>
     <script src="vendor/xterm/addon-fit.js"></script>
     <script src="flash_settings.js"></script>
+    <script src="composer_steps.js"></script>
     <script src="terminal_keys.js"></script>
     <script src="terminals.js"></script>
     <script>
@@ -317,6 +327,7 @@
       const tabsBar = $('ov-tabs');
       const progressSection = $('ov-progress-section');
       const progressList = $('ov-progress-list');
+      const progressEmpty = $('ov-progress-empty');
       const summaryElement = $('composer-summary');
       const summarySection = $('ov-summary-section');
       const summaryTs = $('ov-summary-ts');
@@ -394,7 +405,66 @@
         const idx = Math.max(0, order.indexOf(stage));
         stepLabel.textContent = 'step ' + String(idx + 1).padStart(2, '0') + ' · ' + labels[stage];
         overlay.querySelectorAll('.pip').forEach((pip, i) => pip.classList.toggle('on', i <= idx));
-        if (progressSection) progressSection.style.display = stage === 'building' ? '' : 'none';
+        // Pipeline Progress is a first-class artifact view, not a loading-only
+        // panel — its visibility is owned by the step controller and must
+        // persist after the run completes, fails, or warns.
+      }
+
+      // ---- Composer result steps (01 PIPELINE PROGRESS / 02 CONTEXT FLASH) ----
+      // The step controller owns which result step is selected. Pipeline
+      // Progress stays visible and selected after completion; only an explicit
+      // user click on the step label may change the active step.
+      const stepPanels = overlay.querySelectorAll('.ov-step-panel');
+
+      function applyStepState(state) {
+        if (!state || !Array.isArray(state.steps)) return;
+        state.steps.forEach((step) => {
+          const panel = overlay.querySelector('.ov-step-panel[data-step="' + step.id + '"]');
+          if (!panel) return;
+          panel.classList.toggle('active', step.active);
+          panel.classList.toggle('disabled', !step.enabled);
+          panel.hidden = !step.visible;
+          const button = panel.querySelector('.ov-step-button');
+          if (button) {
+            button.setAttribute('aria-pressed', step.active ? 'true' : 'false');
+            button.setAttribute('aria-disabled', step.enabled ? 'false' : 'true');
+            button.tabIndex = step.enabled ? 0 : -1;
+          }
+        });
+        if (progressList && progressEmpty) {
+          const hasEvents = progressList.children.length > 0;
+          progressEmpty.hidden = hasEvents;
+        }
+      }
+
+      const composerSteps = (window.VibecodeComposerSteps && window.VibecodeComposerSteps.createStepController)
+        ? window.VibecodeComposerSteps.createStepController({ onChange: applyStepState })
+        : null;
+
+      function handleStepButtonClick(event) {
+        const button = event.target.closest('.ov-step-button');
+        if (!button) return;
+        const targetId = button.getAttribute('data-step-target');
+        if (!targetId || !composerSteps) return;
+        composerSteps.selectStep(targetId);
+      }
+
+      stepPanels.forEach((panel) => {
+        const button = panel.querySelector('.ov-step-button');
+        if (!button) return;
+        button.addEventListener('click', handleStepButtonClick);
+        button.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleStepButtonClick(event);
+          }
+        });
+      });
+
+      if (composerSteps) {
+        // Sync initial DOM state (Pipeline Progress active, Context Flash
+        // visible but disabled) to the controller's default state.
+        applyStepState(composerSteps.getState());
       }
 
       // Composer can only send when (1) a preview is built, AND (2) the
@@ -1154,6 +1224,19 @@
         item.textContent = progressStatusGlyph(status) + ' ' + label + ' ' + status + (message ? ': ' + message : '') + detail;
         progressList.appendChild(item);
         progressList.scrollTop = progressList.scrollHeight;
+        if (progressEmpty) progressEmpty.hidden = true;
+        if (composerSteps) {
+          composerSteps.addProgressEvent(event);
+          // pipeline_completed_with_warnings / pipeline_failed events are
+          // streamed alongside the run result. We still want Pipeline Progress
+          // to stay selected after the warning/failure so the user can see the
+          // failed row; the controller handles that.
+          if (event.phase === 'pipeline_completed_with_warnings') {
+            composerSteps.markWarned();
+          } else if (event.phase === 'pipeline_failed' || event.phase === 'failed') {
+            composerSteps.markFailed();
+          }
+        }
       }
 
       if (tabsBar) {
@@ -1312,6 +1395,12 @@
         setStep('building');
         summaryTs.textContent = 'scanning…';
         if (progressList) progressList.textContent = '';
+        if (progressEmpty) progressEmpty.hidden = false;
+        // A new run starts: clear the prior event list, force Pipeline Progress
+        // active, and disable Context Flash until fresh data arrives. The user
+        // may have manually switched to Context Flash from a previous run; that
+        // selection must NOT carry over.
+        if (composerSteps) composerSteps.startRun();
         resetPreviewTabs();
         finalSection.style.display = 'none';
 
@@ -1319,6 +1408,7 @@
           if (!window.VibecodeFlashSettings) {
             renderErrorSummary({ code: 'NO_FLASH_MODULE', message: 'Flash settings module is unavailable.' });
             setStep('compose');
+            if (composerSteps) composerSteps.markFailed();
             return;
           }
           // Route through the testable, secret-free preview planner. Live mode is
@@ -1337,12 +1427,14 @@
           if (outcome.blocked) {
             renderErrorSummary(outcome.diagnostic);
             setStep('compose');
+            if (composerSteps) composerSteps.markFailed();
             return;
           }
           const result = outcome.result;
           if (!result || result.ok !== true) {
             renderErrorSummary((result && result.error) || { code: 'UNKNOWN', message: 'unknown error' }, result);
             setStep('compose');
+            if (composerSteps) composerSteps.markFailed();
             return;
           }
           currentPreview = result;
@@ -1354,6 +1446,10 @@
           finalSection.style.display = '';
           finalWrap.classList.add('open');
           setStep('ready');
+          // Run completed: enable Context Flash so the user can click into it,
+          // but keep Pipeline Progress selected so the just-finished event list
+          // remains the default view.
+          if (composerSteps) composerSteps.markCompleted();
           if (activePanel === 'artifacts' || activePanel === 'context') renderPanel(activePanel);
           // Auto-approve: skip the manual Send click and deliver final_prompt.md
           // straight into the origin terminal. sendToTerminal still re-checks the
@@ -1364,6 +1460,7 @@
         } catch (error) {
           renderErrorSummary({ code: 'EXCEPTION', message: error instanceof Error ? error.message : String(error) });
           setStep('compose');
+          if (composerSteps) composerSteps.markFailed();
         } finally {
           generateButton.disabled = false;
           refreshSendButton();
