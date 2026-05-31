@@ -4,6 +4,7 @@ import path from 'path';
 import type { FlashOutputSection } from './flash_output_contract.js';
 
 export interface FlashOutputMeta {
+  task_summary?: string;
   selected_skills: string[];
   relevant_files: string[];
   files_to_read_with_tools: string[];
@@ -36,6 +37,7 @@ function getSectionBody(sections: FlashOutputSection[], name: string): string {
 
 export function extractFlashOutputMeta(sections: FlashOutputSection[]): FlashOutputMeta {
   return {
+    task_summary: getSectionBody(sections, 'Task Summary').trim() || undefined,
     selected_skills: extractListItems(getSectionBody(sections, 'Selected Skills')),
     relevant_files: extractListItems(getSectionBody(sections, 'Relevant Files')),
     files_to_read_with_tools: extractListItems(getSectionBody(sections, 'Files To Read With Tools')),

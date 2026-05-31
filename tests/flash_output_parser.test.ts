@@ -114,6 +114,21 @@ describe('parseFlashOutput', () => {
     expect(meta.selected_skills).toEqual(['test-driven-development', 'subagent-driven-development']);
   });
 
+  test('task summary can be extracted', () => {
+    const meta = extractFlashOutputMeta([
+      { name: 'Task Summary', body: '  Remove the task normalizer description and keep only the toggle.\n\n' },
+      { name: 'Relevant Files', body: '' },
+      { name: 'Files To Read With Tools', body: '' },
+      { name: 'Relevant Tests', body: '' },
+      { name: 'Commands To Run', body: '' },
+      { name: 'Selected Skills', body: '' },
+      { name: 'Cautions', body: '' },
+      { name: 'Context Pack', body: '' },
+    ]);
+
+    expect(meta.task_summary).toBe('Remove the task normalizer description and keep only the toggle.');
+  });
+
   test('relevant_files list can be extracted', () => {
     const meta = extractFlashOutputMeta([
       { name: 'Relevant Files', body: '- src/core/context/index.ts — entry point\n- src/app/cli/index.ts\n' },

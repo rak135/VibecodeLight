@@ -10,10 +10,14 @@ function makeRunDir(tmpDir: string, opts?: {
   emptySkillContents?: boolean;
   withSkillContents?: boolean;
   withFlashMeta?: boolean;
+  withTaskSummary?: string;
+  withFlashOutputTaskSummary?: string;
+  withTaskIntent?: boolean;
   withScanCommands?: boolean;
   withRepoInstructions?: boolean;
   withArchDocs?: boolean;
   withGitStatus?: boolean;
+  withExactTextMatches?: boolean;
 }): string {
   const runId = 'test-run-001';
   const runDir = path.join(tmpDir, runId);
@@ -33,7 +37,11 @@ function makeRunDir(tmpDir: string, opts?: {
   // required: output/context_pack.md
   if (!opts?.noContextPack) {
     fs.mkdirSync(path.join(runDir, 'output'), { recursive: true });
-    fs.writeFileSync(path.join(runDir, 'output', 'context_pack.md'), '# Context Pack\n\nContext content here.\n', 'utf8');
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      '## Product Shape\n\nContext content here.\n\n## Top-Level Directory Map\n\n- src/\n',
+      'utf8',
+    );
   }
 
   // required: skills/selected_skills.json
@@ -75,9 +83,87 @@ function makeRunDir(tmpDir: string, opts?: {
       relevant_tests: ['tests/core/feature.test.ts'],
       commands_to_run: ['pnpm test', 'pnpm exec tsc --noEmit'],
       cautions: ['Do not break the public API.'],
+      ...(opts.withTaskSummary ? { task_summary: opts.withTaskSummary } : {}),
       warnings: [],
     };
     fs.writeFileSync(path.join(runDir, 'flash', 'flash_output_meta.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
+  }
+
+  // optional: flash/relevance_selection.json
+  if (opts?.withExactTextMatches) {
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    const relevanceSelection = {
+      selected_files: [
+        {
+          path: 'src/app/desktop/renderer/index.html',
+          score: 101000,
+          reasons: ['exact text match: "Translates and expands your task into English search hints"'],
+        },
+      ],
+      selected_tests: [],
+      selected_docs: [],
+    };
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'relevance_selection.json'),
+      JSON.stringify(relevanceSelection, null, 2) + '\n',
+      'utf8',
+    );
+  }
+
+  // optional: flash/flash_output.md with a Task Summary not mirrored into flash_output_meta.json.
+  // This matches older finalized runs whose metadata predates task_summary extraction.
+  if (opts?.withFlashOutputTaskSummary) {
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'flash_output.md'),
+      [
+        '# Task Summary',
+        opts.withFlashOutputTaskSummary,
+        '',
+        '# Relevant Files',
+        '- src/core/feature.ts',
+        '',
+        '# Files To Read With Tools',
+        '- docs/ARCHITECTURE.md',
+        '',
+        '# Relevant Tests',
+        '- tests/core/feature.test.ts',
+        '',
+        '# Commands To Run',
+        '- pnpm test',
+        '',
+        '# Selected Skills',
+        '- test-skill',
+        '',
+        '# Cautions',
+        '- Do not break the public API.',
+        '',
+        '# Context Pack',
+        '## Product Shape',
+        'Context content here.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+  }
+
+  // optional: task_intent.json from Task Normalizer.
+  if (opts?.withTaskIntent) {
+    const taskIntent = {
+      enabled: true,
+      ok: true,
+      source: 'llm',
+      original_task: 'Implement the feature X.',
+      original_language: 'cs',
+      normalized_english_task: 'Remove the Task Normalizer description from the GUI and keep only the toggle switch.',
+      search_hints: ['GUI', 'task normalizer', 'toggle switch'],
+      keyword_groups: { core_terms: ['task normalizer'], ui_terms: ['toggle switch'] },
+      negative_constraints: ['do not remove the toggle switch'],
+      validation_hints: ['verify the Task Normalizer toggle remains visible'],
+      uncertainties: [],
+      warnings: [],
+    };
+    fs.writeFileSync(path.join(runDir, 'task_intent.json'), JSON.stringify(taskIntent, null, 2) + '\n', 'utf8');
   }
 
   // optional: scan/commands.json
@@ -158,6 +244,89 @@ describe('renderFinalPrompt', () => {
     renderFinalPrompt(runDir);
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
     expect(content).toContain('docs/ARCHITECTURE.md');
+  });
+
+  test('final_prompt.md preserves flash task summary before repo atlas content', () => {
+    const taskSummary = 'Remove the task normalizer description text from the GUI and retain only the toggle switch.';
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withTaskSummary: taskSummary });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    expect(content).toContain('## Task Summary');
+    expect(content).toContain(taskSummary);
+    expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Product Shape'));
+  });
+
+  test('final_prompt.md falls back to flash_output task summary when metadata predates task_summary extraction', () => {
+    const taskSummary = 'Remove the task normalizer description text from the GUI and retain only the toggle switch.';
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withFlashOutputTaskSummary: taskSummary });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    expect(content).toContain('## Task Summary');
+    expect(content).toContain(taskSummary);
+    expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Product Shape'));
+  });
+
+  test('final_prompt.md falls back to Task Normalizer intent and renders constraints and validation hints', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withTaskIntent: true, withExactTextMatches: true });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    expect(content).toContain('## Task Summary');
+    expect(content).toContain('Remove the Task Normalizer description from the GUI and keep only the toggle switch.');
+    expect(content).toContain('## Constraints');
+    expect(content).toContain('- do not remove the toggle switch');
+    expect(content).toContain('## Validation Hints');
+    expect(content).toContain('- verify the Task Normalizer toggle remains visible');
+    expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Constraints'));
+    expect(content.indexOf('## Constraints')).toBeLessThan(content.indexOf('## Validation Hints'));
+    expect(content.indexOf('## Validation Hints')).toBeLessThan(content.indexOf('## Exact Text Matches'));
+    expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Product Shape'));
+  });
+
+  test('final_prompt.md renders exact text matches in a dedicated context pack section before relevant files', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withExactTextMatches: true });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    const exactLine = '- src/app/desktop/renderer/index.html — selected by: exact text match: "Translates and expands your task into English search hints"';
+
+    expect(content).toContain('## Exact Text Matches');
+    expect(content).toContain(exactLine);
+    expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Relevant Files'));
+  });
+
+  test('final_prompt.md renders without task summary when flash meta omits it', () => {
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
+
+    const result = renderFinalPrompt(runDir);
+
+    expect(result.ok).toBe(true);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    expect(content).not.toContain('## Task Summary');
+    expect(content).toContain('## Product Shape');
+  });
+
+  test('final_prompt.md does not start context pack with repo atlas headings when task summary exists', () => {
+    const taskSummary = 'Remove the task normalizer description text from the GUI and retain only the toggle switch.';
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withTaskSummary: taskSummary });
+
+    renderFinalPrompt(runDir);
+
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+    const contextPackStart = content.indexOf('# Context Pack');
+    const afterContextPack = content.slice(contextPackStart);
+    const headingMatches = [...afterContextPack.matchAll(/^## .+$/gm)];
+    const firstH2 = headingMatches[0]?.[0];
+
+    expect(firstH2).toBeDefined();
+    expect(firstH2).not.toBe('## Product Shape');
+    expect(firstH2).not.toBe('## Top-Level Directory Map');
   });
 
   test('final_prompt.md prepends exact text match files from deterministic relevance selection', () => {
