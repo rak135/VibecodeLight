@@ -841,4 +841,351 @@ describe('renderFinalPrompt', () => {
     expect(content.indexOf('## Task Summary')).toBeLessThan(content.indexOf('## Repo Atlas Summary'));
     expect(content.indexOf('## Exact Text Matches')).toBeLessThan(content.indexOf('## Repo Atlas Summary'));
   });
+
+  // -------------------------------------------------------------------------
+  // File-list sanitization, dedupe, and fence-unwrap regression tests
+  // -------------------------------------------------------------------------
+
+  test('final_prompt.md strips surrounding backticks and dedupes against bare paths in relevant files', () => {
+    const runDir = makeRunDir(tmpDir);
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'flash_output_meta.json'),
+      JSON.stringify(
+        {
+          selected_skills: [],
+          relevant_files: [
+            'src/app/desktop/renderer/index.html',
+            '`src/app/desktop/renderer/index.html`',
+          ],
+          files_to_read_with_tools: [
+            'src/app/desktop/renderer/index.html',
+            '`src/app/desktop/renderer/index.html`',
+          ],
+          relevant_tests: [],
+          commands_to_run: ['pnpm exec tsc --noEmit'],
+          cautions: [],
+          task_summary: 'Strip backticks from path entries.',
+          constraints: [],
+          validation_hints: [],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    const indexHtmlBullets = (content.match(/^- src\/app\/desktop\/renderer\/index\.html$/gm) ?? []).length;
+    // Appears once under ## Relevant Files and once under ## Files To Inspect.
+    expect(indexHtmlBullets).toBe(2);
+    // No backticked duplicate.
+    expect(content).not.toContain('`src/app/desktop/renderer/index.html`');
+  });
+
+  test('final_prompt.md drops speculative file entries with (or similar...) / (if exists) when no canonical evidence', () => {
+    const runDir = makeRunDir(tmpDir);
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'flash_output_meta.json'),
+      JSON.stringify(
+        {
+          selected_skills: [],
+          relevant_files: [
+            'src/app/desktop/renderer/index.html',
+            '`src/app/desktop/renderer/index.html`',
+            '`src/app/desktop/renderer/flash_settings.js` (or similar settings file)',
+            '`src/app/desktop/renderer/flash_settings.d.ts` (if exists)',
+          ],
+          files_to_read_with_tools: [
+            '`src/app/desktop/renderer/index.html`',
+            '`src/app/desktop/renderer/flash_settings.js`',
+            '`src/app/desktop/renderer/flash_settings.d.ts` (if exists)',
+          ],
+          relevant_tests: [],
+          commands_to_run: [],
+          cautions: [],
+          task_summary: 'Sanitize speculative entries.',
+          constraints: [],
+          validation_hints: [],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    // Canonical evidence: only index.html is in relevance_selection.
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'relevance_selection.json'),
+      JSON.stringify(
+        {
+          selected_files: [
+            { path: 'src/app/desktop/renderer/index.html', reasons: ['matched search hint'] },
+          ],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    // Speculation annotations are stripped, not echoed.
+    expect(content).not.toContain('(or similar');
+    expect(content).not.toContain('(if exists)');
+    expect(content).not.toContain('(if present)');
+    // Speculative paths without canonical evidence are dropped.
+    expect(content).not.toContain('flash_settings.js');
+    expect(content).not.toContain('flash_settings.d.ts');
+    // index.html appears as a clean, single bullet under both lists.
+    expect(content).not.toContain('`src/app/desktop/renderer/index.html`');
+    const indexHtmlBullets = (content.match(/^- src\/app\/desktop\/renderer\/index\.html$/gm) ?? []).length;
+    expect(indexHtmlBullets).toBe(2);
+  });
+
+  test('final_prompt.md does not duplicate a file in Files To Inspect when it is also a line-level exact hit', () => {
+    const runDir = makeRunDir(tmpDir);
+    const term = 'Translates and expands your task into English search hints';
+
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'flash_output_meta.json'),
+      JSON.stringify(
+        {
+          selected_skills: [],
+          relevant_files: ['`src/app/desktop/renderer/index.html`'],
+          files_to_read_with_tools: ['`src/app/desktop/renderer/index.html`'],
+          relevant_tests: [],
+          commands_to_run: [],
+          cautions: [],
+          task_summary: 'Avoid duplicate path entries.',
+          constraints: [],
+          validation_hints: [],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'relevance_selection.json'),
+      JSON.stringify(
+        {
+          selected_files: [
+            {
+              path: 'src/app/desktop/renderer/index.html',
+              reasons: [`exact text match: "${term}"`],
+            },
+          ],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'exact_text_hits.json'),
+      JSON.stringify(
+        {
+          exact_text_hits: [
+            { term, path: 'src/app/desktop/renderer/index.html', line: 114, match_type: 'exact_text' },
+          ],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    const filesSection = content.slice(
+      content.indexOf('## Files To Inspect'),
+      content.indexOf('## Suggested Commands') !== -1
+        ? content.indexOf('## Suggested Commands')
+        : content.indexOf('## Cautions'),
+    );
+    // Only one path-only bullet, no line-suffixed bullet.
+    const indexHtmlBullets = (filesSection.match(/^- src\/app\/desktop\/renderer\/index\.html\b/gm) ?? []).length;
+    expect(indexHtmlBullets).toBe(1);
+    expect(filesSection).not.toContain('(line 114)');
+    expect(filesSection).not.toContain('`src/app/desktop/renderer/index.html`');
+  });
+
+  test('final_prompt.md unwraps an outer ```markdown fence around the context pack body', () => {
+    const runDir = makeRunDir(tmpDir);
+    // Overwrite the default context_pack.md with a fully-fenced body.
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      '```markdown\n## Product Shape\nText\n```\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    expect(content).toContain('## Product Shape');
+    expect(content).toContain('Text');
+    expect(content).not.toContain('```markdown');
+    // No stray closing fence either.
+    expect(content).not.toMatch(/^```\s*$/m);
+  });
+
+  test('final_prompt.md unwraps a plain ``` outer fence around the context pack body', () => {
+    const runDir = makeRunDir(tmpDir);
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      '```\n## Product Shape\nText\n```\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    expect(content).toContain('## Product Shape');
+    expect(content).not.toMatch(/^```\s*$/m);
+  });
+
+  test('final_prompt.md preserves internal code fences when there is no outer wrapper', () => {
+    const runDir = makeRunDir(tmpDir);
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      '## Product Shape\nText\n\n```ts\nconst x = 1;\n```\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    // Internal code block survives unchanged.
+    expect(content).toContain('```ts');
+    expect(content).toContain('const x = 1;');
+  });
+
+  test('final_prompt.md Czech regression: index.html only, no speculative entries, no outer fence around Product Shape', () => {
+    const term =
+      'Translates and expands your task into English search hints before context selection. Does not select files.';
+
+    const runDir = path.join(tmpDir, 'test-run-001');
+    fs.writeFileSync(
+      path.join(runDir, 'user_prompt.md'),
+      'odstraň z GUI popis task normalizeru - (' + term + ')\nNechci tam žádný popis task normalizeru, jen ten přepínač co tam je teď\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(runDir, 'run_manifest.json'),
+      JSON.stringify(
+        { run_id: 'test-run-001', created_at: '2026-05-31T00:00:00.000Z', task: 'task', status: 'done' },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    // Context pack body wrapped in a fully fenced ```markdown block (real flash output behavior).
+    fs.mkdirSync(path.join(runDir, 'output'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'output', 'context_pack.md'),
+      '```markdown\n## Product Shape\nVibecodeLight is an Electron/TypeScript desktop + CLI workspace.\n\n## Top-Level Directory Map\n- src/app/desktop/renderer/index.html\n```\n',
+      'utf8',
+    );
+    fs.mkdirSync(path.join(runDir, 'skills'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'skills', 'selected_skills.json'),
+      JSON.stringify({ selected: [], warnings: [], missing_skills: [] }, null, 2) + '\n',
+      'utf8',
+    );
+    fs.writeFileSync(path.join(runDir, 'skills', 'selected_skill_contents.md'), '', 'utf8');
+
+    fs.mkdirSync(path.join(runDir, 'flash'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'flash_output_meta.json'),
+      JSON.stringify(
+        {
+          selected_skills: [],
+          relevant_files: [
+            '`src/app/desktop/renderer/index.html`',
+            '`src/app/desktop/renderer/flash_settings.js` (or similar settings file)',
+            '`src/app/desktop/renderer/flash_settings.d.ts`',
+          ],
+          files_to_read_with_tools: [
+            '`src/app/desktop/renderer/index.html`',
+            '`src/app/desktop/renderer/flash_settings.js`',
+            '`src/app/desktop/renderer/flash_settings.d.ts` (if exists)',
+          ],
+          relevant_tests: ['`tests/app/desktop/flash_settings_task_normalizer.test.ts`'],
+          commands_to_run: ['pnpm exec tsc --noEmit'],
+          cautions: ['Do not remove the toggle switch.'],
+          task_summary: 'Remove the description text. Keep only the toggle.',
+          constraints: [],
+          validation_hints: [],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(runDir, 'flash', 'relevance_selection.json'),
+      JSON.stringify(
+        {
+          selected_files: [
+            { path: 'src/app/desktop/renderer/index.html', reasons: [`exact text match: "${term}"`] },
+          ],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'exact_text_hits.json'),
+      JSON.stringify(
+        {
+          exact_text_hits: [
+            { term, path: 'src/app/desktop/renderer/index.html', line: 114, match_type: 'exact_text' },
+            { term, path: 'src/app/desktop/renderer/index.html', line: 120, match_type: 'exact_text' },
+          ],
+          warnings: [],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+
+    renderFinalPrompt(runDir);
+    const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+
+    // Task Summary present.
+    expect(content).toContain('## Task Summary');
+    // Exact Text Matches with grouped lines.
+    expect(content).toMatch(/src\/app\/desktop\/renderer\/index\.html \(lines 114, 120\)/);
+    // Relevant Files / Files To Inspect contain index.html once each, cleanly.
+    const taskLists = content.slice(
+      content.indexOf('## Relevant Files'),
+      content.indexOf('## Product Shape'),
+    );
+    const indexBullets = (taskLists.match(/^- src\/app\/desktop\/renderer\/index\.html$/gm) ?? []).length;
+    expect(indexBullets).toBe(2);
+    // No speculative flash_settings entries.
+    expect(content).not.toContain('flash_settings');
+    expect(content).not.toContain('(or similar');
+    expect(content).not.toContain('(if exists)');
+    expect(content).not.toContain('`src/app/desktop/renderer/index.html`');
+    // No outer markdown fence around Product Shape.
+    expect(content).toContain('## Product Shape');
+    expect(content).not.toContain('```markdown');
+  });
 });

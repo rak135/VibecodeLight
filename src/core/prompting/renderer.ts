@@ -77,6 +77,130 @@ function uniqueItems(items: string[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// File-list sanitization (strip flash formatting noise before rendering)
+// ---------------------------------------------------------------------------
+
+// Trailing parenthetical annotations that signal flash speculation rather than
+// a concrete file reference. Matched at end of string.
+const SPECULATION_PATTERN =
+  /\s*\((?:or\s+similar[^)]*|if\s+(?:exists?|present|any|available)|possibly[^)]*|maybe[^)]*|likely[^)]*)\)\s*$/i;
+
+export interface SanitizedFileEntry {
+  /** Cleaned repo-relative path, or null if the entry was not a concrete path. */
+  path: string | null;
+  /** True when a speculation annotation was stripped from this entry. */
+  tainted: boolean;
+}
+
+export function sanitizeFileEntry(raw: unknown): SanitizedFileEntry {
+  if (typeof raw !== 'string') return { path: null, tainted: false };
+  let s = raw.trim();
+  let tainted = false;
+  // Strip one or more trailing speculation annotations.
+  while (SPECULATION_PATTERN.test(s)) {
+    s = s.replace(SPECULATION_PATTERN, '').trim();
+    tainted = true;
+  }
+  // Strip wrapping backticks (single or triple).
+  while (s.startsWith('`')) s = s.slice(1);
+  while (s.endsWith('`')) s = s.slice(0, -1);
+  s = s.trim();
+  if (!s) return { path: null, tainted };
+  // A concrete repo-relative path has no internal whitespace.
+  if (/\s/.test(s)) return { path: null, tainted };
+  // Must look like a path: contain a slash or have a file extension.
+  if (!s.includes('/') && !/\.[A-Za-z0-9]+$/.test(s)) return { path: null, tainted };
+  return { path: s, tainted };
+}
+
+/**
+ * Compute the set of paths that appeared with a speculation annotation in any
+ * of the given lists. A tainted path requires canonical evidence to survive
+ * filtering, even if a different list referenced it cleanly.
+ */
+function collectTaintedPaths(lists: Array<unknown[] | undefined>): Set<string> {
+  const tainted = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      const r = sanitizeFileEntry(raw);
+      if (r.tainted && r.path) tainted.add(r.path);
+    }
+  }
+  return tainted;
+}
+
+/**
+ * Sanitize a file list, applying taint-based filtering.
+ *
+ * - Strips backticks and speculation annotations on every entry.
+ * - Drops entries that aren't concrete paths.
+ * - Drops tainted paths unless `canonical` is non-empty and contains them.
+ *   When `canonical` is empty (e.g., a unit test without scanner artifacts),
+ *   tainted paths are kept so callers don't have to fabricate evidence.
+ */
+function sanitizeFileList(
+  entries: unknown[] | undefined,
+  taintedPaths: Set<string>,
+  canonical: Set<string>,
+): string[] {
+  if (!Array.isArray(entries)) return [];
+  const haveCanonical = canonical.size > 0;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of entries) {
+    const { path: p } = sanitizeFileEntry(raw);
+    if (!p) continue;
+    if (haveCanonical && taintedPaths.has(p) && !canonical.has(p)) continue;
+    if (seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Outer markdown fence unwrap for context pack body
+// ---------------------------------------------------------------------------
+
+/**
+ * If `content`'s entire body is wrapped in a single outer ```...``` fence
+ * (optionally tagged ```markdown / ```md / ```text), strip that outer fence.
+ * Internal fenced code blocks are preserved — we only unwrap when the outer
+ * fence pairs with a closer at the end and any internal fences are balanced.
+ */
+export function unwrapOuterMarkdownFence(content: string): string {
+  if (!content) return content;
+  const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/);
+
+  let firstIdx = 0;
+  while (firstIdx < lines.length && lines[firstIdx].trim() === '') firstIdx++;
+  if (firstIdx >= lines.length) return content;
+
+  // Opening fence: ``` or ```lang (lang is a single word like markdown/md/text).
+  if (!/^```[A-Za-z0-9_-]*\s*$/.test(lines[firstIdx])) return content;
+
+  let lastIdx = lines.length - 1;
+  while (lastIdx > firstIdx && lines[lastIdx].trim() === '') lastIdx--;
+  if (lastIdx <= firstIdx) return content;
+
+  if (!/^```\s*$/.test(lines[lastIdx])) return content;
+
+  // Ensure internal fences (if any) are balanced — otherwise we'd be
+  // unwrapping a fence that belongs to inner code.
+  let internalFenceCount = 0;
+  for (let i = firstIdx + 1; i < lastIdx; i++) {
+    if (/^```/.test(lines[i].trim())) internalFenceCount++;
+  }
+  if (internalFenceCount % 2 !== 0) return content;
+
+  const leading = lines.slice(0, firstIdx);
+  const inner = lines.slice(firstIdx + 1, lastIdx);
+  const trailing = lines.slice(lastIdx + 1);
+  return [...leading, ...inner, ...trailing].join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // File-kind classifier (used only for final prompt rendering priority)
 // ---------------------------------------------------------------------------
 
@@ -289,6 +413,8 @@ interface BuildFinalPromptOptions {
   repoInstructionFiles: string[];
   exactGroups: ExactGroup[];
   exactOmittedCount: number;
+  sanitizedRelevantFiles: string[];
+  sanitizedFilesToInspect: string[];
   rendererWarnings: string[];
 }
 
@@ -304,20 +430,16 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     repoInstructionFiles,
     exactGroups,
     exactOmittedCount,
+    sanitizedRelevantFiles,
+    sanitizedFilesToInspect,
     rendererWarnings,
   } = opts;
 
   const exactPaths = exactGroups.map((g) => g.path);
   const exactTextLines = exactGroups.map(renderExactGroupLine);
 
-  const relevantFiles = uniqueItems([
-    ...exactPaths,
-    ...(flashMeta?.relevant_files ?? []),
-  ]);
-  const filesToInspect = uniqueItems([
-    ...exactPaths,
-    ...(flashMeta?.files_to_read_with_tools ?? []),
-  ]);
+  const relevantFiles = uniqueItems([...exactPaths, ...sanitizedRelevantFiles]);
+  const filesToInspect = uniqueItems([...exactPaths, ...sanitizedFilesToInspect]);
   const cautions = flashMeta?.cautions ?? [];
   const taskSummary = flashMeta?.task_summary?.trim() ?? '';
   const constraints = flashMeta?.constraints ?? [];
@@ -377,7 +499,7 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     contextPackBlocks.push(`## Cautions\n${listItems(cautions).trimEnd()}`);
   }
   if (contextPack.trim().length > 0) {
-    contextPackBlocks.push(contextPack.trim());
+    contextPackBlocks.push(unwrapOuterMarkdownFence(contextPack).trim());
   }
 
   const sections: string[] = [
@@ -447,10 +569,47 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
     const selectionArtifact = readOptionalJson<RelevanceSelectionArtifact>(relevanceSelectionPath);
 
     const allExactGroups = collectExactTextGroups(hitsArtifact, selectionArtifact);
+
+    // Canonical evidence: paths surfaced by the deterministic scanner or the
+    // relevance ranker — authoritative beyond raw flash output.
+    const canonicalEvidence = new Set<string>(allExactGroups.map((g) => g.path));
+    if (Array.isArray(selectionArtifact?.selected_files)) {
+      for (const sel of selectionArtifact.selected_files) {
+        if (typeof sel.path === 'string' && sel.path.length > 0) {
+          canonicalEvidence.add(sel.path);
+        }
+      }
+    }
+
+    // Tainted paths: any path that appeared with a speculation annotation in
+    // any flash-provided list. Tainted paths require canonical evidence to
+    // survive sanitization.
+    const taintedPaths = collectTaintedPaths([
+      flashMeta?.relevant_files,
+      flashMeta?.files_to_read_with_tools,
+      flashMeta?.relevant_tests,
+    ]);
+
+    const sanitizedRelevantFiles = sanitizeFileList(
+      flashMeta?.relevant_files,
+      taintedPaths,
+      canonicalEvidence,
+    );
+    const sanitizedFilesToInspect = sanitizeFileList(
+      flashMeta?.files_to_read_with_tools,
+      taintedPaths,
+      canonicalEvidence,
+    );
+    const sanitizedRelevantTests = sanitizeFileList(
+      flashMeta?.relevant_tests,
+      taintedPaths,
+      canonicalEvidence,
+    );
+
     const relevantSignals = new Set<string>([
-      ...(flashMeta?.relevant_tests ?? []),
-      ...(flashMeta?.relevant_files ?? []),
-      ...(flashMeta?.files_to_read_with_tools ?? []),
+      ...sanitizedRelevantTests,
+      ...sanitizedRelevantFiles,
+      ...sanitizedFilesToInspect,
     ]);
     const { kept: exactGroups, omittedCount: exactOmittedCount } = filterExactTextGroups(
       allExactGroups,
@@ -488,6 +647,8 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       repoInstructionFiles,
       exactGroups,
       exactOmittedCount,
+      sanitizedRelevantFiles,
+      sanitizedFilesToInspect,
       rendererWarnings: warnings,
     });
 
