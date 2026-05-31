@@ -19,6 +19,10 @@ import {
   type CodeGraphContextRunner,
   type CodeGraphReadinessProvider,
 } from '../../adapters/codegraph/codegraph_context.js';
+import {
+  buildCodeGraphMcpAgentConfig,
+  runCodeGraphMcpSelfTest,
+} from '../../adapters/codegraph/codegraph_mcp.js';
 import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
@@ -1779,6 +1783,132 @@ export function createCli(): Command {
     .action(async (options: { repo: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
       await runCodeGraphAction('reindex', repoRoot, () => reindexCodeGraphRepo(repoRoot), options.json);
+    });
+
+  const codegraphMcp = codegraph
+    .command('mcp')
+    .description('Inspect and configure the existing upstream CodeGraph MCP server');
+
+  codegraphMcp
+    .command('self-test')
+    .description('Verify the existing CodeGraph MCP server (codegraph serve --mcp) responds with the expected tools')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .option('--timeout <ms>', 'Self-test timeout in milliseconds')
+    .action(async (options: { repo: string; json?: boolean; timeout?: string }) => {
+      const repoRoot = path.resolve(options.repo);
+      const timeoutMs = options.timeout !== undefined ? Number(options.timeout) : undefined;
+      if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            'INVALID_TIMEOUT',
+            `invalid --timeout: ${options.timeout}`,
+            '',
+            ['Expected a positive integer number of milliseconds.'],
+          ),
+          { json: options.json, prefix: 'codegraph mcp self-test failed' },
+        );
+        return;
+      }
+
+      const result = await runCodeGraphMcpSelfTest({
+        repoRoot,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      });
+
+      if (options.json) {
+        const payload = {
+          ok: result.ok,
+          transport: result.transport,
+          serverCommand: `${result.serverCommand} ${result.serverArgs.join(' ')}`.trim(),
+          repoRoot: result.repoRoot,
+          tools: result.tools,
+          expectedToolsPresent: result.expectedToolsPresent,
+          missingTools: result.missingTools,
+          warnings: result.warnings,
+          ...(result.error
+            ? { error: { code: result.error.code, message: result.error.message } }
+            : {}),
+        };
+        console.log(JSON.stringify(payload));
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
+
+      const serverDisplay = `${result.serverCommand} ${result.serverArgs.join(' ')}`.trim();
+      if (result.ok) {
+        console.log('CodeGraph MCP self-test: OK');
+        console.log(`Server: ${serverDisplay}`);
+        console.log(`Transport: ${result.transport}`);
+        console.log(`Repo: ${result.repoRoot}`);
+        console.log('Tools:');
+        for (const tool of result.tools) console.log(`  - ${tool}`);
+        if (result.warnings.length > 0) {
+          console.log('Warnings:');
+          for (const warning of result.warnings) console.log(`  - ${warning}`);
+        } else {
+          console.log('Warnings: none');
+        }
+        return;
+      }
+
+      console.error('CodeGraph MCP self-test: FAILED');
+      console.error(`Server: ${serverDisplay}`);
+      console.error(`Transport: ${result.transport}`);
+      console.error(`Repo: ${result.repoRoot}`);
+      if (result.error) {
+        console.error(`error: ${result.error.code}: ${result.error.message}`);
+      }
+      if (result.missingTools.length > 0) {
+        console.error('Missing tools:');
+        for (const tool of result.missingTools) console.error(`  - ${tool}`);
+      }
+      if (result.warnings.length > 0) {
+        console.error('Warnings:');
+        for (const warning of result.warnings) console.error(`  - ${warning}`);
+      }
+      process.exitCode = 1;
+    });
+
+  codegraphMcp
+    .command('config')
+    .description('Print a CodeGraph MCP config snippet for the given agent (print-only)')
+    .requiredOption('--agent <agent>', 'Target agent (e.g. claude)')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--print', 'Print the config snippet (default behavior)')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { agent: string; repo: string; print?: boolean; json?: boolean }) => {
+      const result = buildCodeGraphMcpAgentConfig(options.agent);
+      if (!result.ok) {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            result.error.code,
+            result.error.message,
+            '',
+            result.error.details,
+          ),
+          { json: options.json, prefix: 'codegraph mcp config failed' },
+        );
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: {
+            agent: result.agent,
+            format: result.format,
+            config: result.config,
+            snippet: result.snippet,
+          },
+          artifacts: [],
+          warnings: [],
+        }));
+        return;
+      }
+
+      console.log(`# CodeGraph MCP config for agent: ${result.agent}`);
+      console.log(result.snippet);
     });
 
   // context-build command

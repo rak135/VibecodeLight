@@ -10,7 +10,7 @@ Current behavior is intentionally narrow:
 - `use-existing` mode is read-only. VibecodeLight uses an existing initialized CodeGraph index for bounded context extraction; it never auto-initializes, auto-syncs, auto-indexes, auto-watches, or auto-serves during prompt/context build.
 - If `codegraph status --json` reports pending changes, VibecodeLight records a warning and still uses the existing index as-is. It never auto-syncs to make the index fresh.
 - Missing CodeGraph, missing `.codegraph/`, or CodeGraph command failures are warnings/non-fatal fallback conditions, not scan failures.
-- MCP is not implemented. It remains roadmap/future work documented in `docs/codegraph_mcp_roadmap.md`.
+- MCP integration is opt-in and limited to a self-test and a print-only config helper against the **existing upstream CodeGraph MCP server**. VibecodeLight does not implement its own CodeGraph MCP server. See "CodeGraph MCP integration (Phase 1A)" below and `docs/codegraph_mcp_roadmap.md` for later phases.
 
 ## What is implemented today
 
@@ -107,6 +107,87 @@ These commands exist so the user can manage CodeGraph intentionally.
 
 Prompt/context build never calls them automatically.
 
+## CodeGraph MCP integration (Phase 1A)
+
+VibecodeLight integrates with the **existing upstream CodeGraph MCP server**. It
+does not implement its own CodeGraph MCP server in this phase.
+
+The upstream MCP server is started by CodeGraph itself:
+
+```text
+codegraph serve --mcp
+```
+
+Phase 1A adds two read-only helper commands:
+
+```text
+vibecode codegraph mcp self-test --repo <path>
+vibecode codegraph mcp self-test --repo <path> --json
+vibecode codegraph mcp config --agent claude --repo <path> --print
+```
+
+### Self-test
+
+`vibecode codegraph mcp self-test` spawns the upstream CodeGraph MCP server
+through stdio using the official `@modelcontextprotocol/sdk` stdio client
+transport, performs the MCP `initialize` handshake, calls `tools/list`, and
+verifies that the expected CodeGraph tools are exposed. The expected tools are:
+
+```text
+codegraph_status
+codegraph_context
+codegraph_search
+codegraph_files
+```
+
+Additional upstream tools (for example `codegraph_trace`, `codegraph_callers`,
+`codegraph_callees`, `codegraph_impact`, `codegraph_node`, `codegraph_explore`)
+are accepted and surfaced verbatim in the result.
+
+The self-test:
+
+- never calls `codegraph init/sync/index/watch`
+- never mutates the repository
+- never calls a live LLM
+- shuts the upstream child process down cleanly
+- returns a structured diagnostic on failure (no stack dump in normal CLI use)
+
+`--json` returns a canonical envelope of the form:
+
+```json
+{
+  "ok": true,
+  "transport": "stdio",
+  "serverCommand": "codegraph serve --mcp",
+  "repoRoot": "...",
+  "tools": ["codegraph_status", "codegraph_context", "..."],
+  "expectedToolsPresent": true,
+  "missingTools": [],
+  "warnings": []
+}
+```
+
+### Config print
+
+`vibecode codegraph mcp config --agent claude --print` prints a stdio MCP config
+snippet that points at the upstream CodeGraph server. Phase 1A supports
+`--agent claude`; other agents (for example `codex`, `opencode`, `hermes`)
+return a structured `AGENT_CONFIG_FORMAT_NOT_IMPLEMENTED` diagnostic instead of
+a guessed snippet. The command is print-only — it never writes files and never
+modifies external agent configs.
+
+### What Phase 1A does not change
+
+- The prompt/context pipeline still uses the existing CodeGraph CLI adapter.
+  There is no MCP transport in `runPromptPipeline` and no
+  `scan/codegraph_mcp_usage.json` artifact.
+- CodeGraph mode defaults remain unchanged (detect-only by default).
+- Prompt/context build still never calls `codegraph init/sync/index` for MCP
+  reasons.
+
+Future MCP work (optional MCP transport in the pipeline, agent config install,
+multi-agent control) lives in `docs/codegraph_mcp_roadmap.md`.
+
 ## Current artifact map
 
 ### Scan-side detection/use artifacts
@@ -139,9 +220,11 @@ The important distinction is:
 
 The following are not part of the current implementation:
 
-- MCP server support
-- `vibecode mcp serve`
-- agent config installation helpers
+- a VibecodeLight-owned CodeGraph MCP server (Phase 1A integrates with the
+  upstream `codegraph serve --mcp` server only)
+- `vibecode mcp serve` (VibecodeLight MCP gateway)
+- optional MCP transport for the prompt/context pipeline (Phase 1B)
+- agent config installation helpers (Phase 2 — Phase 1A only prints snippets)
 - HTTP server mode
 - background watch/serve/index orchestration during prompt build
 - automatic CodeGraph installation or updates

@@ -6,6 +6,27 @@ Current implemented behavior lives in `docs/codegraph.md`.
 
 Everything below is roadmap / not implemented yet unless `docs/codegraph.md` says otherwise.
 
+## Current MCP status (Phase 1A — implemented)
+
+VibecodeLight integrates with the existing upstream CodeGraph MCP server
+started by `codegraph serve --mcp`. It does **not** implement its own
+CodeGraph MCP server.
+
+Implemented in Phase 1A:
+
+- `vibecode codegraph mcp self-test --repo <path>` (and `--json`) — runs the
+  official MCP stdio handshake against `codegraph serve --mcp`, calls
+  `tools/list`, and verifies the expected CodeGraph tools are present.
+- `vibecode codegraph mcp config --agent claude --print` — prints a stdio MCP
+  config snippet for Claude. Other agents return a structured
+  `AGENT_CONFIG_FORMAT_NOT_IMPLEMENTED` diagnostic. Print-only — no file is
+  written and no external agent config is modified.
+- The prompt/context pipeline is unchanged: it still uses the existing CLI
+  CodeGraph adapter; MCP is not on the pipeline path.
+
+Phase 1B (optional MCP transport for the pipeline) and Phase 2 (agent config
+install) are still future work — see the relevant sections below.
+
 ## 1. Verdikt
 
 CodeGraph se do VibecodeLight hodí, ale pouze jako **volitelná code-intelligence vrstva**. Nemá nahradit VibecodeLight, nemá nahradit celý Python scanner a nemá se stát povinnou závislostí.
