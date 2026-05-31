@@ -17,10 +17,27 @@ interface IpcEventWithSender {
   };
 }
 
-export type SafePipelineProgressEvent = Pick<
-  PipelineProgressEvent,
-  'phase' | 'message' | 'run_id' | 'provider_id' | 'model_id' | 'elapsed_ms' | 'artifact_path' | 'chunk'
->;
+/**
+ * Wire format for progress events crossing the preload IPC boundary. All event
+ * payload fields except `phase` and `message` are surfaced as optional because
+ * legacy and test callers may emit minimal events; the renderer tolerates
+ * missing status/label by defaulting to sensible glyphs.
+ */
+export interface SafePipelineProgressEvent {
+  phase: string;
+  message: string;
+  status?: 'started' | 'completed' | 'skipped' | 'warning' | 'failed';
+  label?: string;
+  detail?: string;
+  timestamp?: string;
+  duration_ms?: number;
+  run_id?: string;
+  provider_id?: string;
+  model_id?: string;
+  elapsed_ms?: number;
+  artifact_path?: string;
+  chunk?: string;
+}
 
 function safeString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
@@ -30,25 +47,43 @@ function safeNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+const KNOWN_STATUSES = new Set(['started', 'completed', 'skipped', 'warning', 'failed']);
+
+function safeStatus(value: unknown): SafePipelineProgressEvent['status'] | undefined {
+  return typeof value === 'string' && KNOWN_STATUSES.has(value)
+    ? (value as SafePipelineProgressEvent['status'])
+    : undefined;
+}
+
 export function toSafePipelineProgressEvent(event: PipelineProgressEvent): SafePipelineProgressEvent {
   const source = event as unknown as Record<string, unknown>;
-  const safe: SafePipelineProgressEvent = {
-    phase: event.phase,
-    message: safeString(source.message) ?? '',
-  };
+  const status = safeStatus(source.status);
+  const label = safeString(source.label);
+  const detail = safeString(source.detail);
+  const timestamp = safeString(source.timestamp);
+  const durationMs = safeNumber(source.duration_ms);
   const runId = safeString(source.run_id);
   const providerId = safeString(source.provider_id);
   const modelId = safeString(source.model_id);
   const elapsedMs = safeNumber(source.elapsed_ms);
   const artifactPath = safeString(source.artifact_path);
   const chunk = safeString(source.chunk);
+  const safe: Record<string, unknown> = {
+    phase: event.phase,
+    message: safeString(source.message) ?? '',
+  };
+  if (status !== undefined) safe.status = status;
+  if (label !== undefined) safe.label = label;
+  if (detail !== undefined) safe.detail = detail;
+  if (timestamp !== undefined) safe.timestamp = timestamp;
+  if (durationMs !== undefined) safe.duration_ms = durationMs;
   if (runId !== undefined) safe.run_id = runId;
   if (providerId !== undefined) safe.provider_id = providerId;
   if (modelId !== undefined) safe.model_id = modelId;
   if (elapsedMs !== undefined) safe.elapsed_ms = elapsedMs;
   if (artifactPath !== undefined) safe.artifact_path = artifactPath;
   if (chunk !== undefined) safe.chunk = chunk;
-  return safe;
+  return safe as unknown as SafePipelineProgressEvent;
 }
 
 export interface ComposerBridgeOptions {

@@ -35,9 +35,16 @@ export interface ComposerPreviewIpcResult {
   error?: { code: string; message: string; path?: string; details: string[] };
 }
 
+export type PipelineProgressEventStatus = 'started' | 'completed' | 'skipped' | 'warning' | 'failed';
+
 export interface PipelineProgressEvent {
   phase: string;
+  status?: PipelineProgressEventStatus;
+  label?: string;
   message: string;
+  detail?: string;
+  timestamp?: string;
+  duration_ms?: number;
   run_id?: string;
   provider_id?: string;
   model_id?: string;

@@ -25,7 +25,12 @@ import {
 import { buildCodeGraphTask } from './codegraph_task.js';
 import { renderFinalPrompt } from './renderer.js';
 import { resolveFlashSystemPrompt, writeFlashSystemPromptArtifacts } from '../../core/prompts/flash_system_prompt.js';
-import type { PipelineEvent, PipelineProgressCallback } from './pipeline_events.js';
+import type {
+  PipelineEvent,
+  PipelineEventPhase,
+  PipelineEventStatus,
+  PipelineProgressCallback,
+} from './pipeline_events.js';
 import { updateCurrent } from '../runs/current.js';
 import { augmentExternalToolsWithCodeGraphContext } from '../scanning/external_tools.js';
 import { performScanPhase, writeRunManifest } from '../runs/scan_phase.js';
@@ -63,6 +68,8 @@ export interface PromptPipelineSuccess {
   providerCalled?: boolean;
   artifacts: string[];
   warnings: string[];
+  /** Path to the streamed progress event log for this run. */
+  progressEventsPath?: string;
 }
 
 export interface PromptPipelineError {
@@ -78,7 +85,19 @@ export interface PromptPipelineError {
 
 export type PromptPipelineResult = PromptPipelineSuccess | PromptPipelineError;
 
-type PipelineEventInput = Omit<PipelineEvent, 'elapsed_ms'> & { elapsed_ms?: number };
+interface PipelineEventInput {
+  phase: PipelineEventPhase;
+  status: PipelineEventStatus;
+  label: string;
+  message: string;
+  detail?: string;
+  duration_ms?: number;
+  run_id?: string;
+  provider_id?: string;
+  model_id?: string;
+  artifact_path?: string;
+  chunk?: string;
+}
 
 function unique(items: string[]): string[] {
   return [...new Set(items)];
@@ -98,13 +117,61 @@ function errorResult(code: string, message: string, pathValue = '', details: str
   };
 }
 
+function readExactTextHitsSummary(scanDir: string): { phrases: number; hits: number } | undefined {
+  const exactPath = path.join(scanDir, 'exact_text_hits.json');
+  if (!fs.existsSync(exactPath)) return undefined;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(exactPath, 'utf8')) as {
+      exact_phrases?: unknown[];
+      exact_text_hits?: unknown[];
+    };
+    return {
+      phrases: Array.isArray(parsed.exact_phrases) ? parsed.exact_phrases.length : 0,
+      hits: Array.isArray(parsed.exact_text_hits) ? parsed.exact_text_hits.length : 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<PromptPipelineResult> {
   const startTime = Date.now();
-  const emitProgress = (event: PipelineEventInput): void => {
-    opts.onProgress?.({
-      ...event,
-      elapsed_ms: event.elapsed_ms ?? Date.now() - startTime,
-    });
+  const emittedEvents: PipelineEvent[] = [];
+  let progressEventsPath: string | undefined;
+
+  const persistEvent = (event: PipelineEvent): void => {
+    if (!progressEventsPath) return;
+    try {
+      fs.appendFileSync(progressEventsPath, `${JSON.stringify(event)}\n`, 'utf8');
+    } catch {
+      // Persistence is best-effort and must never break the pipeline.
+    }
+  };
+
+  const emitProgress = (input: PipelineEventInput): PipelineEvent => {
+    const event: PipelineEvent = {
+      phase: input.phase,
+      status: input.status,
+      label: input.label,
+      message: input.message,
+      timestamp: new Date().toISOString(),
+      elapsed_ms: Date.now() - startTime,
+    };
+    if (input.detail !== undefined) event.detail = input.detail;
+    if (input.duration_ms !== undefined) event.duration_ms = input.duration_ms;
+    if (input.run_id !== undefined) event.run_id = input.run_id;
+    if (input.provider_id !== undefined) event.provider_id = input.provider_id;
+    if (input.model_id !== undefined) event.model_id = input.model_id;
+    if (input.artifact_path !== undefined) event.artifact_path = input.artifact_path;
+    if (input.chunk !== undefined) event.chunk = input.chunk;
+    emittedEvents.push(event);
+    persistEvent(event);
+    try {
+      opts.onProgress?.(event);
+    } catch {
+      // Renderer/CLI callback failures must not stop the pipeline.
+    }
+    return event;
   };
 
   const redactSecrets = (message: string, secrets: Array<string | undefined>): string => {
@@ -122,7 +189,18 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       '',
       ['--mock uses the deterministic mock adapter.', '--live calls the configured flash provider.'],
     );
-    emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}` });
+    emitProgress({
+      phase: 'pipeline_failed',
+      status: 'failed',
+      label: 'Pipeline',
+      message: `${result.error.code}: ${result.error.message}`,
+    });
+    emitProgress({
+      phase: 'failed',
+      status: 'failed',
+      label: 'Pipeline',
+      message: `${result.error.code}: ${result.error.message}`,
+    });
     return result;
   }
   if (!opts.mock && !opts.live && !opts.adapter) {
@@ -132,7 +210,18 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       '',
       ['--mock: deterministic, no provider call.', '--live: calls the configured flash provider.'],
     );
-    emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}` });
+    emitProgress({
+      phase: 'pipeline_failed',
+      status: 'failed',
+      label: 'Pipeline',
+      message: `${result.error.code}: ${result.error.message}`,
+    });
+    emitProgress({
+      phase: 'failed',
+      status: 'failed',
+      label: 'Pipeline',
+      message: `${result.error.code}: ${result.error.message}`,
+    });
     return result;
   }
 
@@ -158,7 +247,18 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
         ? 'No flash provider configured. Use --mock for deterministic local runs or pass --live with provider configuration.'
         : resolved.error?.message ?? 'flash provider configuration is incomplete';
       const result = errorResult(code, message, '', resolved.error?.details ?? []);
-      emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}` });
+      emitProgress({
+        phase: 'pipeline_failed',
+        status: 'failed',
+        label: 'Provider',
+        message: `${result.error.code}: ${result.error.message}`,
+      });
+      emitProgress({
+        phase: 'failed',
+        status: 'failed',
+        label: 'Provider',
+        message: `${result.error.code}: ${result.error.message}`,
+      });
       return result;
     }
     adapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
@@ -166,6 +266,24 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
 
   const taskNormalizerEnabled = opts.taskNormalizerEnabled ?? false;
   const normalizerProviderConfig = opts.mock ? undefined : resolved.providerConfig ?? undefined;
+
+  if (!taskNormalizerEnabled) {
+    emitProgress({
+      phase: 'task_normalizer_skipped',
+      status: 'skipped',
+      label: 'Task Normalizer',
+      message: 'Task Normalizer off.',
+    });
+  } else {
+    emitProgress({
+      phase: 'task_normalizer_started',
+      status: 'started',
+      label: 'Task Normalizer',
+      message: 'Normalizing task into English search hints.',
+    });
+  }
+
+  const taskNormalizerStart = Date.now();
   const taskIntent = await runTaskNormalizer({
     task: opts.task,
     enabled: taskNormalizerEnabled,
@@ -178,28 +296,200 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       : undefined,
   });
 
-  emitProgress({ phase: 'scan_started', message: 'Scanning repository context.' });
+  if (taskNormalizerEnabled) {
+    const normalizerDuration = Date.now() - taskNormalizerStart;
+    if (taskIntent.ok && taskIntent.source === 'llm') {
+      const hintCount = taskIntent.search_hints.length;
+      emitProgress({
+        phase: 'task_normalizer_completed',
+        status: 'completed',
+        label: 'Task Normalizer',
+        message: 'Task normalized into English search hints.',
+        detail: `${taskIntent.original_language} → English, ${hintCount} search hint${hintCount === 1 ? '' : 's'}`,
+        duration_ms: normalizerDuration,
+      });
+    } else if (taskIntent.source === 'fallback') {
+      emitProgress({
+        phase: 'task_normalizer_fallback',
+        status: 'warning',
+        label: 'Task Normalizer',
+        message: 'Task Normalizer failed; continuing without normalized hints.',
+        detail: taskIntent.warnings[0],
+        duration_ms: normalizerDuration,
+      });
+    }
+  }
+
+  emitProgress({
+    phase: 'scan_started',
+    status: 'started',
+    label: 'Scan',
+    message: 'Scanning repository context.',
+  });
+
+  const scanStart = Date.now();
   const scan = await performScanPhase({ task: opts.task, repoRoot: opts.repoRoot, taskIntent });
   const taskIntentArtifactPaths = writeTaskIntentArtifacts(scan.runDir, taskIntent);
-  emitProgress({ phase: 'run_created', message: 'Prompt pipeline run created.', run_id: scan.run_id });
+
+  // The run directory now exists, so we can stream progress events to disk.
+  const outputDir = path.join(scan.runDir, 'output');
+  fs.mkdirSync(outputDir, { recursive: true });
+  progressEventsPath = path.join(outputDir, 'progress_events.jsonl');
+  // Flush events emitted before the run directory existed.
+  try {
+    fs.writeFileSync(
+      progressEventsPath,
+      `${emittedEvents.map((event) => JSON.stringify(event)).join('\n')}${emittedEvents.length ? '\n' : ''}`,
+      'utf8',
+    );
+  } catch {
+    // best-effort persistence
+  }
+
+  emitProgress({
+    phase: 'run_created',
+    status: 'completed',
+    label: 'Run',
+    message: 'Prompt pipeline run created.',
+    run_id: scan.run_id,
+  });
+  emitProgress({
+    phase: 'run_directory_ready',
+    status: 'completed',
+    label: 'Run',
+    message: 'Run directory ready.',
+    run_id: scan.run_id,
+    artifact_path: scan.runDir,
+  });
+
+  emitProgress({
+    phase: 'scanner_config_written',
+    status: 'completed',
+    label: 'Scanner config',
+    message: 'Scanner config written.',
+    run_id: scan.run_id,
+    artifact_path: path.join(scan.runDir, 'scanner_config.json'),
+  });
+
   if (scan.status === 'error') {
     const result = errorResult('SCANNER_FAILED', scan.diagnostic, scan.scanDir, []);
-    emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}`, run_id: scan.run_id });
+    emitProgress({
+      phase: 'pipeline_failed',
+      status: 'failed',
+      label: 'Scan',
+      message: `${result.error.code}: ${result.error.message}`,
+      run_id: scan.run_id,
+    });
+    emitProgress({
+      phase: 'failed',
+      status: 'failed',
+      label: 'Scan',
+      message: `${result.error.code}: ${result.error.message}`,
+      run_id: scan.run_id,
+    });
     return result;
   }
-  emitProgress({ phase: 'scan_completed', message: 'Repository scan completed.', run_id: scan.run_id });
+
+  const scanDuration = Date.now() - scanStart;
+  emitProgress({
+    phase: 'scan_completed',
+    status: 'completed',
+    label: 'Scan',
+    message: 'Repository scan completed.',
+    run_id: scan.run_id,
+    duration_ms: scanDuration,
+  });
+
+  const exactTextSummary = readExactTextHitsSummary(scan.scanDir);
+  if (exactTextSummary) {
+    const detail = exactTextSummary.phrases === 0
+      ? 'no exact phrases extracted'
+      : `${exactTextSummary.phrases} phrase${exactTextSummary.phrases === 1 ? '' : 's'}, ${exactTextSummary.hits} hit${exactTextSummary.hits === 1 ? '' : 's'}`;
+    emitProgress({
+      phase: 'exact_text_scan_completed',
+      status: 'completed',
+      label: 'Exact text scan',
+      message: 'Exact text scan completed.',
+      detail,
+      run_id: scan.run_id,
+      artifact_path: path.join(scan.scanDir, 'exact_text_hits.json'),
+    });
+  }
 
   const flashDir = path.join(scan.runDir, 'flash');
   fs.mkdirSync(flashDir, { recursive: true });
 
+  const codegraphMode: CodeGraphContextMode = opts.codegraphMode ?? 'detect-only';
   const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
+  if (codegraphMode === 'detect-only') {
+    emitProgress({
+      phase: 'codegraph_detect_started',
+      status: 'started',
+      label: 'CodeGraph',
+      message: 'Detecting CodeGraph (detect-only).',
+      run_id: scan.run_id,
+    });
+  } else {
+    emitProgress({
+      phase: 'codegraph_use_existing_started',
+      status: 'started',
+      label: 'CodeGraph',
+      message: 'Building CodeGraph context from existing index.',
+      run_id: scan.run_id,
+    });
+  }
+
+  const codegraphStart = Date.now();
   const codegraphResult = await buildCodeGraphContext({
     repoRoot: opts.repoRoot,
     task: codegraphTask,
-    mode: opts.codegraphMode ?? 'detect-only',
+    mode: codegraphMode,
   });
   const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: scan.runDir, result: codegraphResult });
   augmentExternalToolsWithCodeGraphContext(scan.scanDir, codegraphResult);
+  const codegraphDuration = Date.now() - codegraphStart;
+
+  if (codegraphMode === 'detect-only') {
+    emitProgress({
+      phase: 'codegraph_detect_completed',
+      status: 'completed',
+      label: 'CodeGraph',
+      message: 'CodeGraph detection completed.',
+      detail: codegraphResult.reason
+        ? `${codegraphResult.reason} — not used for context`
+        : 'available, not used for context',
+      run_id: scan.run_id,
+      duration_ms: codegraphDuration,
+    });
+    emitProgress({
+      phase: 'codegraph_detect_only',
+      status: 'skipped',
+      label: 'CodeGraph',
+      message: 'CodeGraph detect-only — context not used.',
+      run_id: scan.run_id,
+    });
+  } else if (codegraphResult.ok && codegraphResult.used) {
+    emitProgress({
+      phase: 'codegraph_context_completed',
+      status: 'completed',
+      label: 'CodeGraph',
+      message: 'CodeGraph context attached.',
+      detail: codegraphResult.reason ?? 'existing index',
+      run_id: scan.run_id,
+      duration_ms: codegraphDuration,
+      ...(codegraphArtifacts.contextArtifact ? { artifact_path: codegraphArtifacts.contextArtifact } : {}),
+    });
+  } else {
+    emitProgress({
+      phase: 'codegraph_context_failed',
+      status: 'warning',
+      label: 'CodeGraph',
+      message: 'CodeGraph context unavailable; continuing without it.',
+      detail: codegraphResult.error?.message ?? codegraphResult.reason ?? codegraphResult.warnings[0],
+      run_id: scan.run_id,
+      duration_ms: codegraphDuration,
+    });
+  }
 
   const configResolutionPath = writeConfigResolution(scan.runDir, resolved.resolution);
 
@@ -224,6 +514,14 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
   }
 
   try {
+    emitProgress({
+      phase: 'flash_input_started',
+      status: 'started',
+      label: 'Flash input',
+      message: 'Building flash input artifact.',
+      run_id: scan.run_id,
+    });
+    const flashInputStart = Date.now();
     const flashManifest = buildFlashInputManifest({
       run_id: scan.run_id,
       task: opts.task,
@@ -276,24 +574,38 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
 
     emitProgress({
       phase: 'flash_input_built',
+      status: 'completed',
+      label: 'Flash input',
       message: 'Flash input artifact built.',
+      detail: typeof compactBudget.estimated_tokens === 'number'
+        ? `${compactBudget.estimated_tokens} estimated tokens`
+        : undefined,
       run_id: scan.run_id,
       artifact_path: flashInputPath,
+      duration_ms: Date.now() - flashInputStart,
     });
 
     emitProgress({
       phase: 'provider_resolved',
-      message: 'Flash provider resolved.',
+      status: 'completed',
+      label: 'Provider',
+      message: opts.mock ? 'Mock flash adapter ready.' : 'Flash provider resolved.',
+      detail: opts.mock
+        ? 'mock'
+        : [resolved.resolution.provider, resolved.resolution.model].filter(Boolean).join(' / ') || undefined,
       run_id: scan.run_id,
       provider_id: opts.mock ? 'mock' : resolved.resolution.provider ?? undefined,
       model_id: opts.mock ? undefined : resolved.resolution.model ?? undefined,
     });
     emitProgress({
       phase: 'flash_request_started',
+      status: 'started',
+      label: 'Flash request',
       message: 'Flash request started.',
       run_id: scan.run_id,
     });
 
+    const flashRequestStart = Date.now();
     const adapterResult = await adapter.run({
       flashInputMd: compactResult.flashInput,
       systemPrompt: resolvedSystemPrompt.content,
@@ -301,10 +613,22 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       runId: scan.run_id,
       workspaceRoot: opts.repoRoot,
     });
+    const flashRequestDuration = Date.now() - flashRequestStart;
     markFlashInputProviderCalled(scan.runDir, true);
 
     emitProgress({
+      phase: 'flash_request_completed',
+      status: 'completed',
+      label: 'Flash request',
+      message: 'Flash response received.',
+      run_id: scan.run_id,
+      duration_ms: flashRequestDuration,
+    });
+    // Back-compat synonym retained for older consumers (CLI/tests).
+    emitProgress({
       phase: 'flash_response_received',
+      status: 'completed',
+      label: 'Flash request',
       message: 'Flash response received.',
       run_id: scan.run_id,
     });
@@ -323,7 +647,26 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     });
 
     emitProgress({
+      phase: 'flash_output_parsed',
+      status: 'completed',
+      label: 'Flash output',
+      message: 'Flash output parsed.',
+      run_id: scan.run_id,
+      artifact_path: path.join(flashDir, 'flash_output.md'),
+    });
+    emitProgress({
+      phase: 'flash_output_meta_written',
+      status: 'completed',
+      label: 'Flash output',
+      message: 'Flash output meta written.',
+      run_id: scan.run_id,
+      artifact_path: path.join(flashDir, 'flash_output_meta.json'),
+    });
+    // Back-compat synonym retained for older consumers.
+    emitProgress({
       phase: 'flash_output_validated',
+      status: 'completed',
+      label: 'Flash output',
       message: 'Flash output validated.',
       run_id: scan.run_id,
     });
@@ -340,6 +683,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     warnings.push(...contextResult.warnings);
     emitProgress({
       phase: 'context_pack_written',
+      status: 'completed',
+      label: 'Context pack',
       message: 'Context pack written.',
       run_id: scan.run_id,
       artifact_path: path.join(scan.runDir, 'output', 'context_pack.md'),
@@ -362,7 +707,20 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
           details: [],
         },
       };
-      emitProgress({ phase: 'failed', message: `${result.error.code}: ${result.error.message}`, run_id: scan.run_id });
+      emitProgress({
+        phase: 'pipeline_failed',
+        status: 'failed',
+        label: 'Final prompt',
+        message: `${result.error.code}: ${result.error.message}`,
+        run_id: scan.run_id,
+      });
+      emitProgress({
+        phase: 'failed',
+        status: 'failed',
+        label: 'Final prompt',
+        message: `${result.error.code}: ${result.error.message}`,
+        run_id: scan.run_id,
+      });
       return result;
     }
 
@@ -372,10 +730,39 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     artifacts.push(...(renderResult.artifacts ?? [finalPromptPath]));
     warnings.push(...(renderResult.warnings ?? []));
     emitProgress({
+      phase: 'final_prompt_rendered',
+      status: 'completed',
+      label: 'Final prompt',
+      message: 'Final prompt rendered.',
+      run_id: scan.run_id,
+      artifact_path: finalPromptPath,
+    });
+    // Back-compat synonym retained for older consumers (CLI/tests).
+    emitProgress({
       phase: 'final_prompt_written',
+      status: 'completed',
+      label: 'Final prompt',
       message: 'Final prompt written.',
       run_id: scan.run_id,
       artifact_path: finalPromptPath,
+    });
+
+    if (warnings.length > 0) {
+      emitProgress({
+        phase: 'pipeline_completed_with_warnings',
+        status: 'warning',
+        label: 'Run',
+        message: `Pipeline completed with ${warnings.length} warning${warnings.length === 1 ? '' : 's'}.`,
+        run_id: scan.run_id,
+      });
+    }
+    emitProgress({
+      phase: 'run_completed',
+      status: 'completed',
+      label: 'Run',
+      message: 'Run completed.',
+      run_id: scan.run_id,
+      duration_ms: Date.now() - startTime,
     });
 
     return {
@@ -397,6 +784,7 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       providerCalled: true,
       artifacts: unique(artifacts),
       warnings,
+      ...(progressEventsPath ? { progressEventsPath } : {}),
     };
   } catch (error) {
     const diagnostic = contextFinalizeErrorToDiagnostic(error, scan.runDir);
@@ -405,8 +793,26 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       const providerErrorPath = path.join(flashDir, 'provider_error.json');
       if (fs.existsSync(providerErrorPath)) errorArtifacts.push(providerErrorPath);
     }
+    if (error instanceof LlmAdapterError) {
+      emitProgress({
+        phase: 'flash_request_failed',
+        status: 'failed',
+        label: 'Flash request',
+        message: redactSecrets(`${diagnostic.code}: ${diagnostic.message}`, [resolved.providerConfig?.apiKey]),
+        run_id: scan.run_id,
+      });
+    }
+    emitProgress({
+      phase: 'pipeline_failed',
+      status: 'failed',
+      label: 'Pipeline',
+      message: redactSecrets(`${diagnostic.code}: ${diagnostic.message}`, [resolved.providerConfig?.apiKey]),
+      run_id: scan.run_id,
+    });
     emitProgress({
       phase: 'failed',
+      status: 'failed',
+      label: 'Pipeline',
       message: redactSecrets(`${diagnostic.code}: ${diagnostic.message}`, [resolved.providerConfig?.apiKey]),
       run_id: scan.run_id,
     });

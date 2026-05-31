@@ -160,9 +160,9 @@
                     </div>
                   </div>
 
-                  <!-- 01b flash progress (shown while building) -->
+                  <!-- 01b pipeline progress (shown while building) -->
                   <div class="ov-section" id="ov-progress-section" style="display:none">
-                    <div class="ov-label"><span class="num">·</span> flash progress</div>
+                    <div class="ov-label"><span class="num">·</span> pipeline progress</div>
                     <div class="ov-progress glass" id="ov-progress-list"></div>
                   </div>
 
@@ -1116,18 +1116,42 @@
         switchPreviewTab('diag');
       }
 
-      function appendProgressItem(event) {
-        if (!progressList || !event || event.phase === 'flash_stream_delta') return;
-        const item = document.createElement('div');
-        item.className = 'ov-progress-item';
-        if (event.phase === 'failed') item.classList.add('err');
-        if (event.phase === 'provider_resolved') {
-          const provider = event.provider_id || 'provider';
-          const model = event.model_id || 'model';
-          item.textContent = '· provider_resolved  ' + provider + ' / ' + model;
-        } else {
-          item.textContent = '· [' + (event.phase || 'progress') + '] ' + (event.message || '');
+      // Pipeline progress is driven by real backend events; this renderer
+      // never fakes phases or invents a static checklist.
+      const PIPELINE_PROGRESS_SKIP_PHASES = new Set([
+        'flash_stream_delta',
+        // Back-compat synonyms emitted alongside the canonical events; hide
+        // them in the UI so the user sees one row per real phase.
+        'flash_response_received',
+        'flash_output_validated',
+        'final_prompt_written',
+        'failed',
+      ]);
+
+      function progressStatusGlyph(status) {
+        switch (status) {
+          case 'started': return '…';
+          case 'skipped': return '○';
+          case 'warning': return '!';
+          case 'failed': return '✗';
+          case 'completed':
+          default: return '✓';
         }
+      }
+
+      function appendProgressItem(event) {
+        if (!progressList || !event) return;
+        if (PIPELINE_PROGRESS_SKIP_PHASES.has(event.phase)) return;
+        const status = event.status || (event.phase === 'failed' || event.phase === 'pipeline_failed' ? 'failed' : 'completed');
+        const item = document.createElement('div');
+        item.className = 'ov-progress-item ov-progress-' + status;
+        if (status === 'failed') item.classList.add('err');
+        if (status === 'warning') item.classList.add('warn');
+        if (status === 'skipped') item.classList.add('muted');
+        const label = event.label || event.phase || 'progress';
+        const message = event.message || '';
+        const detail = event.detail ? ' — ' + event.detail : '';
+        item.textContent = progressStatusGlyph(status) + ' ' + label + ' ' + status + (message ? ': ' + message : '') + detail;
         progressList.appendChild(item);
         progressList.scrollTop = progressList.scrollHeight;
       }
