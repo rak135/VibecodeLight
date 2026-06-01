@@ -2,6 +2,7 @@ import * as path from 'path';
 
 import { createPtySession } from '../../adapters/pty/index.js';
 import type { PtySession } from '../../adapters/pty/index.js';
+import { prepareVibecodeCliShim, resolveAppCliPath } from '../../core/terminal/cli_shim.js';
 
 export interface DesktopTerminalEvents {
   onData: (sessionId: string, data: string) => void;
@@ -29,6 +30,38 @@ interface SessionEntry {
 
 type PtyFactory = typeof createPtySession;
 
+export type TerminalEnvPreparer = (repoPath: string) => Record<string, string> | undefined;
+
+export interface DesktopTerminalServiceOptions {
+  /**
+   * Builds the env for a new PTY session. Default implementation writes the
+   * repo-local vibecode CLI shim under <repo>/.vibecode/bin and returns an env
+   * with that directory prepended to PATH, so that `vibecode` inside the
+   * terminal resolves to this app's CLI before any global vibecode binary.
+   * Pass `null` to disable shim/env preparation entirely.
+   */
+  prepareTerminalEnv?: TerminalEnvPreparer | null;
+}
+
+function defaultTerminalEnvPreparer(): TerminalEnvPreparer | undefined {
+  const appCliPath = resolveAppCliPath();
+  if (!appCliPath) {
+    return undefined;
+  }
+  return (repoPath: string) => {
+    try {
+      const { env } = prepareVibecodeCliShim({
+        repoPath,
+        appCliPath,
+        baseEnv: process.env,
+      });
+      return env;
+    } catch {
+      return undefined;
+    }
+  };
+}
+
 interface IpcMainLike {
   handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
   on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void;
@@ -50,11 +83,23 @@ export class DesktopTerminalService {
   private readonly dataHandlers: Array<(sessionId: string, data: string) => void> = [];
   private readonly exitHandlers: Array<(sessionId: string, code: number | undefined) => void> = [];
 
-  constructor(private readonly ptyFactory: PtyFactory = createPtySession) {}
+  private readonly prepareTerminalEnv: TerminalEnvPreparer | undefined;
+
+  constructor(
+    private readonly ptyFactory: PtyFactory = createPtySession,
+    options: DesktopTerminalServiceOptions = {},
+  ) {
+    if (options.prepareTerminalEnv === null) {
+      this.prepareTerminalEnv = undefined;
+    } else {
+      this.prepareTerminalEnv = options.prepareTerminalEnv ?? defaultTerminalEnvPreparer();
+    }
+  }
 
   startSession(repoPath: string, cols: number, rows: number): DesktopTerminalMetadata {
     const cwd = path.resolve(repoPath);
-    const pty = this.ptyFactory({ cwd, cols, rows });
+    const env = this.prepareTerminalEnv?.(cwd);
+    const pty = this.ptyFactory(env ? { cwd, cols, rows, env } : { cwd, cols, rows });
 
     const shell = (pty as PtySession & { shell?: string }).shell ?? 'unknown';
     const sessionId = makeSessionId(pty.pid);

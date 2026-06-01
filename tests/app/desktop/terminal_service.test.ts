@@ -1,3 +1,5 @@
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import type { PtySession, PtySessionOptions } from '../../../src/adapters/pty/index.js';
@@ -70,7 +72,7 @@ describe('DesktopTerminalService', () => {
     const fakePty = createFakePty();
     const factory = vi.fn((_options?: PtySessionOptions) => fakePty);
     const { DesktopTerminalService } = await import('../../../src/app/desktop/terminal_bridge.js');
-    const repoPath = path.resolve(process.cwd(), 'fixture-repo');
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'vbc-fixture-'));
 
     const service = new DesktopTerminalService(factory);
     const metadata = service.startSession(repoPath, 120, 40);
@@ -249,6 +251,39 @@ describe('DesktopTerminalService', () => {
 
     expect(service.listSessions().map((s) => s.sessionId)).toEqual([a.sessionId]);
     expect(service.getActiveSessionInfo()?.sessionId).toBe(a.sessionId);
+  });
+
+  test('PTY env has <repo>/.vibecode/bin prepended to PATH', async () => {
+    const fakePty = createFakePty();
+    const factory = vi.fn((_options?: PtySessionOptions) => fakePty);
+    const { DesktopTerminalService } = await import('../../../src/app/desktop/terminal_bridge.js');
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'vbc-env-'));
+
+    const service = new DesktopTerminalService(factory);
+    service.startSession(repoPath, 80, 24);
+
+    const callOptions = factory.mock.calls[0][0] as { env?: Record<string, string> };
+    expect(callOptions.env).toBeDefined();
+    const pathKey = callOptions.env!.Path !== undefined ? 'Path' : 'PATH';
+    const expectedShim = path.join(repoPath, '.vibecode', 'bin');
+    expect(callOptions.env![pathKey]!.startsWith(expectedShim + path.delimiter)
+      || callOptions.env![pathKey] === expectedShim).toBe(true);
+    expect(callOptions.env!.VIBECODE_REPO).toBe(repoPath);
+    expect(callOptions.env!.VIBECODE_APP_CLI).toBeDefined();
+  });
+
+  test('disabling prepareTerminalEnv skips shim env injection', async () => {
+    const fakePty = createFakePty();
+    const factory = vi.fn((_options?: PtySessionOptions) => fakePty);
+    const { DesktopTerminalService } = await import('../../../src/app/desktop/terminal_bridge.js');
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'vbc-noenv-'));
+
+    const service = new DesktopTerminalService(factory, { prepareTerminalEnv: null });
+    service.startSession(repoPath, 80, 24);
+
+    const callOptions = factory.mock.calls[0][0] as { env?: Record<string, string> };
+    expect(callOptions.env).toBeUndefined();
+    expect(fs.existsSync(path.join(repoPath, '.vibecode', 'bin', 'vibecode.cmd'))).toBe(false);
   });
 
   test('getActiveSessionInfo returns the most recently started live session', async () => {

@@ -1,3 +1,4 @@
+export * from './cli_shim.js';
 export * from './hash.js';
 export * from './output_normalization.js';
 export * from './send_metadata.js';
