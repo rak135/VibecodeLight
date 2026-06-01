@@ -12,6 +12,7 @@ import type {
   CodeGraphActionRunner,
   CodeGraphRunResult,
 } from './codegraph_actions.js';
+import type { CodeGraphBinarySource } from './codegraph_binary_resolver.js';
 
 /**
  * Provider-agnostic read-only CodeGraph query commands exposed as shell tools
@@ -42,6 +43,11 @@ export type CodeGraphQueryRunner = CodeGraphActionRunner;
 export interface CodeGraphQueryError {
   code: string;
   message: string;
+  /** Set when the failure relates to binary resolution (CODEGRAPH_NOT_INSTALLED). */
+  attempted_binary?: string;
+  binary_source?: CodeGraphBinarySource;
+  /** Free-form hint shown to operators. */
+  hint?: string;
 }
 
 export interface CodeGraphQueryResult {
@@ -60,6 +66,11 @@ export interface CodeGraphQueryCommonOptions {
   timeoutMs?: number;
   /** Override codegraph command name (defaults to `codegraph`). */
   command?: string;
+  /**
+   * Where the resolved binary came from. Used for diagnostics on
+   * CODEGRAPH_NOT_INSTALLED errors and log events. Defaults to PATH_FALLBACK.
+   */
+  binarySource?: CodeGraphBinarySource;
   /** Override runner for tests. */
   runner?: CodeGraphQueryRunner;
   /** Override the availability probe for tests. */
@@ -170,15 +181,22 @@ function isAvailable(command: string, probe?: CodeGraphVersionProbe): boolean {
 }
 
 function notInstalledResult(opts: CodeGraphQueryCommonOptions, subcommand: string): CodeGraphQueryResult {
+  const attempted = opts.command ?? CODEGRAPH_COMMAND;
+  const source: CodeGraphBinarySource = opts.binarySource ?? 'PATH_FALLBACK';
   return {
     ok: false,
-    command: [opts.command ?? CODEGRAPH_COMMAND, subcommand],
+    command: [attempted, subcommand],
     repoRoot: opts.repoRoot,
     warnings: [],
     error: {
       code: 'CODEGRAPH_NOT_INSTALLED',
       message:
-        'codegraph command not found. Install CodeGraph and verify with `vibecode codegraph status --repo <path>`.',
+        `codegraph command not found (attempted: ${attempted}, source: ${source}). ` +
+        'Set VIBECODE_CODEGRAPH_BIN or run `vibecode codegraph binary set <path>`, ' +
+        'then verify with `vibecode codegraph status --repo <path>`.',
+      attempted_binary: attempted,
+      binary_source: source,
+      hint: 'Set VIBECODE_CODEGRAPH_BIN or run `vibecode codegraph binary set <path>`.',
     },
   };
 }

@@ -63,12 +63,14 @@ describe('vibecode codegraph query commands (CLI)', () => {
     ]);
 
     expect(runCodeGraphSearch).toHaveBeenCalledTimes(1);
-    expect(runCodeGraphSearch.mock.calls[0]![0]).toEqual({
+    expect(runCodeGraphSearch.mock.calls[0]![0]).toMatchObject({
       repoRoot: tmpRepo,
       query: 'q',
       maxResults: 5,
       timeoutMs: 12345,
       json: true,
+      command: 'codegraph',
+      binarySource: 'PATH_FALLBACK',
     });
     const payload = JSON.parse(logSpy.mock.calls[0]![0] as string);
     expect(payload.ok).toBe(true);
@@ -96,11 +98,13 @@ describe('vibecode codegraph query commands (CLI)', () => {
       '--max-code', '8',
     ]);
 
-    expect(runCodeGraphContextQuery.mock.calls[0]![0]).toEqual({
+    expect(runCodeGraphContextQuery.mock.calls[0]![0]).toMatchObject({
       repoRoot: tmpRepo,
       query: 'persistence',
       maxNodes: 40,
       maxCode: 8,
+      command: 'codegraph',
+      binarySource: 'PATH_FALLBACK',
     });
   });
 

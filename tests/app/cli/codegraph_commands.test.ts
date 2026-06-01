@@ -49,14 +49,21 @@ describe('vibecode codegraph command namespace', () => {
       process.exitCode = 0;
       await cli.parseAsync(['node', 'vibecode', 'codegraph', 'status', '--repo', tmpRepo, '--json']);
 
-      expect(getCodeGraphStatus).toHaveBeenCalledWith(tmpRepo);
+      expect(getCodeGraphStatus).toHaveBeenCalledTimes(1);
+      expect(getCodeGraphStatus.mock.calls[0]![0]).toBe(tmpRepo);
+      expect(getCodeGraphStatus.mock.calls[0]![1]).toMatchObject({
+        command: 'codegraph',
+        binary: { source: 'PATH_FALLBACK', command: 'codegraph', configured: null },
+      });
       expect(logSpy).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toEqual({
+      const statusPayload = JSON.parse(logSpy.mock.calls[0]![0] as string);
+      expect(statusPayload).toMatchObject({
         ok: true,
         data: {
           available: true,
           initialized: true,
           version: 'v1.2.3',
+          binary: { source: 'PATH_FALLBACK', command: 'codegraph', configured: null },
         },
         artifacts: [],
         warnings: [],
@@ -94,7 +101,12 @@ describe('vibecode codegraph command namespace', () => {
       process.exitCode = 0;
       await cli.parseAsync(['node', 'vibecode', 'codegraph', 'init', '--repo', tmpRepo, '--json']);
 
-      expect(initializeCodeGraphRepo).toHaveBeenCalledWith(tmpRepo);
+      expect(initializeCodeGraphRepo).toHaveBeenCalledTimes(1);
+      expect(initializeCodeGraphRepo.mock.calls[0]![0]).toBe(tmpRepo);
+      expect(initializeCodeGraphRepo.mock.calls[0]![1]).toMatchObject({
+        command: 'codegraph',
+        binary: { source: 'PATH_FALLBACK' },
+      });
       expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toEqual({
         ok: true,
         data: {
@@ -136,7 +148,12 @@ describe('vibecode codegraph command namespace', () => {
       process.exitCode = 0;
       await cli.parseAsync(['node', 'vibecode', 'codegraph', 'sync', '--repo', tmpRepo, '--json']);
 
-      expect(syncCodeGraphRepo).toHaveBeenCalledWith(tmpRepo);
+      expect(syncCodeGraphRepo).toHaveBeenCalledTimes(1);
+      expect(syncCodeGraphRepo.mock.calls[0]![0]).toBe(tmpRepo);
+      expect(syncCodeGraphRepo.mock.calls[0]![1]).toMatchObject({
+        command: 'codegraph',
+        binary: { source: 'PATH_FALLBACK' },
+      });
       expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toEqual({
         ok: true,
         data: {
@@ -178,7 +195,12 @@ describe('vibecode codegraph command namespace', () => {
       process.exitCode = 0;
       await cli.parseAsync(['node', 'vibecode', 'codegraph', 'reindex', '--repo', tmpRepo, '--json']);
 
-      expect(reindexCodeGraphRepo).toHaveBeenCalledWith(tmpRepo);
+      expect(reindexCodeGraphRepo).toHaveBeenCalledTimes(1);
+      expect(reindexCodeGraphRepo.mock.calls[0]![0]).toBe(tmpRepo);
+      expect(reindexCodeGraphRepo.mock.calls[0]![1]).toMatchObject({
+        command: 'codegraph',
+        binary: { source: 'PATH_FALLBACK' },
+      });
       expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toEqual({
         ok: true,
         data: {

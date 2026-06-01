@@ -34,6 +34,11 @@ import {
   type CodeGraphQueryResult,
 } from '../../adapters/codegraph/codegraph_query_commands.js';
 import {
+  codeGraphBinaryDiagnostics,
+  resolveCodeGraphBinary,
+  type CodeGraphBinaryResolution,
+} from '../../adapters/codegraph/codegraph_binary_resolver.js';
+import {
   buildCodeGraphQueryEvent,
   logCodeGraphQuery,
   resolveRunIdForLogging,
@@ -55,10 +60,14 @@ import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_ad
 import {
   ensureLocalConfig,
   getConfigPaths,
+  InvalidCodeGraphBinaryError,
+  readCodeGraphBinarySetting,
   readCodeGraphTransportSetting,
+  resetCodeGraphBinarySetting,
   resetCodeGraphTransportSetting,
   resolveFlashConfig,
   syncConfig,
+  writeCodeGraphBinarySetting,
   writeCodeGraphTransportSetting,
   writeConfigResolution,
 } from '../../core/config/index.js';
@@ -538,6 +547,16 @@ function printCodeGraphTransportSetting(setting: ReturnType<typeof readCodeGraph
   console.log(`default: ${setting.default}`);
   console.log(`global_config: ${setting.globalConfigPath} (${setting.globalConfigExists ? 'exists' : 'absent'})`);
   for (const warning of setting.warnings) console.log(`warning: ${warning}`);
+}
+
+function codeGraphBinarySettingData(resolution: CodeGraphBinaryResolution, globalConfigPath: string, globalConfigExists: boolean): Record<string, unknown> {
+  return {
+    configured: resolution.configured,
+    source: resolution.source,
+    command: resolution.command,
+    global_config_path: globalConfigPath,
+    global_config_exists: globalConfigExists,
+  };
 }
 
 function buildCodeGraphActionFailure(action: 'status' | 'init' | 'sync' | 'reindex', repoRoot: string, message: string, details: string[] = []): CliStructuredError {
@@ -1128,7 +1147,12 @@ function runAndLogCodeGraphQuery(opts: LogRunInvocationOptions): LogRunInvocatio
   const items = Array.isArray(result.parsedJson) ? result.parsedJson.length : null;
   const truncated = result.warnings.some((w) => w.startsWith('CODEGRAPH_FILES_TRUNCATED'));
   const error: CodeGraphQueryLogError | null = result.error
-    ? { code: result.error.code, message: result.error.message }
+    ? {
+        code: result.error.code,
+        message: result.error.message,
+        ...(result.error.attempted_binary ? { attempted_binary: result.error.attempted_binary } : {}),
+        ...(result.error.binary_source ? { binary_source: result.error.binary_source } : {}),
+      }
     : null;
   const exitCode = exitCodeFromError(error, result.ok);
 
@@ -1243,7 +1267,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--max-results <n>', 'Maximum number of results to return')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
     .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
-    .action((query: string, options: { repo: string; json?: boolean; maxResults?: string; timeout?: string; runId?: string }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action((query: string, options: { repo: string; json?: boolean; maxResults?: string; timeout?: string; runId?: string; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const maxResults = parsePositiveIntegerOption(options.maxResults, '--max-results');
       if (!maxResults.ok) {
@@ -1255,6 +1280,7 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph search failed' });
         return;
       }
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
       const { result, logResult } = runAndLogCodeGraphQuery({
         subcommand: 'search',
         repoRoot,
@@ -1267,6 +1293,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
           runCodeGraphSearch({
             repoRoot,
             query,
+            command: binary.command,
+            binarySource: binary.source,
             ...(maxResults.value !== undefined ? { maxResults: maxResults.value } : {}),
             ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
             ...(options.json ? { json: true } : {}),
@@ -1288,7 +1316,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--max-code <n>', 'Maximum code blocks to include')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
     .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
-    .action((query: string, options: { repo: string; json?: boolean; maxNodes?: string; maxCode?: string; timeout?: string; runId?: string }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action((query: string, options: { repo: string; json?: boolean; maxNodes?: string; maxCode?: string; timeout?: string; runId?: string; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const maxNodes = parsePositiveIntegerOption(options.maxNodes, '--max-nodes');
       if (!maxNodes.ok) {
@@ -1305,6 +1334,7 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph context failed' });
         return;
       }
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
       const { result, logResult } = runAndLogCodeGraphQuery({
         subcommand: 'context',
         repoRoot,
@@ -1318,6 +1348,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
           runCodeGraphContextQuery({
             repoRoot,
             query,
+            command: binary.command,
+            binarySource: binary.source,
             ...(maxNodes.value !== undefined ? { maxNodes: maxNodes.value } : {}),
             ...(maxCode.value !== undefined ? { maxCode: maxCode.value } : {}),
             ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
@@ -1339,7 +1371,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--limit <n>', 'Maximum number of file entries returned in --json output')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
     .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
-    .action((options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action((options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const limit = parsePositiveIntegerOption(options.limit, '--limit');
       if (!limit.ok) {
@@ -1351,6 +1384,7 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph files failed' });
         return;
       }
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
       const { result, logResult } = runAndLogCodeGraphQuery({
         subcommand: 'files',
         repoRoot,
@@ -1361,6 +1395,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         invoke: () =>
           runCodeGraphFiles({
             repoRoot,
+            command: binary.command,
+            binarySource: binary.source,
             ...(limit.value !== undefined ? { limit: limit.value } : {}),
             ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
             ...(options.json ? { json: true } : {}),
@@ -1386,7 +1422,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
       .option('--limit <n>', 'Maximum number of results to return')
       .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
       .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
-      .action((symbol: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string }) => {
+      .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+      .action((symbol: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string; codegraphBin?: string }) => {
         const repoRoot = path.resolve(options.repo);
         const limit = parsePositiveIntegerOption(options.limit, '--limit');
         if (!limit.ok) {
@@ -1398,6 +1435,7 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
           emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: `codegraph ${name} failed` });
           return;
         }
+        const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
         const { result, logResult } = runAndLogCodeGraphQuery({
           subcommand: name,
           repoRoot,
@@ -1410,6 +1448,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
             runner({
               repoRoot,
               symbol,
+              command: binary.command,
+              binarySource: binary.source,
               ...(limit.value !== undefined ? { limit: limit.value } : {}),
               ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
               ...(options.json ? { json: true } : {}),
@@ -1434,7 +1474,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--limit <n>', 'Traversal depth (maps to codegraph impact --depth)')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
     .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
-    .action((input: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action((input: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const limit = parsePositiveIntegerOption(options.limit, '--limit');
       if (!limit.ok) {
@@ -1446,6 +1487,7 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph impact failed' });
         return;
       }
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
       const { result, logResult } = runAndLogCodeGraphQuery({
         subcommand: 'impact',
         repoRoot,
@@ -1458,6 +1500,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
           runCodeGraphImpact({
             repoRoot,
             symbol: input,
+            command: binary.command,
+            binarySource: binary.source,
             ...(limit.value !== undefined ? { limit: limit.value } : {}),
             ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
             ...(options.json ? { json: true } : {}),
@@ -2177,9 +2221,11 @@ export function createCli(): Command {
     .description('Show CodeGraph availability and initialization status for a repository')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (options: { repo: string; json?: boolean }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action(async (options: { repo: string; json?: boolean; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
-      const result = await getCodeGraphStatus(repoRoot);
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
+      const result = await getCodeGraphStatus(repoRoot, { command: binary.command, binary });
       if (options.json) {
         console.log(JSON.stringify({
           ok: true,
@@ -2187,6 +2233,7 @@ export function createCli(): Command {
             available: result.available,
             initialized: result.initialized,
             version: result.version,
+            binary: codeGraphBinaryDiagnostics(binary),
           },
           artifacts: [],
           warnings: result.warnings,
@@ -2194,7 +2241,11 @@ export function createCli(): Command {
         return;
       }
       console.log(formatCodeGraphStatusLine(result));
+      console.log(`binary: ${binary.command} (source: ${binary.source})`);
       for (const warning of result.warnings) console.log(`warning: ${warning}`);
+      if (!result.available) {
+        console.log('hint: Set VIBECODE_CODEGRAPH_BIN or run `vibecode codegraph binary set <path>`.');
+      }
     });
 
   const codegraphTransport = codegraph
@@ -2309,9 +2360,16 @@ export function createCli(): Command {
     .description('Initialize CodeGraph for a repository')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (options: { repo: string; json?: boolean }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action(async (options: { repo: string; json?: boolean; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
-      await runCodeGraphAction('init', repoRoot, () => initializeCodeGraphRepo(repoRoot), options.json);
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
+      await runCodeGraphAction(
+        'init',
+        repoRoot,
+        () => initializeCodeGraphRepo(repoRoot, { command: binary.command, binary }),
+        options.json,
+      );
     });
 
   codegraph
@@ -2319,9 +2377,16 @@ export function createCli(): Command {
     .description('Sync an existing CodeGraph index for a repository')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (options: { repo: string; json?: boolean }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action(async (options: { repo: string; json?: boolean; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
-      await runCodeGraphAction('sync', repoRoot, () => syncCodeGraphRepo(repoRoot), options.json);
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
+      await runCodeGraphAction(
+        'sync',
+        repoRoot,
+        () => syncCodeGraphRepo(repoRoot, { command: binary.command, binary }),
+        options.json,
+      );
     });
 
   codegraph
@@ -2329,9 +2394,112 @@ export function createCli(): Command {
     .description('Force a full CodeGraph reindex for a repository')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (options: { repo: string; json?: boolean }) => {
+    .option('--codegraph-bin <path>', 'Override the upstream codegraph binary path for this invocation')
+    .action(async (options: { repo: string; json?: boolean; codegraphBin?: string }) => {
       const repoRoot = path.resolve(options.repo);
-      await runCodeGraphAction('reindex', repoRoot, () => reindexCodeGraphRepo(repoRoot), options.json);
+      const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
+      await runCodeGraphAction(
+        'reindex',
+        repoRoot,
+        () => reindexCodeGraphRepo(repoRoot, { command: binary.command, binary }),
+        options.json,
+      );
+    });
+
+  const codegraphBinary = codegraph
+    .command('binary')
+    .description('Inspect and set the persisted upstream CodeGraph binary path');
+
+  codegraphBinary
+    .command('get')
+    .description('Show the configured CodeGraph binary path and effective resolver result')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { json?: boolean }) => {
+      const setting = readCodeGraphBinarySetting({ env: process.env });
+      const resolution = resolveCodeGraphBinary({ env: process.env });
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: codeGraphBinarySettingData(resolution, setting.globalConfigPath, setting.globalConfigExists),
+          artifacts: [],
+          warnings: setting.warnings,
+        }));
+        return;
+      }
+      console.log(`codegraph.binary configured: ${resolution.configured ?? '(none)'}`);
+      console.log(`source: ${resolution.source}`);
+      console.log(`effective command: ${resolution.command}`);
+      console.log(`global_config: ${setting.globalConfigPath} (${setting.globalConfigExists ? 'exists' : 'absent'})`);
+      for (const warning of setting.warnings) console.log(`warning: ${warning}`);
+    });
+
+  codegraphBinary
+    .command('set <path>')
+    .description('Persist the CodeGraph binary path in the global user config')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((binaryPath: string, options: { json?: boolean }) => {
+      try {
+        const written = writeCodeGraphBinarySetting({ binary: binaryPath, env: process.env });
+        const warnings = [...written.warnings];
+        const trimmed = binaryPath.trim();
+        if (trimmed && !fs.existsSync(trimmed)) {
+          warnings.push(`CODEGRAPH_BINARY_PATH_MISSING: ${trimmed} does not exist on disk`);
+        }
+        const resolution: CodeGraphBinaryResolution = {
+          command: written.binary ?? trimmed,
+          source: 'GLOBAL_CONFIG',
+          configured: written.binary,
+        };
+        if (options.json) {
+          console.log(JSON.stringify({
+            ok: true,
+            data: codeGraphBinarySettingData(resolution, written.globalConfigPath, written.globalConfigExists),
+            artifacts: [written.artifactPath],
+            warnings,
+          }));
+          return;
+        }
+        console.log(`codegraph.binary: ${written.binary}`);
+        console.log(`global_config: ${written.globalConfigPath}`);
+        for (const warning of warnings) console.log(`warning: ${warning}`);
+      } catch (err) {
+        if (err instanceof InvalidCodeGraphBinaryError) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_CODEGRAPH_BINARY',
+              err.message,
+              '',
+              ['CodeGraph binary path must be a non-empty string.'],
+            ),
+            { json: options.json, prefix: 'codegraph binary set failed' },
+          );
+          return;
+        }
+        throw err;
+      }
+    });
+
+  codegraphBinary
+    .command('reset')
+    .description('Remove the persisted CodeGraph binary path from the global user config')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { json?: boolean }) => {
+      const result = resetCodeGraphBinarySetting({ env: process.env });
+      const resolution = resolveCodeGraphBinary({ env: process.env });
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: codeGraphBinarySettingData(resolution, result.globalConfigPath, result.globalConfigExists),
+          artifacts: result.globalConfigExists ? [result.artifactPath] : [],
+          warnings: result.warnings,
+        }));
+        return;
+      }
+      console.log(`codegraph.binary: ${resolution.configured ?? '(none)'}`);
+      console.log(`source: ${resolution.source}`);
+      console.log(`effective command: ${resolution.command}`);
+      console.log(`global_config: ${result.globalConfigPath} (${result.globalConfigExists ? 'exists' : 'absent'})`);
+      for (const warning of result.warnings) console.log(`warning: ${warning}`);
     });
 
   const codegraphMcp = codegraph

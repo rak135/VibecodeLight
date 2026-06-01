@@ -46,6 +46,10 @@ export interface CodeGraphQueryLogResultSummary {
 export interface CodeGraphQueryLogError {
   code: string;
   message: string;
+  /** Attempted upstream binary path when the failure relates to binary resolution. */
+  attempted_binary?: string;
+  /** Source label of the attempted binary (e.g. CLI_OPTION, GLOBAL_CONFIG). */
+  binary_source?: string;
 }
 
 export interface CodeGraphQueryLogEvent {

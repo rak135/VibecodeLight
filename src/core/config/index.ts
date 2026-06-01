@@ -45,6 +45,17 @@ export type {
   WriteCodeGraphTransportSettingResult,
 } from './codegraph_transport_config.js';
 export {
+  readCodeGraphBinarySetting,
+  writeCodeGraphBinarySetting,
+  resetCodeGraphBinarySetting,
+  InvalidCodeGraphBinaryError,
+} from './codegraph_binary_config.js';
+export type {
+  CodeGraphBinarySetting,
+  CodeGraphBinarySettingSource,
+  WriteCodeGraphBinarySettingResult,
+} from './codegraph_binary_config.js';
+export {
   readDesktopAutoApproveEnabledSetting,
   readDesktopCodeGraphModeSetting,
   readDesktopTaskNormalizerEnabledSetting,

@@ -3,6 +3,7 @@ import fs from 'fs';
 import { spawnSync } from 'child_process';
 
 import { CODEGRAPH_COMMAND, CODEGRAPH_DIR_NAME, defaultVersionProbe } from './codegraph_cli.js';
+import type { CodeGraphBinaryResolution } from './codegraph_binary_resolver.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,8 @@ export interface CodeGraphStatusResult {
   version?: string;
   warnings: string[];
   error?: { message: string };
+  /** Resolved upstream binary used for the version probe. */
+  binary?: CodeGraphBinaryResolution;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +108,8 @@ export interface CodeGraphActionOptions {
   runner?: CodeGraphActionRunner;
   /** Override the codegraph command name. Defaults to 'codegraph'. */
   command?: string;
+  /** Pre-resolved binary metadata. When provided, exposed via status results. */
+  binary?: CodeGraphBinaryResolution;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +155,10 @@ export async function getCodeGraphStatus(
     warnings.push(`CODEGRAPH_DIR_CHECK_FAILED: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  return { ok: true, available, initialized, version, warnings };
+  const result: CodeGraphStatusResult = { ok: true, available, initialized, warnings };
+  if (version !== undefined) result.version = version;
+  if (options.binary) result.binary = options.binary;
+  return result;
 }
 
 /**
