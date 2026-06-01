@@ -32,10 +32,14 @@ describe('desktop renderer CodeGraph toggle switch', () => {
     expect(html).toMatch(/<button id="codegraph-toggle" class="toggle" type="button" role="switch" aria-checked="false"/);
   });
 
-  test('persists the CodeGraph toggle state in localStorage', () => {
+  test('persists the CodeGraph toggle state through desktop config bridge, not localStorage', () => {
     const html = readHtml();
 
-    expect(html).toContain("localStorage.getItem('vibecode.codegraph.on')");
-    expect(html).toContain("localStorage.setItem('vibecode.codegraph.on', on ? '1' : '0')");
+    expect(html).toContain('loadDesktopCodeGraphMode');
+    expect(html).toContain('saveDesktopCodeGraphMode');
+    expect(html).toContain('getDesktopCodeGraphModeSetting');
+    expect(html).toContain('setDesktopCodeGraphModeSetting');
+    expect(html).not.toContain("localStorage.getItem('vibecode.codegraph.on')");
+    expect(html).not.toContain("localStorage.setItem('vibecode.codegraph.on', on ? '1' : '0')");
   });
 });

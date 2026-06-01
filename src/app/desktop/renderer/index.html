@@ -384,6 +384,9 @@
       let lastSend = null;
       let activePanel = null;
       let lastCodeGraphTransport = 'cli';
+      let lastDesktopCodeGraphMode = 'detect-only';
+      let lastDesktopTaskNormalizerEnabled = false;
+      let lastDesktopAutoApproveEnabled = false;
       // The tile the composer is currently attached to. We capture this at
       // open time so the final_prompt.md is sent back to that exact session
       // even if the user later focuses a different tile.
@@ -496,20 +499,97 @@
 
       // Auto-approve is a real toggle: when on, a successful context build sends
       // final_prompt.md straight into the origin terminal with no manual Send
-      // click. The exact saved final_prompt.md is still what is sent.
+      // click. The exact saved final_prompt.md is still what is sent. The toggle
+      // position is remembered only for Desktop GUI startup, not as a CLI default.
       function autoApproveEnabled() {
         return autoApprove.classList.contains('on');
+      }
+
+      function setAutoApproveToggleState(on) {
+        if (!autoApprove) return;
+        autoApprove.classList.toggle('on', Boolean(on));
+        autoApprove.setAttribute('aria-checked', on ? 'true' : 'false');
+        lastDesktopAutoApproveEnabled = Boolean(on);
+        if (activePanel === 'session') renderPanel('session');
+      }
+
+      async function loadDesktopAutoApproveEnabled() {
+        if (!autoApprove) return false;
+        try {
+          if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.loadDesktopAutoApproveEnabledSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+            setAutoApproveToggleState(false);
+            return false;
+          }
+          const enabled = await window.VibecodeFlashSettings.loadDesktopAutoApproveEnabledSetting(window.vibecodeAPI.config);
+          setAutoApproveToggleState(enabled);
+          return enabled;
+        } catch (error) {
+          console.warn('Auto-approve remembered setting could not be loaded.', error);
+          setAutoApproveToggleState(false);
+          return false;
+        }
+      }
+
+      async function saveDesktopAutoApproveEnabled(enabled) {
+        const previous = lastDesktopAutoApproveEnabled;
+        setAutoApproveToggleState(enabled);
+        try {
+          if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.writeDesktopAutoApproveEnabledSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+            throw new Error('Desktop Auto-approve config bridge is unavailable.');
+          }
+          const saved = await window.VibecodeFlashSettings.writeDesktopAutoApproveEnabledSetting(window.vibecodeAPI.config, enabled === true);
+          setAutoApproveToggleState(saved);
+        } catch (error) {
+          setAutoApproveToggleState(previous);
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn('Auto-approve remembered setting was not saved.', error);
+          showToast('Auto-approve setting was not saved');
+          setFlashSettingsStatus('Auto-approve setting was not saved: ' + message, 'error');
+        }
       }
 
       function setCodeGraphToggleState(on) {
         if (!codegraphToggle) return;
         codegraphToggle.classList.toggle('on', Boolean(on));
         codegraphToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+        lastDesktopCodeGraphMode = on ? 'use-existing' : 'detect-only';
       }
 
-      function restoreStoredCodeGraphToggleState() {
-        if (!codegraphToggle) return;
-        setCodeGraphToggleState(localStorage.getItem('vibecode.codegraph.on') === '1');
+      async function loadDesktopCodeGraphMode() {
+        // Bridge path: window.vibecodeAPI.config.getDesktopCodeGraphModeSetting().
+        if (!codegraphToggle) return 'detect-only';
+        try {
+          if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.loadDesktopCodeGraphModeSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+            setCodeGraphToggleState(false);
+            return 'detect-only';
+          }
+          const mode = await window.VibecodeFlashSettings.loadDesktopCodeGraphModeSetting(window.vibecodeAPI.config);
+          setCodeGraphToggleState(mode === 'use-existing');
+          return mode;
+        } catch (error) {
+          console.warn('Desktop CodeGraph mode could not be loaded.', error);
+          setCodeGraphToggleState(false);
+          return 'detect-only';
+        }
+      }
+
+      async function saveDesktopCodeGraphMode(mode) {
+        // Bridge path: window.vibecodeAPI.config.setDesktopCodeGraphModeSetting(mode).
+        const previous = lastDesktopCodeGraphMode;
+        setCodeGraphToggleState(mode === 'use-existing');
+        try {
+          if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.writeDesktopCodeGraphModeSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+            throw new Error('Desktop CodeGraph mode config bridge is unavailable.');
+          }
+          const saved = await window.VibecodeFlashSettings.writeDesktopCodeGraphModeSetting(window.vibecodeAPI.config, mode);
+          setCodeGraphToggleState(saved === 'use-existing');
+        } catch (error) {
+          setCodeGraphToggleState(previous === 'use-existing');
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn('Desktop CodeGraph mode was not saved.', error);
+          showToast('CodeGraph setting was not saved');
+          setFlashSettingsStatus('CodeGraph setting was not saved: ' + message, 'error');
+        }
       }
 
       function syncCodeGraphToggleAvailability() {
@@ -518,11 +598,12 @@
         const unavailable = !dot || dot.classList.contains('muted');
         codegraphToggle.disabled = unavailable;
         if (unavailable) {
-          setCodeGraphToggleState(false);
+          codegraphToggle.classList.toggle('on', false);
+          codegraphToggle.setAttribute('aria-checked', 'false');
           codegraphToggle.title = 'CodeGraph is optional and unavailable for this context build.';
           return;
         }
-        restoreStoredCodeGraphToggleState();
+        setCodeGraphToggleState(lastDesktopCodeGraphMode === 'use-existing');
         codegraphToggle.title = 'CodeGraph: when ON, uses existing CodeGraph index during context build (use-existing mode). OFF = detect-only.';
       }
 
@@ -588,24 +669,51 @@
         if (!taskNormalizerToggle) return;
         taskNormalizerToggle.classList.toggle('on', Boolean(on));
         taskNormalizerToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+        lastDesktopTaskNormalizerEnabled = Boolean(on);
       }
 
-      function restoreStoredTaskNormalizerToggleState() {
-        if (!taskNormalizerToggle) return;
-        if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.readTaskNormalizerEnabled) {
-          setTaskNormalizerToggleState(window.VibecodeFlashSettings.readTaskNormalizerEnabled(localStorage));
-          return;
+      async function loadDesktopTaskNormalizerEnabled() {
+        if (!taskNormalizerToggle) return false;
+        try {
+          if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.loadDesktopTaskNormalizerEnabledSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+            setTaskNormalizerToggleState(false);
+            return false;
+          }
+          const enabled = await window.VibecodeFlashSettings.loadDesktopTaskNormalizerEnabledSetting(window.vibecodeAPI.config);
+          setTaskNormalizerToggleState(enabled);
+          return enabled;
+        } catch (error) {
+          console.warn('Desktop Task Normalizer setting could not be loaded.', error);
+          setTaskNormalizerToggleState(false);
+          return false;
         }
-        setTaskNormalizerToggleState(localStorage.getItem('vibelight.taskNormalizerEnabled') === '1');
+      }
+
+      async function saveDesktopTaskNormalizerEnabled(enabled) {
+        const previous = lastDesktopTaskNormalizerEnabled;
+        setTaskNormalizerToggleState(enabled === true);
+        try {
+          if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.writeDesktopTaskNormalizerEnabledSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+            throw new Error('Desktop Task Normalizer config bridge is unavailable.');
+          }
+          const saved = await window.VibecodeFlashSettings.writeDesktopTaskNormalizerEnabledSetting(window.vibecodeAPI.config, enabled === true);
+          setTaskNormalizerToggleState(saved);
+        } catch (error) {
+          setTaskNormalizerToggleState(previous);
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn('Desktop Task Normalizer setting was not saved.', error);
+          showToast('Task Normalizer setting was not saved');
+          setFlashSettingsStatus('Task Normalizer setting was not saved: ' + message, 'error');
+        }
       }
 
       function taskNormalizerEnabled() {
         return Boolean(taskNormalizerToggle && taskNormalizerToggle.classList.contains('on'));
       }
 
-      restoreStoredCodeGraphToggleState();
-      syncCodeGraphToggleAvailability();
-      restoreStoredTaskNormalizerToggleState();
+      void loadDesktopCodeGraphMode().then(() => syncCodeGraphToggleAvailability());
+      void loadDesktopTaskNormalizerEnabled();
+      void loadDesktopAutoApproveEnabled();
       void loadGlobalCodeGraphTransport();
 
       function refreshSendButton() {
@@ -1092,15 +1200,12 @@
       closeComposerBtn.addEventListener('click', closeOverlay);
       cancelComposerBtn.addEventListener('click', closeOverlay);
       autoApprove.addEventListener('click', () => {
-        const on = autoApprove.classList.toggle('on');
-        autoApprove.setAttribute('aria-checked', on ? 'true' : 'false');
-        if (activePanel === 'session') renderPanel('session');
+        void saveDesktopAutoApproveEnabled(!autoApproveEnabled());
       });
       if (codegraphToggle) {
         codegraphToggle.addEventListener('click', () => {
-          const on = codegraphToggle.classList.toggle('on');
-          codegraphToggle.setAttribute('aria-checked', on ? 'true' : 'false');
-          localStorage.setItem('vibecode.codegraph.on', on ? '1' : '0');
+          const nextMode = getCodeGraphMode() === 'use-existing' ? 'detect-only' : 'use-existing';
+          void saveDesktopCodeGraphMode(nextMode);
         });
       }
       if (codegraphTransportSelect) {
@@ -1110,13 +1215,7 @@
       }
       if (taskNormalizerToggle) {
         taskNormalizerToggle.addEventListener('click', () => {
-          const on = taskNormalizerToggle.classList.toggle('on');
-          taskNormalizerToggle.setAttribute('aria-checked', on ? 'true' : 'false');
-          if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.writeTaskNormalizerEnabled) {
-            window.VibecodeFlashSettings.writeTaskNormalizerEnabled(localStorage, on);
-          } else {
-            localStorage.setItem('vibelight.taskNormalizerEnabled', on ? '1' : '0');
-          }
+          void saveDesktopTaskNormalizerEnabled(!taskNormalizerEnabled());
         });
       }
       finalHead.addEventListener('click', () => finalWrap.classList.toggle('open'));

@@ -151,6 +151,8 @@ TypeScript:
 
 Provider/model registry precedence is local workspace config over global user config. The repository-root `config.yaml` remains for project/scanner defaults rather than provider registry ownership. Secrets live only in `%LOCALAPPDATA%\vibecodelight\.env`.
 
+Desktop GUI remembered pipeline toggles are stored in the global user config under `desktop.*`: `desktop.codegraph.mode`, `desktop.task_normalizer.enabled`, and `desktop.auto_approve.enabled`. These are Desktop GUI preferences only, not CLI defaults. CLI remains explicit for CodeGraph mode, Task Normalizer, and auto-approve (`--codegraph` / `--no-codegraph` / `--codegraph-mode`, `--task-normalizer` / `--no-task-normalizer`, `--auto-approve`). `desktop.auto_approve.enabled` is safety-sensitive: it only initializes the Desktop GUI toggle and does not become a CLI/global default. Actual sends record the current per-send `auto_approve` value in send metadata. The existing exception is CodeGraph Transport: `defaults.codegraph.transport` (`cli` / `mcp` / `auto`) is intentionally shared by the GUI and CLI settings command. Renderer localStorage is not a source of truth for pipeline-affecting remembered settings; keep it to pure UI/session state only.
+
 Python scanner does not read the global or local YAML config directly.
 
 Instead, TypeScript writes:

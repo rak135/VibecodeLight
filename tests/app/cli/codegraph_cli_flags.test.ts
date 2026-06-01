@@ -84,6 +84,42 @@ describe('CLI CodeGraph flags', () => {
     expect(fs.existsSync(path.join(runDir, 'scan', 'repo_atlas.json'))).toBe(false);
   });
 
+  test('desktop.codegraph.mode=use-existing does not change CLI prompt without explicit CodeGraph flag', () => {
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-cli-codegraph-appdata-'));
+    const prevLocalAppData = process.env.LOCALAPPDATA;
+    try {
+      process.env.LOCALAPPDATA = appData;
+      const configDir = path.join(appData, 'vibecodelight');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(path.join(configDir, 'config.yaml'), [
+        'version: 1',
+        'desktop:',
+        '  codegraph:',
+        '    mode: use-existing',
+        '',
+      ].join('\n'), 'utf8');
+
+      const result = runCli([
+        'prompt',
+        'desktop codegraph mode must not affect cli',
+        '--repo',
+        tmpRepo,
+        '--mock',
+        '--json',
+      ], tmpRepo);
+
+      expect(result.status).toBe(0);
+      const payload = JSON.parse(result.stdout.trim());
+      const usagePath = path.join(payload.data.runDir, 'scan', 'codegraph_usage.json');
+      const usage = JSON.parse(fs.readFileSync(usagePath, 'utf8'));
+      expect(usage.mode).toBe('detect-only');
+    } finally {
+      if (prevLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = prevLocalAppData;
+      fs.rmSync(appData, { recursive: true, force: true });
+    }
+  });
+
   test('prompt rejects conflicting --codegraph and --codegraph-mode detect-only flags with canonical JSON error', () => {
     const result = runCli([
       'prompt',

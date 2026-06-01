@@ -44,6 +44,25 @@ export type {
   CodeGraphTransportSettingSource,
   WriteCodeGraphTransportSettingResult,
 } from './codegraph_transport_config.js';
+export {
+  readDesktopAutoApproveEnabledSetting,
+  readDesktopCodeGraphModeSetting,
+  readDesktopTaskNormalizerEnabledSetting,
+  resetDesktopAutoApproveEnabledSetting,
+  resetDesktopCodeGraphModeSetting,
+  resetDesktopTaskNormalizerEnabledSetting,
+  writeDesktopAutoApproveEnabledSetting,
+  writeDesktopCodeGraphModeSetting,
+  writeDesktopTaskNormalizerEnabledSetting,
+} from './desktop_settings_config.js';
+export type {
+  DesktopBooleanSetting,
+  DesktopCodeGraphModeSetting,
+  DesktopCodeGraphModeSettingValue,
+  DesktopSettingSource,
+  WriteDesktopBooleanSettingResult,
+  WriteDesktopCodeGraphModeSettingResult,
+} from './desktop_settings_config.js';
 export type {
   FieldSource,
   SelectedConfigSource,

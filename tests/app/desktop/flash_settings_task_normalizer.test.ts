@@ -28,20 +28,17 @@ describe('desktop renderer task normalizer switch', () => {
     expect(html).not.toContain('Translates and expands your task into English search hints before context selection. Does not select files.');
   });
 
-  test('Task Normalizer switch defaults to OFF', () => {
-    const storage = fakeStorage();
-
-    expect(FlashSettings.readTaskNormalizerEnabled(storage)).toBe(false);
+  test('Task Normalizer remembered switch defaults to OFF when config bridge is unavailable', async () => {
+    await expect(FlashSettings.loadDesktopTaskNormalizerEnabledSetting({})).resolves.toBe(false);
   });
 
-  test('Task Normalizer switch persists ON/OFF state', () => {
+  test('legacy Task Normalizer localStorage helpers are no longer source of truth', () => {
     const storage = fakeStorage();
 
     FlashSettings.writeTaskNormalizerEnabled(storage, true);
-    expect(FlashSettings.readTaskNormalizerEnabled(storage)).toBe(true);
 
-    FlashSettings.writeTaskNormalizerEnabled(storage, false);
     expect(FlashSettings.readTaskNormalizerEnabled(storage)).toBe(false);
+    expect(storage.getItem('vibelight.taskNormalizerEnabled')).toBeNull();
   });
 
   test('when Task Normalizer is ON, generatePreview is called with taskNormalizerEnabled=true', async () => {

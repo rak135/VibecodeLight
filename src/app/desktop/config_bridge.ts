@@ -2,11 +2,20 @@ import {
   ensureLocalConfig,
   getConfigPaths,
   readCodeGraphTransportSetting,
+  readDesktopAutoApproveEnabledSetting,
+  readDesktopCodeGraphModeSetting,
+  readDesktopTaskNormalizerEnabledSetting,
   rememberLiveSelection,
   resetCodeGraphTransportSetting,
+  resetDesktopAutoApproveEnabledSetting,
+  resetDesktopCodeGraphModeSetting,
+  resetDesktopTaskNormalizerEnabledSetting,
   resolveFlashConfig,
   syncConfig,
   writeCodeGraphTransportSetting,
+  writeDesktopAutoApproveEnabledSetting,
+  writeDesktopCodeGraphModeSetting,
+  writeDesktopTaskNormalizerEnabledSetting,
 } from '../../core/config/index.js';
 import { CODEGRAPH_TRANSPORT_VALUES, parseCodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
 
@@ -48,6 +57,55 @@ function invalidCodeGraphTransportPayload(raw: unknown) {
   };
 }
 
+function desktopCodeGraphModePayload(setting: ReturnType<typeof readDesktopCodeGraphModeSetting>) {
+  return {
+    ok: true,
+    mode: setting.mode,
+    default: setting.default,
+    source: setting.source,
+    global_config_path: setting.globalConfigPath,
+    global_config_exists: setting.globalConfigExists,
+    warnings: setting.warnings,
+  };
+}
+
+function desktopCodeGraphModeWritePayload(setting: ReturnType<typeof writeDesktopCodeGraphModeSetting>) {
+  return {
+    ...desktopCodeGraphModePayload(setting),
+    artifactPath: setting.artifactPath,
+  };
+}
+
+function desktopBooleanPayload(setting: ReturnType<typeof readDesktopTaskNormalizerEnabledSetting>) {
+  return {
+    ok: true,
+    enabled: setting.enabled,
+    default: setting.default,
+    source: setting.source,
+    global_config_path: setting.globalConfigPath,
+    global_config_exists: setting.globalConfigExists,
+    warnings: setting.warnings,
+  };
+}
+
+function desktopBooleanWritePayload(setting: ReturnType<typeof writeDesktopTaskNormalizerEnabledSetting>) {
+  return {
+    ...desktopBooleanPayload(setting),
+    artifactPath: setting.artifactPath,
+  };
+}
+
+function invalidDesktopSettingPayload(code: string, raw: unknown, expected: string) {
+  return {
+    ok: false,
+    error: {
+      code,
+      message: `Invalid desktop setting: ${String(raw)}`,
+      details: [expected],
+    },
+  };
+}
+
 /**
  * Register desktop config IPC handlers. All resolution/sync logic lives in the
  * shared core config service; this bridge only wires it to IPC. The renderer
@@ -66,6 +124,63 @@ export function registerDesktopConfigIpcHandlers(ipcMain: IpcMainLike, options: 
 
   ipcMain.handle('config:resetCodeGraphTransportSetting', () => {
     return codeGraphTransportWritePayload(resetCodeGraphTransportSetting({ env: process.env }));
+  });
+
+  ipcMain.handle('config:getDesktopCodeGraphModeSetting', () => {
+    return desktopCodeGraphModePayload(readDesktopCodeGraphModeSetting({ env: process.env }));
+  });
+
+  ipcMain.handle('config:setDesktopCodeGraphModeSetting', (_event, mode: unknown) => {
+    if (mode !== 'detect-only' && mode !== 'use-existing') {
+      return invalidDesktopSettingPayload(
+        'INVALID_DESKTOP_CODEGRAPH_MODE',
+        mode,
+        'Expected one of: detect-only, use-existing.',
+      );
+    }
+    return desktopCodeGraphModeWritePayload(writeDesktopCodeGraphModeSetting({ mode, env: process.env }));
+  });
+
+  ipcMain.handle('config:resetDesktopCodeGraphModeSetting', () => {
+    return desktopCodeGraphModeWritePayload(resetDesktopCodeGraphModeSetting({ env: process.env }));
+  });
+
+  ipcMain.handle('config:getDesktopTaskNormalizerEnabledSetting', () => {
+    return desktopBooleanPayload(readDesktopTaskNormalizerEnabledSetting({ env: process.env }));
+  });
+
+  ipcMain.handle('config:setDesktopTaskNormalizerEnabledSetting', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') {
+      return invalidDesktopSettingPayload(
+        'INVALID_DESKTOP_TASK_NORMALIZER_ENABLED',
+        enabled,
+        'Expected a boolean.',
+      );
+    }
+    return desktopBooleanWritePayload(writeDesktopTaskNormalizerEnabledSetting({ enabled, env: process.env }));
+  });
+
+  ipcMain.handle('config:resetDesktopTaskNormalizerEnabledSetting', () => {
+    return desktopBooleanWritePayload(resetDesktopTaskNormalizerEnabledSetting({ env: process.env }));
+  });
+
+  ipcMain.handle('config:getDesktopAutoApproveEnabledSetting', () => {
+    return desktopBooleanPayload(readDesktopAutoApproveEnabledSetting({ env: process.env }));
+  });
+
+  ipcMain.handle('config:setDesktopAutoApproveEnabledSetting', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') {
+      return invalidDesktopSettingPayload(
+        'INVALID_DESKTOP_AUTO_APPROVE_ENABLED',
+        enabled,
+        'Expected a boolean.',
+      );
+    }
+    return desktopBooleanWritePayload(writeDesktopAutoApproveEnabledSetting({ enabled, env: process.env }));
+  });
+
+  ipcMain.handle('config:resetDesktopAutoApproveEnabledSetting', () => {
+    return desktopBooleanWritePayload(resetDesktopAutoApproveEnabledSetting({ env: process.env }));
   });
 
   ipcMain.handle('config:getPaths', () => {

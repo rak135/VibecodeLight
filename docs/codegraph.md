@@ -217,6 +217,11 @@ false`.
 
 ### How the transport is selected
 
+CodeGraph has two different remembered settings with different ownership:
+
+- `desktop.codegraph.mode` remembers the Desktop GUI ON/OFF toggle only. `detect-only` means GUI OFF and still detects availability without injecting CodeGraph context; `use-existing` means GUI ON. CLI prompt/context-build runs do not consume this Desktop GUI preference and remain controlled by explicit `--codegraph`, `--no-codegraph`, or `--codegraph-mode detect-only|use-existing` flags.
+- `defaults.codegraph.transport` is the intentional exception: it is shared by the Desktop GUI **CodeGraph Transport** dropdown and the CLI `vibecode codegraph transport get|set|reset` command.
+
 - CodeGraph Transport is a shared global setting. The desktop **CodeGraph
   Transport** dropdown in the composer header and the CLI command both
   read/write the same global user config key,

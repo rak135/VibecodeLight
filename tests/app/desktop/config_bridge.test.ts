@@ -249,4 +249,62 @@ describe('desktop config bridge', () => {
     expect(result.error?.details).toContain('Expected one of: cli, mcp, auto.');
     expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toBe(before);
   });
+
+  test('config desktop CodeGraph mode get/set/reset uses desktop.codegraph.mode in global config only', async () => {
+    writeGlobal(true, false);
+    const ipc = register();
+
+    const initial = (await ipc.invoke('config:getDesktopCodeGraphModeSetting')) as { ok: boolean; mode: string; source: string };
+    expect(initial).toMatchObject({ ok: true, mode: 'detect-only', source: 'default' });
+
+    const written = (await ipc.invoke('config:setDesktopCodeGraphModeSetting', 'use-existing')) as {
+      ok: boolean;
+      mode: string;
+      artifactPath: string;
+    };
+    expect(written).toMatchObject({ ok: true, mode: 'use-existing', artifactPath: path.join(appData, 'vibecodelight', 'config.yaml') });
+    const globalYaml = fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8');
+    expect(globalYaml).toContain('desktop:');
+    expect(globalYaml).toContain('codegraph:');
+    expect(globalYaml).toContain('mode: use-existing');
+    expect(fs.existsSync(path.join(repoRoot, 'config.yaml'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'config.yaml'))).toBe(false);
+
+    const reset = (await ipc.invoke('config:resetDesktopCodeGraphModeSetting')) as { ok: boolean; mode: string; source: string };
+    expect(reset).toMatchObject({ ok: true, mode: 'detect-only', source: 'default' });
+  });
+
+  test('config desktop boolean settings get/set/reset use desktop namespace', async () => {
+    writeGlobal(true, false);
+    const ipc = register();
+
+    expect(await ipc.invoke('config:getDesktopTaskNormalizerEnabledSetting')).toMatchObject({ ok: true, enabled: false, source: 'default' });
+    expect(await ipc.invoke('config:setDesktopTaskNormalizerEnabledSetting', true)).toMatchObject({ ok: true, enabled: true });
+    expect(await ipc.invoke('config:getDesktopAutoApproveEnabledSetting')).toMatchObject({ ok: true, enabled: false, source: 'default' });
+    expect(await ipc.invoke('config:setDesktopAutoApproveEnabledSetting', true)).toMatchObject({ ok: true, enabled: true });
+
+    const globalYaml = fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8');
+    expect(globalYaml).toContain('task_normalizer:');
+    expect(globalYaml).toContain('auto_approve:');
+    expect(globalYaml).toContain('enabled: true');
+
+    expect(await ipc.invoke('config:resetDesktopTaskNormalizerEnabledSetting')).toMatchObject({ ok: true, enabled: false, source: 'default' });
+    expect(await ipc.invoke('config:resetDesktopAutoApproveEnabledSetting')).toMatchObject({ ok: true, enabled: false, source: 'default' });
+  });
+
+  test('config desktop settings reject invalid values without writing global config or exposing secrets', async () => {
+    writeGlobal(true, true);
+    const before = fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8');
+    const ipc = register();
+
+    const invalidMode = await ipc.invoke('config:setDesktopCodeGraphModeSetting', 'enabled');
+    const invalidTask = await ipc.invoke('config:setDesktopTaskNormalizerEnabledSetting', 'true');
+    const invalidApprove = await ipc.invoke('config:setDesktopAutoApproveEnabledSetting', 1);
+
+    expect(invalidMode).toMatchObject({ ok: false, error: { code: 'INVALID_DESKTOP_CODEGRAPH_MODE' } });
+    expect(invalidTask).toMatchObject({ ok: false, error: { code: 'INVALID_DESKTOP_TASK_NORMALIZER_ENABLED' } });
+    expect(invalidApprove).toMatchObject({ ok: false, error: { code: 'INVALID_DESKTOP_AUTO_APPROVE_ENABLED' } });
+    expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toBe(before);
+    expect(JSON.stringify({ invalidMode, invalidTask, invalidApprove })).not.toContain(SECRET);
+  });
 });

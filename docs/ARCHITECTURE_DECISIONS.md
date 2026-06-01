@@ -482,6 +482,19 @@ TypeScript owns `config.yaml`.
 > `PROVIDER_API_KEY_ENV_MISSING`, `FLASH_PROVIDER_AUTH_MISSING`,
 > `FLASH_PROVIDER_NOT_CONFIGURED`, `FLASH_MODEL_NOT_CONFIGURED`,
 > `CONFIG_INVALID_PROVIDER_REGISTRY`.
+>
+> Update 3: Desktop GUI remembered pipeline toggles use the global user config
+> `desktop.*` namespace: `desktop.codegraph.mode`,
+> `desktop.task_normalizer.enabled`, and `desktop.auto_approve.enabled`. These
+> values initialize Desktop GUI controls only and do not become CLI/global
+> defaults. The CLI still requires explicit per-run flags for CodeGraph mode,
+> Task Normalizer, and safety-sensitive auto-approve; `desktop.auto_approve.enabled`
+> only remembers the Desktop toggle and does not make CLI prompt auto-approve.
+> Actual terminal sends record `auto_approve` in send metadata as a per-send
+> value. Renderer localStorage is not a source of truth for these pipeline-affecting
+> remembered settings. The deliberate exception is CodeGraph Transport:
+> `defaults.codegraph.transport` remains shared by the GUI and CLI command
+> (`vibecode codegraph transport get|set|reset`).
 
 Human-maintained config is layered: `%LOCALAPPDATA%\vibecodelight\config.yaml` for global provider/default settings, `<repo>\.vibecode\config.yaml` for per-repo overrides, and repository-root `config.yaml` for project/scanner defaults. Local workspace config takes priority over the global user config.
 

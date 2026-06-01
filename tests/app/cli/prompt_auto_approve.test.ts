@@ -115,6 +115,49 @@ describe('prompt --auto-approve CLI behavior', () => {
     }
   });
 
+  test('desktop.auto_approve.enabled=true does not make CLI prompt auto-approve without flag', async () => {
+    const repoRoot = makeRepo();
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-cli-auto-approve-appdata-'));
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+    const fake = makeFakeTerminal(repoRoot);
+    const prevLocalAppData = process.env.LOCALAPPDATA;
+    try {
+      process.env.LOCALAPPDATA = appData;
+      const configDir = path.join(appData, 'vibecodelight');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(path.join(configDir, 'config.yaml'), [
+        'version: 1',
+        'desktop:',
+        '  auto_approve:',
+        '    enabled: true',
+        '',
+      ].join('\n'), 'utf8');
+
+      const result = await runPromptCommand({
+        task: 'desktop auto approve must not affect cli',
+        repoRoot,
+        mock: true,
+        live: false,
+        json: true,
+        sendTerminal: fake.terminal,
+        stdout: stdout.writer,
+        stderr: stderr.writer,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(fake.writes).toEqual([]);
+      expect(JSON.parse(stdout.text.trim()).data.auto_approve).toBe(false);
+      expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'runs', result.run_id, 'terminal', 'send_metadata.json'))).toBe(false);
+    } finally {
+      if (prevLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = prevLocalAppData;
+      fs.rmSync(appData, { recursive: true, force: true });
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   test('auto-approve reports a structured send failure when the CLI terminal cannot start', async () => {
     const repoRoot = makeRepo('vibecode-cli-auto-approve-fail-');
     const stdout = makeWriter();

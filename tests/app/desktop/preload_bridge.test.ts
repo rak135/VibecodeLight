@@ -48,6 +48,9 @@ describe('desktop preload bridge boundary', () => {
     expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
     expect(Object.keys(api.config).sort()).toEqual([
       'getCodeGraphTransportSetting',
+      'getDesktopAutoApproveEnabledSetting',
+      'getDesktopCodeGraphModeSetting',
+      'getDesktopTaskNormalizerEnabledSetting',
       'getPaths',
       'initLocal',
       'models',
@@ -55,7 +58,13 @@ describe('desktop preload bridge boundary', () => {
       'providers',
       'rememberLiveSelection',
       'resetCodeGraphTransportSetting',
+      'resetDesktopAutoApproveEnabledSetting',
+      'resetDesktopCodeGraphModeSetting',
+      'resetDesktopTaskNormalizerEnabledSetting',
       'setCodeGraphTransportSetting',
+      'setDesktopAutoApproveEnabledSetting',
+      'setDesktopCodeGraphModeSetting',
+      'setDesktopTaskNormalizerEnabledSetting',
       'show',
       'syncFromGlobal',
     ]);
@@ -219,6 +228,58 @@ describe('desktop preload bridge boundary', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getCodeGraphTransportSetting');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setCodeGraphTransportSetting', 'auto');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:resetCodeGraphTransportSetting');
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
+  });
+
+  test('config desktop remembered setting methods invoke only safe config IPC channels', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const config = api.config as {
+      getDesktopCodeGraphModeSetting: () => Promise<unknown>;
+      setDesktopCodeGraphModeSetting: (mode: string) => Promise<unknown>;
+      resetDesktopCodeGraphModeSetting: () => Promise<unknown>;
+      getDesktopTaskNormalizerEnabledSetting: () => Promise<unknown>;
+      setDesktopTaskNormalizerEnabledSetting: (enabled: boolean) => Promise<unknown>;
+      resetDesktopTaskNormalizerEnabledSetting: () => Promise<unknown>;
+      getDesktopAutoApproveEnabledSetting: () => Promise<unknown>;
+      setDesktopAutoApproveEnabledSetting: (enabled: boolean) => Promise<unknown>;
+      resetDesktopAutoApproveEnabledSetting: () => Promise<unknown>;
+    };
+
+    await config.getDesktopCodeGraphModeSetting();
+    await config.setDesktopCodeGraphModeSetting('use-existing');
+    await config.resetDesktopCodeGraphModeSetting();
+    await config.getDesktopTaskNormalizerEnabledSetting();
+    await config.setDesktopTaskNormalizerEnabledSetting(true);
+    await config.setDesktopTaskNormalizerEnabledSetting('true' as unknown as boolean);
+    await config.resetDesktopTaskNormalizerEnabledSetting();
+    await config.getDesktopAutoApproveEnabledSetting();
+    await config.setDesktopAutoApproveEnabledSetting(false);
+    await config.setDesktopAutoApproveEnabledSetting(1 as unknown as boolean);
+    await config.resetDesktopAutoApproveEnabledSetting();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getDesktopCodeGraphModeSetting');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setDesktopCodeGraphModeSetting', 'use-existing');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:resetDesktopCodeGraphModeSetting');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getDesktopTaskNormalizerEnabledSetting');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setDesktopTaskNormalizerEnabledSetting', true);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setDesktopTaskNormalizerEnabledSetting', 'true');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:resetDesktopTaskNormalizerEnabledSetting');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getDesktopAutoApproveEnabledSetting');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setDesktopAutoApproveEnabledSetting', false);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setDesktopAutoApproveEnabledSetting', 1);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:resetDesktopAutoApproveEnabledSetting');
     expect(ipcRenderer.send).not.toHaveBeenCalled();
   });
 

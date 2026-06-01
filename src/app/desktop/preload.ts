@@ -186,6 +186,30 @@ export interface CodeGraphTransportSettingIpc {
   error?: { code: string; message: string; details: string[] };
 }
 
+export interface DesktopCodeGraphModeSettingIpc {
+  ok: boolean;
+  mode?: CodeGraphContextModeIpc;
+  default?: CodeGraphContextModeIpc;
+  source?: 'global' | 'default';
+  global_config_path?: string;
+  global_config_exists?: boolean;
+  warnings?: string[];
+  artifactPath?: string;
+  error?: { code: string; message: string; details: string[] };
+}
+
+export interface DesktopBooleanSettingIpc {
+  ok: boolean;
+  enabled?: boolean;
+  default?: boolean;
+  source?: 'global' | 'default';
+  global_config_path?: string;
+  global_config_exists?: boolean;
+  warnings?: string[];
+  artifactPath?: string;
+  error?: { code: string; message: string; details: string[] };
+}
+
 /**
  * Mirror of the core `CodeGraphStatus` shape (detect-only, informational). The
  * renderer reads this from `runs:show`; it never parses external_tools.json or
@@ -302,6 +326,15 @@ export interface VibecodePreloadApi {
     getCodeGraphTransportSetting(): Promise<CodeGraphTransportSettingIpc>;
     setCodeGraphTransportSetting(transport: CodeGraphTransportIpc): Promise<CodeGraphTransportSettingIpc>;
     resetCodeGraphTransportSetting(): Promise<CodeGraphTransportSettingIpc>;
+    getDesktopCodeGraphModeSetting(): Promise<DesktopCodeGraphModeSettingIpc>;
+    setDesktopCodeGraphModeSetting(mode: CodeGraphContextModeIpc): Promise<DesktopCodeGraphModeSettingIpc>;
+    resetDesktopCodeGraphModeSetting(): Promise<DesktopCodeGraphModeSettingIpc>;
+    getDesktopTaskNormalizerEnabledSetting(): Promise<DesktopBooleanSettingIpc>;
+    setDesktopTaskNormalizerEnabledSetting(enabled: boolean): Promise<DesktopBooleanSettingIpc>;
+    resetDesktopTaskNormalizerEnabledSetting(): Promise<DesktopBooleanSettingIpc>;
+    getDesktopAutoApproveEnabledSetting(): Promise<DesktopBooleanSettingIpc>;
+    setDesktopAutoApproveEnabledSetting(enabled: boolean): Promise<DesktopBooleanSettingIpc>;
+    resetDesktopAutoApproveEnabledSetting(): Promise<DesktopBooleanSettingIpc>;
     getPaths(): Promise<ConfigPathsIpc>;
     show(): Promise<{ ok: boolean; resolution: ConfigResolutionIpc }>;
     providers(): Promise<ConfigProvidersIpc>;
@@ -410,6 +443,33 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       resetCodeGraphTransportSetting() {
         return ipcRenderer.invoke('config:resetCodeGraphTransportSetting') as Promise<CodeGraphTransportSettingIpc>;
+      },
+      getDesktopCodeGraphModeSetting() {
+        return ipcRenderer.invoke('config:getDesktopCodeGraphModeSetting') as Promise<DesktopCodeGraphModeSettingIpc>;
+      },
+      setDesktopCodeGraphModeSetting(mode: CodeGraphContextModeIpc) {
+        return ipcRenderer.invoke('config:setDesktopCodeGraphModeSetting', mode) as Promise<DesktopCodeGraphModeSettingIpc>;
+      },
+      resetDesktopCodeGraphModeSetting() {
+        return ipcRenderer.invoke('config:resetDesktopCodeGraphModeSetting') as Promise<DesktopCodeGraphModeSettingIpc>;
+      },
+      getDesktopTaskNormalizerEnabledSetting() {
+        return ipcRenderer.invoke('config:getDesktopTaskNormalizerEnabledSetting') as Promise<DesktopBooleanSettingIpc>;
+      },
+      setDesktopTaskNormalizerEnabledSetting(enabled: boolean) {
+        return ipcRenderer.invoke('config:setDesktopTaskNormalizerEnabledSetting', enabled) as Promise<DesktopBooleanSettingIpc>;
+      },
+      resetDesktopTaskNormalizerEnabledSetting() {
+        return ipcRenderer.invoke('config:resetDesktopTaskNormalizerEnabledSetting') as Promise<DesktopBooleanSettingIpc>;
+      },
+      getDesktopAutoApproveEnabledSetting() {
+        return ipcRenderer.invoke('config:getDesktopAutoApproveEnabledSetting') as Promise<DesktopBooleanSettingIpc>;
+      },
+      setDesktopAutoApproveEnabledSetting(enabled: boolean) {
+        return ipcRenderer.invoke('config:setDesktopAutoApproveEnabledSetting', enabled) as Promise<DesktopBooleanSettingIpc>;
+      },
+      resetDesktopAutoApproveEnabledSetting() {
+        return ipcRenderer.invoke('config:resetDesktopAutoApproveEnabledSetting') as Promise<DesktopBooleanSettingIpc>;
       },
       getPaths() {
         return ipcRenderer.invoke('config:getPaths') as Promise<ConfigPathsIpc>;

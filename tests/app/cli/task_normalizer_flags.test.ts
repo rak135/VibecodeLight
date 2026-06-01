@@ -76,6 +76,41 @@ describe('CLI Task Normalizer flags', () => {
     expect(payload.data.taskIntentPath).toBe(path.join(payload.data.runDir, 'task_intent.json'));
   });
 
+  test('desktop.task_normalizer.enabled=true does not enable CLI prompt without explicit flag', () => {
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-cli-task-normalizer-appdata-'));
+    const prevLocalAppData = process.env.LOCALAPPDATA;
+    try {
+      process.env.LOCALAPPDATA = appData;
+      const configDir = path.join(appData, 'vibecodelight');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(path.join(configDir, 'config.yaml'), [
+        'version: 1',
+        'desktop:',
+        '  task_normalizer:',
+        '    enabled: true',
+        '',
+      ].join('\n'), 'utf8');
+
+      const result = runCli([
+        'prompt',
+        'desktop task normalizer must not affect cli',
+        '--repo',
+        tmpRepo,
+        '--mock',
+        '--json',
+      ], tmpRepo);
+
+      expect(result.status).toBe(0);
+      const payload = JSON.parse(result.stdout.trim());
+      expect(payload.ok).toBe(true);
+      expect(payload.data.taskNormalizerEnabled).toBe(false);
+    } finally {
+      if (prevLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = prevLocalAppData;
+      fs.rmSync(appData, { recursive: true, force: true });
+    }
+  });
+
   test('context-build --task-normalizer writes an enabled task_intent artifact', () => {
     const result = runCli([
       'context-build',

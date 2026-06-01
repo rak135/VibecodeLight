@@ -90,10 +90,31 @@ export interface CodeGraphTransportSettingResponse {
   error?: { code: string; message: string; details?: string[] };
 }
 
+export interface DesktopCodeGraphModeSettingResponse {
+  ok: boolean;
+  mode?: CodeGraphContextMode;
+  error?: { code: string; message: string; details?: string[] };
+}
+
+export interface DesktopBooleanSettingResponse {
+  ok: boolean;
+  enabled?: boolean;
+  error?: { code: string; message: string; details?: string[] };
+}
+
 export interface FlashSettingsConfigApi {
   getCodeGraphTransportSetting?(): Promise<CodeGraphTransportSettingResponse>;
   setCodeGraphTransportSetting?(transport: CodeGraphTransport): Promise<CodeGraphTransportSettingResponse>;
   resetCodeGraphTransportSetting?(): Promise<CodeGraphTransportSettingResponse>;
+  getDesktopCodeGraphModeSetting?(): Promise<DesktopCodeGraphModeSettingResponse>;
+  setDesktopCodeGraphModeSetting?(mode: CodeGraphContextMode): Promise<DesktopCodeGraphModeSettingResponse>;
+  resetDesktopCodeGraphModeSetting?(): Promise<DesktopCodeGraphModeSettingResponse>;
+  getDesktopTaskNormalizerEnabledSetting?(): Promise<DesktopBooleanSettingResponse>;
+  setDesktopTaskNormalizerEnabledSetting?(enabled: boolean): Promise<DesktopBooleanSettingResponse>;
+  resetDesktopTaskNormalizerEnabledSetting?(): Promise<DesktopBooleanSettingResponse>;
+  getDesktopAutoApproveEnabledSetting?(): Promise<DesktopBooleanSettingResponse>;
+  setDesktopAutoApproveEnabledSetting?(enabled: boolean): Promise<DesktopBooleanSettingResponse>;
+  resetDesktopAutoApproveEnabledSetting?(): Promise<DesktopBooleanSettingResponse>;
   show(): Promise<{ ok: boolean; resolution: unknown }>;
   providers(): Promise<{ ok: boolean; providers: unknown[] }>;
   rememberLiveSelection(provider: string, model: string): Promise<{ ok: boolean; provider: string; model: string; error?: { code: string; message: string; details?: string[] } }>;
@@ -120,6 +141,12 @@ export interface FlashSettingsModule {
   writeTaskNormalizerEnabled(storage: { setItem(key: string, value: string): void }, enabled: boolean): void;
   loadCodeGraphTransportSetting(configApi: Pick<FlashSettingsConfigApi, 'getCodeGraphTransportSetting'>, legacyStorage?: { getItem(key: string): string | null | undefined }): Promise<CodeGraphTransport>;
   writeCodeGraphTransportSetting(configApi: Pick<FlashSettingsConfigApi, 'setCodeGraphTransportSetting'>, transport: string | undefined, legacyStorage?: { setItem(key: string, value: string): void }): Promise<CodeGraphTransport>;
+  loadDesktopCodeGraphModeSetting(configApi: Pick<FlashSettingsConfigApi, 'getDesktopCodeGraphModeSetting'>, legacyStorage?: { getItem(key: string): string | null | undefined }): Promise<CodeGraphContextMode>;
+  writeDesktopCodeGraphModeSetting(configApi: Pick<FlashSettingsConfigApi, 'setDesktopCodeGraphModeSetting'>, mode: string | undefined): Promise<CodeGraphContextMode>;
+  loadDesktopTaskNormalizerEnabledSetting(configApi: Pick<FlashSettingsConfigApi, 'getDesktopTaskNormalizerEnabledSetting'>, legacyStorage?: { getItem(key: string): string | null | undefined }): Promise<boolean>;
+  writeDesktopTaskNormalizerEnabledSetting(configApi: Pick<FlashSettingsConfigApi, 'setDesktopTaskNormalizerEnabledSetting'>, enabled: boolean): Promise<boolean>;
+  loadDesktopAutoApproveEnabledSetting(configApi: Pick<FlashSettingsConfigApi, 'getDesktopAutoApproveEnabledSetting'>): Promise<boolean>;
+  writeDesktopAutoApproveEnabledSetting(configApi: Pick<FlashSettingsConfigApi, 'setDesktopAutoApproveEnabledSetting'>, enabled: boolean): Promise<boolean>;
   readCodeGraphTransport(storage?: { getItem(key: string): string | null | undefined }): CodeGraphTransport;
   writeCodeGraphTransport(storage: { setItem(key: string, value: string): void } | undefined, transport: string | undefined): CodeGraphTransport;
   normalizeCodeGraphTransport(value: unknown): CodeGraphTransport;

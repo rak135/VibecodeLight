@@ -57,16 +57,12 @@
       return mode === 'use-existing' ? 'use-existing' : 'detect-only';
     }
 
-    var TASK_NORMALIZER_STORAGE_KEY = 'vibelight.taskNormalizerEnabled';
-
-    function readTaskNormalizerEnabled(storage) {
-      if (!storage || typeof storage.getItem !== 'function') return false;
-      return storage.getItem(TASK_NORMALIZER_STORAGE_KEY) === '1';
+    function readTaskNormalizerEnabled(_storage) {
+      return false;
     }
 
-    function writeTaskNormalizerEnabled(storage, enabled) {
-      if (!storage || typeof storage.setItem !== 'function') return;
-      storage.setItem(TASK_NORMALIZER_STORAGE_KEY, enabled ? '1' : '0');
+    function writeTaskNormalizerEnabled(_storage, enabled) {
+      return enabled === true;
     }
 
     // CodeGraph pipeline transport selection (Phase 1B). The transport is
@@ -119,6 +115,95 @@
         throw new Error(safeDiagnostic(error));
       }
       return normalizeCodeGraphTransport(result.transport);
+    }
+
+    async function loadDesktopCodeGraphModeSetting(configApi, _legacyStorage) {
+      if (!configApi || typeof configApi.getDesktopCodeGraphModeSetting !== 'function') {
+        return 'detect-only';
+      }
+      try {
+        var result = await configApi.getDesktopCodeGraphModeSetting();
+        return result && result.ok === true && result.mode === 'use-existing' ? 'use-existing' : 'detect-only';
+      } catch (err) {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('Desktop CodeGraph mode config bridge failed; falling back to detect-only.', err);
+        }
+        return 'detect-only';
+      }
+    }
+
+    async function writeDesktopCodeGraphModeSetting(configApi, mode) {
+      var normalized = normalizeCodeGraphMode(mode);
+      if (!configApi || typeof configApi.setDesktopCodeGraphModeSetting !== 'function') {
+        throw new Error('DESKTOP_CODEGRAPH_MODE_BRIDGE_UNAVAILABLE — config bridge is unavailable');
+      }
+      var result = await configApi.setDesktopCodeGraphModeSetting(normalized);
+      if (!result || result.ok !== true || (result.mode !== 'detect-only' && result.mode !== 'use-existing')) {
+        var error = result && result.error ? result.error : { code: 'DESKTOP_CODEGRAPH_MODE_WRITE_FAILED', message: 'could not save Desktop CodeGraph mode' };
+        throw new Error(safeDiagnostic(error));
+      }
+      return normalizeCodeGraphMode(result.mode);
+    }
+
+    async function loadDesktopBooleanSetting(configApi, methodName, fallbackMessage) {
+      if (!configApi || typeof configApi[methodName] !== 'function') return false;
+      try {
+        var result = await configApi[methodName]();
+        return Boolean(result && result.ok === true && result.enabled === true);
+      } catch (err) {
+        if (typeof console !== 'undefined' && console.warn) console.warn(fallbackMessage, err);
+        return false;
+      }
+    }
+
+    async function writeDesktopBooleanSetting(configApi, methodName, enabled, unavailableCode, fallbackCode, fallbackMessage) {
+      if (!configApi || typeof configApi[methodName] !== 'function') {
+        throw new Error(unavailableCode + ' — config bridge is unavailable');
+      }
+      var result = await configApi[methodName](enabled === true);
+      if (!result || result.ok !== true || typeof result.enabled !== 'boolean') {
+        var error = result && result.error ? result.error : { code: fallbackCode, message: fallbackMessage };
+        throw new Error(safeDiagnostic(error));
+      }
+      return result.enabled === true;
+    }
+
+    function loadDesktopTaskNormalizerEnabledSetting(configApi, _legacyStorage) {
+      return loadDesktopBooleanSetting(
+        configApi,
+        'getDesktopTaskNormalizerEnabledSetting',
+        'Desktop Task Normalizer config bridge failed; falling back to off.',
+      );
+    }
+
+    function writeDesktopTaskNormalizerEnabledSetting(configApi, enabled) {
+      return writeDesktopBooleanSetting(
+        configApi,
+        'setDesktopTaskNormalizerEnabledSetting',
+        enabled,
+        'DESKTOP_TASK_NORMALIZER_BRIDGE_UNAVAILABLE',
+        'DESKTOP_TASK_NORMALIZER_WRITE_FAILED',
+        'could not save Desktop Task Normalizer setting',
+      );
+    }
+
+    function loadDesktopAutoApproveEnabledSetting(configApi) {
+      return loadDesktopBooleanSetting(
+        configApi,
+        'getDesktopAutoApproveEnabledSetting',
+        'Desktop Auto-approve config bridge failed; falling back to off.',
+      );
+    }
+
+    function writeDesktopAutoApproveEnabledSetting(configApi, enabled) {
+      return writeDesktopBooleanSetting(
+        configApi,
+        'setDesktopAutoApproveEnabledSetting',
+        enabled,
+        'DESKTOP_AUTO_APPROVE_BRIDGE_UNAVAILABLE',
+        'DESKTOP_AUTO_APPROVE_WRITE_FAILED',
+        'could not save Desktop Auto-approve setting',
+      );
     }
 
     // Legacy aliases retained for tests/older callers. They deliberately do not
@@ -441,6 +526,12 @@
       writeTaskNormalizerEnabled: writeTaskNormalizerEnabled,
       loadCodeGraphTransportSetting: loadCodeGraphTransportSetting,
       writeCodeGraphTransportSetting: writeCodeGraphTransportSetting,
+      loadDesktopCodeGraphModeSetting: loadDesktopCodeGraphModeSetting,
+      writeDesktopCodeGraphModeSetting: writeDesktopCodeGraphModeSetting,
+      loadDesktopTaskNormalizerEnabledSetting: loadDesktopTaskNormalizerEnabledSetting,
+      writeDesktopTaskNormalizerEnabledSetting: writeDesktopTaskNormalizerEnabledSetting,
+      loadDesktopAutoApproveEnabledSetting: loadDesktopAutoApproveEnabledSetting,
+      writeDesktopAutoApproveEnabledSetting: writeDesktopAutoApproveEnabledSetting,
       readCodeGraphTransport: readCodeGraphTransport,
       writeCodeGraphTransport: writeCodeGraphTransport,
       normalizeCodeGraphTransport: normalizeCodeGraphTransport,
