@@ -107,6 +107,86 @@ These commands exist so the user can manage CodeGraph intentionally.
 
 Prompt/context build never calls them automatically.
 
+### 6. Agent-facing read-only query commands
+
+VibecodeLight exposes a small read-only query namespace on top of an existing
+initialized CodeGraph index. These are **provider-agnostic shell commands**.
+Any terminal agent (Claude Code, Codex, Hermes, opencode, anything that can run
+a shell) can use them; they are not native MCP tools and VibecodeLight does not
+ship its own CodeGraph MCP server for them. Native MCP integration for
+individual agents remains optional future work.
+
+```text
+vibecode codegraph search   "<query>"            --repo <path> [--max-results <n>] [--json] [--timeout <ms>]
+vibecode codegraph context  "<query>"            --repo <path> [--max-nodes <n>] [--max-code <n>] [--json] [--timeout <ms>]
+vibecode codegraph files                         --repo <path> [--limit <n>] [--json] [--timeout <ms>]
+vibecode codegraph callers  "<symbol>"           --repo <path> [--limit <n>] [--json] [--timeout <ms>]
+vibecode codegraph callees  "<symbol>"           --repo <path> [--limit <n>] [--json] [--timeout <ms>]
+vibecode codegraph impact   "<path-or-symbol>"   --repo <path> [--limit <n>] [--json] [--timeout <ms>]
+```
+
+Upstream mapping (verified):
+
+| Vibecode subcommand | Upstream `codegraph` subcommand | Notes                                              |
+| ------------------- | ------------------------------- | -------------------------------------------------- |
+| `search`            | `query`                         | `--max-results` → `--limit`                        |
+| `context`           | `context`                       | `--json` → `--format json`                         |
+| `files`             | `files`                         | `--limit` is applied locally on parsed JSON output |
+| `callers`           | `callers`                       | direct                                             |
+| `callees`           | `callees`                       | direct                                             |
+| `impact`            | `impact`                        | `--limit` → upstream `--depth`                     |
+
+Read-only guarantees (anti-scope, enforced in tests):
+
+- never runs `codegraph init`, `sync`, `index`, `watch`, or `serve`
+- never creates `.codegraph/`
+- never writes to the repository
+- never calls an LLM provider
+- only the allowlisted upstream subcommands `query`, `context`, `files`,
+  `callers`, `callees`, `impact` are spawned
+
+Error envelope when CodeGraph is missing or unprepared:
+
+- `CODEGRAPH_NOT_INSTALLED` — the `codegraph` binary is not on PATH; the message
+  points the agent at `vibecode codegraph status --repo <path>`.
+- `CODEGRAPH_NOT_INITIALIZED` — `.codegraph/` is missing for the repo; the
+  message suggests `vibecode codegraph init --repo <path>`. The query command
+  does **not** auto-initialize.
+- `INVALID_ARGUMENT` — empty query/symbol or non-positive numeric flag.
+- `CODEGRAPH_QUERY_FAILED` — the underlying upstream command exited non-zero;
+  stderr is surfaced as `error.message`.
+
+Default human output is bounded markdown with the upstream command echoed; the
+`--json` envelope is stable:
+
+```json
+{
+  "ok": true,
+  "command": ["codegraph", "query", "--path", "<repoRoot>", "<query>", "--json"],
+  "repoRoot": "<absolute path>",
+  "query": "<query>",
+  "stdoutText": "<bounded raw stdout>",
+  "parsedJson": <parsed JSON when --json>,
+  "warnings": ["..."],
+  "error": { "code": "...", "message": "..." }
+}
+```
+
+Stale index handling: query commands surface a warning if upstream reports
+pending changes but still serve the query against the existing index. They do
+not auto-sync. Use `vibecode codegraph sync --repo <path>` explicitly.
+
+Guidance for agents:
+
+- Use `rg`/`grep` for exact strings, error messages, UI labels, and literal
+  text.
+- Use these CodeGraph commands for symbol search, call relationships, subsystem
+  discovery, and impact analysis.
+
+`trace` and `explore` are intentionally **not** implemented because upstream
+CodeGraph does not expose matching subcommands. They will be added only when a
+verified upstream command exists.
+
 ## CodeGraph MCP integration (Phase 1A)
 
 VibecodeLight integrates with the **existing upstream CodeGraph MCP server**. It

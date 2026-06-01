@@ -960,6 +960,19 @@ pnpm vibecode codegraph reindex  --repo <path> [--json]
 
 `status` is read-only (uses `codegraph --version` and an `fs.existsSync` check on `.codegraph/`). `init`, `sync`, and `reindex` are thin wrappers around `codegraph init -i`, `codegraph sync`, and `codegraph index --force`; failures return a structured `CODEGRAPH_<ACTION>_FAILED` envelope. These are the same operations the desktop composer's CodeGraph buttons trigger.
 
+Agent-facing read-only query namespace (provider-agnostic shell tools):
+
+```powershell
+pnpm vibecode codegraph search   "<query>"            --repo <path> [--max-results <n>] [--json]
+pnpm vibecode codegraph context  "<query>"            --repo <path> [--max-nodes <n>] [--max-code <n>] [--json]
+pnpm vibecode codegraph files                         --repo <path> [--limit <n>] [--json]
+pnpm vibecode codegraph callers  "<symbol>"           --repo <path> [--limit <n>] [--json]
+pnpm vibecode codegraph callees  "<symbol>"           --repo <path> [--limit <n>] [--json]
+pnpm vibecode codegraph impact   "<path-or-symbol>"   --repo <path> [--limit <n>] [--json]
+```
+
+These wrap the verified read-only upstream subcommands (`query`, `context`, `files`, `callers`, `callees`, `impact`). They are provider-agnostic: any terminal agent (Claude Code, Codex, Hermes, opencode, or anything else that can run a shell command) can invoke them. They are **not** native MCP tools, and they are **not** a Vibecode-owned MCP server. Native MCP integration remains optional future work. The commands are strictly read-only — they never run `codegraph init`, `sync`, `index`, `watch`, or `serve`, never create `.codegraph/`, never mutate the repository, and never call an LLM provider. If CodeGraph is missing or the repository is not initialized, they return a structured `CODEGRAPH_NOT_INSTALLED` / `CODEGRAPH_NOT_INITIALIZED` envelope that points to the explicit maintenance commands above. Use `rg`/`grep` for exact text and error messages; use these commands for structural symbol search, call relationships, and impact analysis.
+
 ### Internal scanner CLI
 
 ```powershell
