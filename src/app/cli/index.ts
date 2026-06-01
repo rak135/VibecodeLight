@@ -34,6 +34,15 @@ import {
   type CodeGraphQueryResult,
 } from '../../adapters/codegraph/codegraph_query_commands.js';
 import {
+  buildCodeGraphQueryEvent,
+  logCodeGraphQuery,
+  resolveRunIdForLogging,
+  type CodeGraphQueryLogError,
+  type CodeGraphQueryLogInput,
+  type CodeGraphQuerySubcommand,
+  type CodeGraphQueryLogWriteResult,
+} from '../../adapters/codegraph/codegraph_query_log.js';
+import {
   CODEGRAPH_TRANSPORT_VALUES,
   DEFAULT_CODEGRAPH_TRANSPORT,
   parseCodeGraphTransport,
@@ -1078,11 +1087,93 @@ interface CodeGraphQueryCliEnvelope {
   inputValue?: string;
 }
 
+function exitCodeFromError(error: CodeGraphQueryLogError | undefined | null, ok: boolean): number | null {
+  if (ok) return 0;
+  if (!error) return null;
+  if (error.code === 'CODEGRAPH_QUERY_FAILED') return 1;
+  if (error.code === 'INVALID_ARGUMENT' || error.code === 'INVALID_REPO_PATH') return null;
+  return null;
+}
+
+function relPathUnder(repoRoot: string, full: string): string {
+  const rel = path.relative(repoRoot, full).split(path.sep).join('/');
+  return rel.startsWith('..') ? full : rel;
+}
+
+interface LogRunInvocationOptions {
+  subcommand: CodeGraphQuerySubcommand;
+  repoRoot: string;
+  runIdOption: string | undefined;
+  input: CodeGraphQueryLogInput;
+  invoke: () => CodeGraphQueryResult;
+}
+
+interface LogRunInvocationOutput {
+  result: CodeGraphQueryResult;
+  logResult: CodeGraphQueryLogWriteResult;
+  runId: string | null;
+}
+
+function runAndLogCodeGraphQuery(opts: LogRunInvocationOptions): LogRunInvocationOutput {
+  const runId = resolveRunIdForLogging(opts.runIdOption);
+  const started = Date.now();
+  const result = opts.invoke();
+  const durationMs = Date.now() - started;
+
+  const stdoutText = result.stdoutText ?? '';
+  const stdoutBytes = Buffer.byteLength(stdoutText, 'utf8');
+  // stderr is not surfaced through the adapter result; only warnings reflect it
+  const stderrBytes = 0;
+  const parsedJson = result.parsedJson !== undefined;
+  const items = Array.isArray(result.parsedJson) ? result.parsedJson.length : null;
+  const truncated = result.warnings.some((w) => w.startsWith('CODEGRAPH_FILES_TRUNCATED'));
+  const error: CodeGraphQueryLogError | null = result.error
+    ? { code: result.error.code, message: result.error.message }
+    : null;
+  const exitCode = exitCodeFromError(error, result.ok);
+
+  const event = buildCodeGraphQueryEvent({
+    subcommand: opts.subcommand,
+    repoRoot: opts.repoRoot,
+    runId,
+    command: result.command,
+    input: opts.input,
+    ok: result.ok,
+    exitCode,
+    durationMs,
+    warnings: result.warnings,
+    error,
+    stdoutBytes,
+    stderrBytes,
+    parsedJson,
+    items,
+    truncated,
+  });
+
+  const logResult = logCodeGraphQuery({ repoRoot: opts.repoRoot, runId, event });
+  return { result, logResult, runId };
+}
+
 function emitCodeGraphQueryResult(
   result: CodeGraphQueryResult,
   envelope: CodeGraphQueryCliEnvelope,
-  options: { json?: boolean },
+  options: { json?: boolean; logResult?: CodeGraphQueryLogWriteResult; repoRoot?: string },
 ): void {
+  const logBlock = options.logResult
+    ? {
+        workspace_log: options.repoRoot
+          ? relPathUnder(options.repoRoot, options.logResult.workspaceLogPath)
+          : options.logResult.workspaceLogPath,
+        run_log:
+          options.logResult.runLogPath !== null
+            ? options.repoRoot
+              ? relPathUnder(options.repoRoot, options.logResult.runLogPath)
+              : options.logResult.runLogPath
+            : null,
+        warnings: options.logResult.warnings,
+      }
+    : undefined;
+
   if (options.json) {
     const payload: Record<string, unknown> = {
       ok: result.ok,
@@ -1094,6 +1185,7 @@ function emitCodeGraphQueryResult(
     if (result.stdoutText !== undefined) payload.stdoutText = result.stdoutText;
     if (result.parsedJson !== undefined) payload.parsedJson = result.parsedJson;
     if (result.error) payload.error = result.error;
+    if (logBlock) payload.log = logBlock;
     console.log(JSON.stringify(payload));
     if (!result.ok) process.exitCode = 1;
     return;
@@ -1150,7 +1242,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--json', 'Output canonical JSON envelope')
     .option('--max-results <n>', 'Maximum number of results to return')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
-    .action((query: string, options: { repo: string; json?: boolean; maxResults?: string; timeout?: string }) => {
+    .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
+    .action((query: string, options: { repo: string; json?: boolean; maxResults?: string; timeout?: string; runId?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const maxResults = parsePositiveIntegerOption(options.maxResults, '--max-results');
       if (!maxResults.ok) {
@@ -1162,14 +1255,28 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph search failed' });
         return;
       }
-      const result = runCodeGraphSearch({
+      const { result, logResult } = runAndLogCodeGraphQuery({
+        subcommand: 'search',
         repoRoot,
-        query,
-        ...(maxResults.value !== undefined ? { maxResults: maxResults.value } : {}),
-        ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
-        ...(options.json ? { json: true } : {}),
+        runIdOption: options.runId,
+        input: {
+          query,
+          ...(maxResults.value !== undefined ? { max_results: maxResults.value } : {}),
+        },
+        invoke: () =>
+          runCodeGraphSearch({
+            repoRoot,
+            query,
+            ...(maxResults.value !== undefined ? { maxResults: maxResults.value } : {}),
+            ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
+            ...(options.json ? { json: true } : {}),
+          }),
       });
-      emitCodeGraphQueryResult(result, { label: 'CodeGraph Search', inputKey: 'query', inputValue: query }, { json: options.json });
+      emitCodeGraphQueryResult(
+        result,
+        { label: 'CodeGraph Search', inputKey: 'query', inputValue: query },
+        { json: options.json, logResult, repoRoot },
+      );
     });
 
   codegraph
@@ -1180,7 +1287,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--max-nodes <n>', 'Maximum nodes to include')
     .option('--max-code <n>', 'Maximum code blocks to include')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
-    .action((query: string, options: { repo: string; json?: boolean; maxNodes?: string; maxCode?: string; timeout?: string }) => {
+    .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
+    .action((query: string, options: { repo: string; json?: boolean; maxNodes?: string; maxCode?: string; timeout?: string; runId?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const maxNodes = parsePositiveIntegerOption(options.maxNodes, '--max-nodes');
       if (!maxNodes.ok) {
@@ -1197,15 +1305,30 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph context failed' });
         return;
       }
-      const result = runCodeGraphContextQuery({
+      const { result, logResult } = runAndLogCodeGraphQuery({
+        subcommand: 'context',
         repoRoot,
-        query,
-        ...(maxNodes.value !== undefined ? { maxNodes: maxNodes.value } : {}),
-        ...(maxCode.value !== undefined ? { maxCode: maxCode.value } : {}),
-        ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
-        ...(options.json ? { json: true } : {}),
+        runIdOption: options.runId,
+        input: {
+          query,
+          ...(maxNodes.value !== undefined ? { max_nodes: maxNodes.value } : {}),
+          ...(maxCode.value !== undefined ? { max_code: maxCode.value } : {}),
+        },
+        invoke: () =>
+          runCodeGraphContextQuery({
+            repoRoot,
+            query,
+            ...(maxNodes.value !== undefined ? { maxNodes: maxNodes.value } : {}),
+            ...(maxCode.value !== undefined ? { maxCode: maxCode.value } : {}),
+            ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
+            ...(options.json ? { json: true } : {}),
+          }),
       });
-      emitCodeGraphQueryResult(result, { label: 'CodeGraph Context', inputKey: 'query', inputValue: query }, { json: options.json });
+      emitCodeGraphQueryResult(
+        result,
+        { label: 'CodeGraph Context', inputKey: 'query', inputValue: query },
+        { json: options.json, logResult, repoRoot },
+      );
     });
 
   codegraph
@@ -1215,7 +1338,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--json', 'Output canonical JSON envelope')
     .option('--limit <n>', 'Maximum number of file entries returned in --json output')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
-    .action((options: { repo: string; json?: boolean; limit?: string; timeout?: string }) => {
+    .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
+    .action((options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const limit = parsePositiveIntegerOption(options.limit, '--limit');
       if (!limit.ok) {
@@ -1227,13 +1351,26 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph files failed' });
         return;
       }
-      const result = runCodeGraphFiles({
+      const { result, logResult } = runAndLogCodeGraphQuery({
+        subcommand: 'files',
         repoRoot,
-        ...(limit.value !== undefined ? { limit: limit.value } : {}),
-        ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
-        ...(options.json ? { json: true } : {}),
+        runIdOption: options.runId,
+        input: {
+          ...(limit.value !== undefined ? { limit: limit.value } : {}),
+        },
+        invoke: () =>
+          runCodeGraphFiles({
+            repoRoot,
+            ...(limit.value !== undefined ? { limit: limit.value } : {}),
+            ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
+            ...(options.json ? { json: true } : {}),
+          }),
       });
-      emitCodeGraphQueryResult(result, { label: 'CodeGraph Files', inputKey: 'input' }, { json: options.json });
+      emitCodeGraphQueryResult(
+        result,
+        { label: 'CodeGraph Files', inputKey: 'input' },
+        { json: options.json, logResult, repoRoot },
+      );
     });
 
   const registerSymbolCommand = (
@@ -1248,7 +1385,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
       .option('--json', 'Output canonical JSON envelope')
       .option('--limit <n>', 'Maximum number of results to return')
       .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
-      .action((symbol: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string }) => {
+      .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
+      .action((symbol: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string }) => {
         const repoRoot = path.resolve(options.repo);
         const limit = parsePositiveIntegerOption(options.limit, '--limit');
         if (!limit.ok) {
@@ -1260,14 +1398,28 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
           emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: `codegraph ${name} failed` });
           return;
         }
-        const result = runner({
+        const { result, logResult } = runAndLogCodeGraphQuery({
+          subcommand: name,
           repoRoot,
-          symbol,
-          ...(limit.value !== undefined ? { limit: limit.value } : {}),
-          ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
-          ...(options.json ? { json: true } : {}),
+          runIdOption: options.runId,
+          input: {
+            symbol,
+            ...(limit.value !== undefined ? { limit: limit.value } : {}),
+          },
+          invoke: () =>
+            runner({
+              repoRoot,
+              symbol,
+              ...(limit.value !== undefined ? { limit: limit.value } : {}),
+              ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
+              ...(options.json ? { json: true } : {}),
+            }),
         });
-        emitCodeGraphQueryResult(result, { label, inputKey: 'symbol', inputValue: symbol }, { json: options.json });
+        emitCodeGraphQueryResult(
+          result,
+          { label, inputKey: 'symbol', inputValue: symbol },
+          { json: options.json, logResult, repoRoot },
+        );
       });
   };
 
@@ -1281,7 +1433,8 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
     .option('--json', 'Output canonical JSON envelope')
     .option('--limit <n>', 'Traversal depth (maps to codegraph impact --depth)')
     .option('--timeout <ms>', 'Timeout for the underlying codegraph command in milliseconds')
-    .action((input: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string }) => {
+    .option('--run-id <id>', 'Run id for run-scoped logging (no fake run dirs)')
+    .action((input: string, options: { repo: string; json?: boolean; limit?: string; timeout?: string; runId?: string }) => {
       const repoRoot = path.resolve(options.repo);
       const limit = parsePositiveIntegerOption(options.limit, '--limit');
       if (!limit.ok) {
@@ -1293,14 +1446,28 @@ function registerCodeGraphQueryCommands(codegraph: Command): void {
         emitCliStructuredError(makeCliStructuredError('INVALID_ARGUMENT', timeout.message), { json: options.json, prefix: 'codegraph impact failed' });
         return;
       }
-      const result = runCodeGraphImpact({
+      const { result, logResult } = runAndLogCodeGraphQuery({
+        subcommand: 'impact',
         repoRoot,
-        symbol: input,
-        ...(limit.value !== undefined ? { limit: limit.value } : {}),
-        ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
-        ...(options.json ? { json: true } : {}),
+        runIdOption: options.runId,
+        input: {
+          path_or_symbol: input,
+          ...(limit.value !== undefined ? { limit: limit.value } : {}),
+        },
+        invoke: () =>
+          runCodeGraphImpact({
+            repoRoot,
+            symbol: input,
+            ...(limit.value !== undefined ? { limit: limit.value } : {}),
+            ...(timeout.value !== undefined ? { timeoutMs: timeout.value } : {}),
+            ...(options.json ? { json: true } : {}),
+          }),
       });
-      emitCodeGraphQueryResult(result, { label: 'CodeGraph Impact', inputKey: 'input', inputValue: input }, { json: options.json });
+      emitCodeGraphQueryResult(
+        result,
+        { label: 'CodeGraph Impact', inputKey: 'input', inputValue: input },
+        { json: options.json, logResult, repoRoot },
+      );
     });
 }
 

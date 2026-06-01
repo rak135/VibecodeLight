@@ -470,18 +470,22 @@ interface BuildFinalPromptOptions {
  * verified read-only subcommands plus a one-line rg/grep vs CodeGraph
  * guideline. No transport/MCP/agent-specific details.
  */
-const AVAILABLE_REPO_NAVIGATION_COMMANDS_SECTION =
-  `# Available Repo Navigation Commands\n\n` +
-  `Use these shell commands for structural repository navigation when useful:\n\n` +
-  `- vibecode codegraph search "<query>"\n` +
-  `- vibecode codegraph context "<query>"\n` +
-  `- vibecode codegraph files\n` +
-  `- vibecode codegraph callers "<symbol>"\n` +
-  `- vibecode codegraph callees "<symbol>"\n` +
-  `- vibecode codegraph impact "<path-or-symbol>"\n\n` +
-  `Use rg/grep for exact strings, error messages, UI labels, and literal text.\n` +
-  `Use CodeGraph for symbols, call relationships, subsystem discovery, and impact analysis.\n\n` +
-  `Do not overuse CodeGraph. Prefer the smallest command that answers the question.\n`;
+function renderAvailableRepoNavigationCommandsSection(runId: string): string {
+  const suffix = ` --run-id ${runId}`;
+  return (
+    `# Available Repo Navigation Commands\n\n` +
+    `Use these shell commands for structural repository navigation when useful:\n\n` +
+    `- vibecode codegraph search "<query>"${suffix}\n` +
+    `- vibecode codegraph context "<query>"${suffix}\n` +
+    `- vibecode codegraph files${suffix}\n` +
+    `- vibecode codegraph callers "<symbol>"${suffix}\n` +
+    `- vibecode codegraph callees "<symbol>"${suffix}\n` +
+    `- vibecode codegraph impact "<path-or-symbol>"${suffix}\n\n` +
+    `Use rg/grep for exact strings, error messages, UI labels, and literal text.\n` +
+    `Use CodeGraph for symbols, call relationships, subsystem discovery, and impact analysis.\n\n` +
+    `Do not overuse CodeGraph. Prefer the smallest command that answers the question.\n`
+  );
+}
 
 function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
   const {
@@ -582,7 +586,7 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
 
     `# Repository Instructions\n\nRead and follow repository instruction files before making changes:\n\n${instructionSection}`,
 
-    ...(codegraphReady ? [AVAILABLE_REPO_NAVIGATION_COMMANDS_SECTION] : []),
+    ...(codegraphReady ? [renderAvailableRepoNavigationCommandsSection(manifest.run_id)] : []),
 
     `# Validation Expectations\n\n- Keep changes scoped to the requested task.\n- Run the relevant tests and checks listed above before reporting completion.\n- Do not introduce changes outside the stated scope.\n- Verify all modified files compile without errors.\n`,
 

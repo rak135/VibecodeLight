@@ -117,13 +117,48 @@ ship its own CodeGraph MCP server for them. Native MCP integration for
 individual agents remains optional future work.
 
 ```text
-vibecode codegraph search   "<query>"            --repo <path> [--max-results <n>] [--json] [--timeout <ms>]
-vibecode codegraph context  "<query>"            --repo <path> [--max-nodes <n>] [--max-code <n>] [--json] [--timeout <ms>]
-vibecode codegraph files                         --repo <path> [--limit <n>] [--json] [--timeout <ms>]
-vibecode codegraph callers  "<symbol>"           --repo <path> [--limit <n>] [--json] [--timeout <ms>]
-vibecode codegraph callees  "<symbol>"           --repo <path> [--limit <n>] [--json] [--timeout <ms>]
-vibecode codegraph impact   "<path-or-symbol>"   --repo <path> [--limit <n>] [--json] [--timeout <ms>]
+vibecode codegraph search   "<query>"            --repo <path> [--max-results <n>] [--json] [--timeout <ms>] [--run-id <id>]
+vibecode codegraph context  "<query>"            --repo <path> [--max-nodes <n>] [--max-code <n>] [--json] [--timeout <ms>] [--run-id <id>]
+vibecode codegraph files                         --repo <path> [--limit <n>] [--json] [--timeout <ms>] [--run-id <id>]
+vibecode codegraph callers  "<symbol>"           --repo <path> [--limit <n>] [--json] [--timeout <ms>] [--run-id <id>]
+vibecode codegraph callees  "<symbol>"           --repo <path> [--limit <n>] [--json] [--timeout <ms>] [--run-id <id>]
+vibecode codegraph impact   "<path-or-symbol>"   --repo <path> [--limit <n>] [--json] [--timeout <ms>] [--run-id <id>]
 ```
+
+#### Logging
+
+Every agent-facing CodeGraph query command appends a single JSONL event to a
+workspace-level log:
+
+```text
+<repo>/.vibecode/logs/codegraph_queries.jsonl
+```
+
+When a run id is available **and** its directory already exists, the same event
+is also appended to a run-scoped log:
+
+```text
+<repo>/.vibecode/runs/<run_id>/terminal/codegraph_queries.jsonl
+```
+
+Run id resolution priority:
+
+1. explicit CLI option `--run-id <id>`
+2. environment variable `VIBECODE_RUN_ID` (optional fallback only)
+3. no run id → workspace-level log only
+
+The latest run is **never** used as a fallback. If a run id is provided but the
+matching `.vibecode/runs/<run_id>/` directory does not exist, the query still
+runs, the event is still appended to the workspace log, and the logging block
+records `RUN_LOG_SKIPPED_RUN_NOT_FOUND`. No fake run directory is created.
+
+Event fields include `subcommand`, `repo_root`, `command`, bounded `input`
+metadata, `ok`, `exit_code`, `duration_ms`, `warnings`, `error`, and a
+`result_summary` with byte counts and parsed-JSON indicators. Logs contain
+**metadata only** — full stdout and stderr are not written by default, and
+environment values and secrets are never logged. Logging failures do not fail
+the query command; they are surfaced as warnings in the `--json` envelope under
+`log.warnings`.
 
 Upstream mapping (verified):
 
@@ -168,7 +203,12 @@ Default human output is bounded markdown with the upstream command echoed; the
   "stdoutText": "<bounded raw stdout>",
   "parsedJson": <parsed JSON when --json>,
   "warnings": ["..."],
-  "error": { "code": "...", "message": "..." }
+  "error": { "code": "...", "message": "..." },
+  "log": {
+    "workspace_log": ".vibecode/logs/codegraph_queries.jsonl",
+    "run_log": ".vibecode/runs/<run_id>/terminal/codegraph_queries.jsonl",
+    "warnings": []
+  }
 }
 ```
 

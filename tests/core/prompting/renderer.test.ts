@@ -1425,5 +1425,35 @@ describe('renderFinalPrompt', () => {
       expect(content).toContain('# Validation Expectations');
       expect(content).toContain('# Output Requirements');
     });
+
+    test('all 6 commands include --run-id <current-run-id>', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      const runId = 'test-run-001';
+      expect(section).toContain(`vibecode codegraph search "<query>" --run-id ${runId}`);
+      expect(section).toContain(`vibecode codegraph context "<query>" --run-id ${runId}`);
+      expect(section).toContain(`vibecode codegraph files --run-id ${runId}`);
+      expect(section).toContain(`vibecode codegraph callers "<symbol>" --run-id ${runId}`);
+      expect(section).toContain(`vibecode codegraph callees "<symbol>" --run-id ${runId}`);
+      expect(section).toContain(`vibecode codegraph impact "<path-or-symbol>" --run-id ${runId}`);
+    });
+
+    test('section omits MCP / agent vendor names even with --run-id present', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).not.toMatch(/\bMCP\b/);
+      expect(section).not.toMatch(/Claude Code/i);
+      expect(section).not.toMatch(/Codex/i);
+      expect(section).not.toMatch(/Hermes/i);
+      expect(section).not.toMatch(/opencode/i);
+    });
   });
 });
