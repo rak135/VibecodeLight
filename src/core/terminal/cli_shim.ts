@@ -47,8 +47,13 @@ function windowsShimContent(appCliPath: string): string {
   return `@echo off\r\nnode "${appCliPath}" %*\r\n`;
 }
 
+function toShellPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 function posixShimContent(appCliPath: string): string {
-  return `#!/usr/bin/env sh\nexec node "${appCliPath}" "$@"\n`;
+  const shellPath = toShellPath(appCliPath);
+  return `#!/usr/bin/env sh\nexec node "${shellPath}" "$@"\n`;
 }
 
 function writeIfChanged(filePath: string, content: string): void {
@@ -71,6 +76,12 @@ export function writeVibecodeCliShim(options: WriteShimOptions): ShimPaths {
 
   if (platform === 'win32') {
     writeIfChanged(paths.windowsShimPath, windowsShimContent(options.appCliPath));
+    writeIfChanged(paths.posixShimPath, posixShimContent(options.appCliPath));
+    try {
+      fs.chmodSync(paths.posixShimPath, 0o755);
+    } catch {
+      // chmod is best-effort on platforms (e.g. Windows) that don't support it.
+    }
   } else {
     writeIfChanged(paths.posixShimPath, posixShimContent(options.appCliPath));
     try {

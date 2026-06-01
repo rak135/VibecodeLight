@@ -100,7 +100,91 @@ describe('cli_shim — writeVibecodeCliShim', () => {
     expect(result.posixShimPath).toBe(posixShim);
     const content = fs.readFileSync(posixShim, 'utf8');
     expect(content).toContain('#!/usr/bin/env sh');
-    expect(content).toContain(`exec node "${appCli}" "$@"`);
+    const shellPath = appCli.replace(/\\/g, '/');
+    expect(content).toContain(`exec node "${shellPath}" "$@"`);
+  });
+
+  test('on windows also writes an extensionless bash-compatible vibecode shim', () => {
+    const repo = mkTmp();
+    const appCli = path.join(repo, 'bin', 'vibecode.js');
+
+    writeVibecodeCliShim({ repoPath: repo, appCliPath: appCli, platform: 'win32' });
+
+    const cmdShim = path.join(repo, '.vibecode', 'bin', 'vibecode.cmd');
+    const bashShim = path.join(repo, '.vibecode', 'bin', 'vibecode');
+    expect(fs.existsSync(cmdShim)).toBe(true);
+    expect(fs.existsSync(bashShim)).toBe(true);
+  });
+
+  test('windows extensionless shim contains sh shebang, exec node, and forwards "$@"', () => {
+    const repo = mkTmp();
+    const appCli = path.join(repo, 'bin', 'vibecode.js');
+
+    writeVibecodeCliShim({ repoPath: repo, appCliPath: appCli, platform: 'win32' });
+    const content = fs.readFileSync(
+      path.join(repo, '.vibecode', 'bin', 'vibecode'),
+      'utf8',
+    );
+
+    expect(content).toContain('#!/usr/bin/env sh');
+    expect(content).toContain('exec node ');
+    expect(content).toContain('"$@"');
+  });
+
+  test('windows extensionless shim uses forward-slash-normalized path (no raw backslashes)', () => {
+    const repo = 'C:\\DATA\\PROJECTS\\example';
+    const appCli = 'C:\\DATA\\PROJECTS\\example\\bin\\vibecode.js';
+    const realRepo = mkTmp();
+
+    writeVibecodeCliShim({ repoPath: realRepo, appCliPath: appCli, platform: 'win32' });
+    const content = fs.readFileSync(
+      path.join(realRepo, '.vibecode', 'bin', 'vibecode'),
+      'utf8',
+    );
+
+    expect(content).not.toMatch(/C:\\DATA\\PROJECTS\\example\\bin\\vibecode\.js/);
+    expect(content).toContain('C:/DATA/PROJECTS/example/bin/vibecode.js');
+    // Repo placeholder unused — silence linter.
+    expect(repo).toBeTruthy();
+  });
+
+  test('windows .cmd shim still forwards %*', () => {
+    const repo = mkTmp();
+    const appCli = path.join(repo, 'bin', 'vibecode.js');
+
+    writeVibecodeCliShim({ repoPath: repo, appCliPath: appCli, platform: 'win32' });
+    const content = fs.readFileSync(
+      path.join(repo, '.vibecode', 'bin', 'vibecode.cmd'),
+      'utf8',
+    );
+
+    expect(content).toContain('%*');
+  });
+
+  test('windows shim writer is idempotent for both shims', () => {
+    const repo = mkTmp();
+    const appCli = path.join(repo, 'bin', 'vibecode.js');
+
+    writeVibecodeCliShim({ repoPath: repo, appCliPath: appCli, platform: 'win32' });
+    const cmd1 = fs.readFileSync(path.join(repo, '.vibecode', 'bin', 'vibecode.cmd'), 'utf8');
+    const sh1 = fs.readFileSync(path.join(repo, '.vibecode', 'bin', 'vibecode'), 'utf8');
+    writeVibecodeCliShim({ repoPath: repo, appCliPath: appCli, platform: 'win32' });
+    const cmd2 = fs.readFileSync(path.join(repo, '.vibecode', 'bin', 'vibecode.cmd'), 'utf8');
+    const sh2 = fs.readFileSync(path.join(repo, '.vibecode', 'bin', 'vibecode'), 'utf8');
+
+    expect(cmd2).toBe(cmd1);
+    expect(sh2).toBe(sh1);
+  });
+
+  test('both windows shims stay under <repo>/.vibecode/bin', () => {
+    const repo = mkTmp();
+    const appCli = path.join(repo, 'bin', 'vibecode.js');
+
+    const result = writeVibecodeCliShim({ repoPath: repo, appCliPath: appCli, platform: 'win32' });
+    const binDir = path.join(repo, '.vibecode', 'bin');
+
+    expect(path.dirname(result.windowsShimPath)).toBe(binDir);
+    expect(path.dirname(result.posixShimPath)).toBe(binDir);
   });
 });
 
