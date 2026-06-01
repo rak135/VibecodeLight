@@ -47,12 +47,15 @@ describe('desktop preload bridge boundary', () => {
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
     expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
     expect(Object.keys(api.config).sort()).toEqual([
+      'getCodeGraphTransportSetting',
       'getPaths',
       'initLocal',
       'models',
       'openDir',
       'providers',
       'rememberLiveSelection',
+      'resetCodeGraphTransportSetting',
+      'setCodeGraphTransportSetting',
       'show',
       'syncFromGlobal',
     ]);
@@ -187,6 +190,36 @@ describe('desktop preload bridge boundary', () => {
     await composer.sendPreview('2026-05-20_001', 'origin-tile', true);
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('composer:sendPreview', '2026-05-20_001', 'origin-tile', true);
+  });
+
+  test('config CodeGraph transport methods invoke only safe config IPC channels', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true, transport: 'mcp' }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const config = api.config as {
+      getCodeGraphTransportSetting: () => Promise<unknown>;
+      setCodeGraphTransportSetting: (transport: string) => Promise<unknown>;
+      resetCodeGraphTransportSetting: () => Promise<unknown>;
+    };
+
+    await config.getCodeGraphTransportSetting();
+    await config.setCodeGraphTransportSetting('auto');
+    await config.resetCodeGraphTransportSetting();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getCodeGraphTransportSetting');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setCodeGraphTransportSetting', 'auto');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:resetCodeGraphTransportSetting');
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
   });
 
   test('runs.list invokes runs:list IPC channel only', async () => {

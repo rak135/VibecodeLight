@@ -70,7 +70,9 @@
     }
 
     // CodeGraph pipeline transport selection (Phase 1B). The transport is
-    // independent of the CodeGraph ON/OFF toggle: detect-only ignores it.
+    // independent of the CodeGraph ON/OFF toggle: detect-only ignores it. The
+    // desktop GUI source of truth is the shared global config bridge
+    // (defaults.codegraph.transport), not renderer localStorage.
     var CODEGRAPH_TRANSPORT_STORAGE_KEY = 'vibecode.codegraphTransport';
     var DEFAULT_CODEGRAPH_TRANSPORT = 'cli';
     var CODEGRAPH_TRANSPORTS = ['cli', 'mcp', 'auto'];
@@ -81,16 +83,53 @@
       return CODEGRAPH_TRANSPORTS.indexOf(trimmed) >= 0 ? trimmed : DEFAULT_CODEGRAPH_TRANSPORT;
     }
 
-    function readCodeGraphTransport(storage) {
-      if (!storage || typeof storage.getItem !== 'function') return DEFAULT_CODEGRAPH_TRANSPORT;
-      return normalizeCodeGraphTransport(storage.getItem(CODEGRAPH_TRANSPORT_STORAGE_KEY));
+    function isValidCodeGraphTransport(value) {
+      return typeof value === 'string' && CODEGRAPH_TRANSPORTS.indexOf(value.trim().toLowerCase()) >= 0;
     }
 
-    function writeCodeGraphTransport(storage, transport) {
-      if (!storage || typeof storage.setItem !== 'function') return DEFAULT_CODEGRAPH_TRANSPORT;
+    async function loadCodeGraphTransportSetting(configApi) {
+      if (!configApi || typeof configApi.getCodeGraphTransportSetting !== 'function') {
+        return DEFAULT_CODEGRAPH_TRANSPORT;
+      }
+      try {
+        var result = await configApi.getCodeGraphTransportSetting();
+        if (!result || result.ok !== true || !isValidCodeGraphTransport(result.transport)) {
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn('CodeGraph transport config read failed; falling back to cli.');
+          }
+          return DEFAULT_CODEGRAPH_TRANSPORT;
+        }
+        return normalizeCodeGraphTransport(result.transport);
+      } catch (err) {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('CodeGraph transport config bridge failed; falling back to cli.', err);
+        }
+        return DEFAULT_CODEGRAPH_TRANSPORT;
+      }
+    }
+
+    async function writeCodeGraphTransportSetting(configApi, transport) {
       var normalized = normalizeCodeGraphTransport(transport);
-      storage.setItem(CODEGRAPH_TRANSPORT_STORAGE_KEY, normalized);
-      return normalized;
+      if (!configApi || typeof configApi.setCodeGraphTransportSetting !== 'function') {
+        throw new Error('CODEGRAPH_TRANSPORT_BRIDGE_UNAVAILABLE — config bridge is unavailable');
+      }
+      var result = await configApi.setCodeGraphTransportSetting(normalized);
+      if (!result || result.ok !== true || !isValidCodeGraphTransport(result.transport)) {
+        var error = result && result.error ? result.error : { code: 'CODEGRAPH_TRANSPORT_WRITE_FAILED', message: 'could not save CodeGraph transport' };
+        throw new Error(safeDiagnostic(error));
+      }
+      return normalizeCodeGraphTransport(result.transport);
+    }
+
+    // Legacy aliases retained for tests/older callers. They deliberately do not
+    // touch localStorage anymore; the dropdown must not treat stale renderer
+    // storage as authoritative.
+    function readCodeGraphTransport(_storage) {
+      return DEFAULT_CODEGRAPH_TRANSPORT;
+    }
+
+    function writeCodeGraphTransport(_storage, transport) {
+      return normalizeCodeGraphTransport(transport);
     }
 
     // The header pill reflects the flash mode the next preview will use. It
@@ -400,6 +439,8 @@
       composerKeyStatus: composerKeyStatus,
       readTaskNormalizerEnabled: readTaskNormalizerEnabled,
       writeTaskNormalizerEnabled: writeTaskNormalizerEnabled,
+      loadCodeGraphTransportSetting: loadCodeGraphTransportSetting,
+      writeCodeGraphTransportSetting: writeCodeGraphTransportSetting,
       readCodeGraphTransport: readCodeGraphTransport,
       writeCodeGraphTransport: writeCodeGraphTransport,
       normalizeCodeGraphTransport: normalizeCodeGraphTransport,

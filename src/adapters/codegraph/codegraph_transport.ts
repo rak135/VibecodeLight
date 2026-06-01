@@ -43,5 +43,5 @@ export function normalizeCodeGraphTransport(value: unknown): CodeGraphTransport 
   return TRANSPORTS.has(trimmed as CodeGraphTransport) ? (trimmed as CodeGraphTransport) : DEFAULT_CODEGRAPH_TRANSPORT;
 }
 
-/** Stable identifier used by the desktop renderer and tests for persistence. */
+/** Legacy renderer localStorage key retained as a stable identifier for compatibility tests. */
 export const CODEGRAPH_TRANSPORT_STORAGE_KEY = 'vibecode.codegraphTransport';

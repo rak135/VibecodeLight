@@ -174,6 +174,18 @@ export interface ConfigRememberLiveSelectionIpc {
   error?: { code: string; message: string; details?: string[] };
 }
 
+export interface CodeGraphTransportSettingIpc {
+  ok: boolean;
+  transport?: CodeGraphTransportIpc;
+  default?: CodeGraphTransportIpc;
+  source?: 'global' | 'default';
+  global_config_path?: string;
+  global_config_exists?: boolean;
+  warnings?: string[];
+  artifactPath?: string;
+  error?: { code: string; message: string; details: string[] };
+}
+
 /**
  * Mirror of the core `CodeGraphStatus` shape (detect-only, informational). The
  * renderer reads this from `runs:show`; it never parses external_tools.json or
@@ -287,6 +299,9 @@ export interface VibecodePreloadApi {
     show(runId: string): Promise<RunsShowIpc>;
   };
   config: {
+    getCodeGraphTransportSetting(): Promise<CodeGraphTransportSettingIpc>;
+    setCodeGraphTransportSetting(transport: CodeGraphTransportIpc): Promise<CodeGraphTransportSettingIpc>;
+    resetCodeGraphTransportSetting(): Promise<CodeGraphTransportSettingIpc>;
     getPaths(): Promise<ConfigPathsIpc>;
     show(): Promise<{ ok: boolean; resolution: ConfigResolutionIpc }>;
     providers(): Promise<ConfigProvidersIpc>;
@@ -387,6 +402,15 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
     },
     config: {
+      getCodeGraphTransportSetting() {
+        return ipcRenderer.invoke('config:getCodeGraphTransportSetting') as Promise<CodeGraphTransportSettingIpc>;
+      },
+      setCodeGraphTransportSetting(transport: CodeGraphTransportIpc) {
+        return ipcRenderer.invoke('config:setCodeGraphTransportSetting', transport) as Promise<CodeGraphTransportSettingIpc>;
+      },
+      resetCodeGraphTransportSetting() {
+        return ipcRenderer.invoke('config:resetCodeGraphTransportSetting') as Promise<CodeGraphTransportSettingIpc>;
+      },
       getPaths() {
         return ipcRenderer.invoke('config:getPaths') as Promise<ConfigPathsIpc>;
       },

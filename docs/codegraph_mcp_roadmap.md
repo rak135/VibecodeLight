@@ -33,13 +33,14 @@ Added in Phase 1B (optional pipeline transport):
   - `auto` — prefers MCP; on failure emits a `codegraph_transport_fallback`
     warning event, falls back to the CLI, and records `fallback_used: true`
     in `scan/codegraph_usage.json`.
-- The transport is selected from the desktop **CodeGraph Transport** dropdown
-  (next to the existing CodeGraph toggle). It is persisted in `localStorage`
-  under `vibecode.codegraphTransport` and remembered across app restarts.
-  Invalid persisted values fall back to `cli`.
-- CLI parity is available through a settings command, not a prompt flag. CLI
-  runs read the global user config setting `defaults.codegraph.transport` from
-  `%LOCALAPPDATA%/vibecodelight/config.yaml`:
+- The transport is a shared global setting selected from the desktop
+  **CodeGraph Transport** dropdown (next to the existing CodeGraph toggle) or
+  from the CLI settings command. The GUI and CLI both read/write
+  `defaults.codegraph.transport` in the global user config at
+  `%LOCALAPPDATA%/vibecodelight/config.yaml` (or the equivalent platform user
+  config path). GUI remembers the setting by using global config, not localStorage; invalid or
+  missing values resolve to `cli` (default = cli).
+- CLI parity is available through a settings command, not a prompt flag:
 
   ```text
   vibecode codegraph transport get --json

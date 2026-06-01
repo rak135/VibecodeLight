@@ -217,14 +217,13 @@ false`.
 
 ### How the transport is selected
 
-- Desktop: the **CodeGraph Transport** dropdown in the composer header
-  (next to the CodeGraph ON/OFF toggle). The choice is persisted in
-  `localStorage` under `vibecode.codegraphTransport` and restored when the app
-  reopens. Invalid persisted values fall back to `cli`.
-- CLI: the same conceptual setting is persisted in the global user config
-  (`%LOCALAPPDATA%/vibecodelight/config.yaml`) at
-  `defaults.codegraph.transport`. Inspect and change it without starting
-  CodeGraph:
+- CodeGraph Transport is a shared global setting. The desktop **CodeGraph
+  Transport** dropdown in the composer header and the CLI command both
+  read/write the same global user config key,
+  `defaults.codegraph.transport`, in `%LOCALAPPDATA%/vibecodelight/config.yaml`
+  (or the equivalent platform user config path). GUI remembers the setting by using global config, not localStorage. Missing or invalid values resolve to
+  `cli` (default = cli).
+- Inspect and change it without starting CodeGraph:
 
   ```text
   vibecode codegraph transport get --json
@@ -232,9 +231,9 @@ false`.
   vibecode codegraph transport reset --json
   ```
 
-  CLI `prompt` and `context-build` runs read this persisted setting whenever
-  CodeGraph mode is `use-existing` and no internal test seam override is
-  provided. prompt-level transport flags are intentionally not the primary UX;
+  CLI `prompt` and `context-build` runs, plus desktop preview/run requests, read
+  this persisted setting whenever CodeGraph mode is `use-existing` and no
+  internal test seam override is provided. prompt-level transport flags are intentionally not the primary UX;
   use the persisted setting instead. The internal `runContextBuild` helper still
   accepts `codegraphTransport` and an injectable `codegraphMcpRunner` for tests.
 

@@ -112,8 +112,8 @@
                   </button>
                   <!-- CodeGraph transport (Phase 1B): chooses how the pipeline queries
                        the existing CodeGraph index. Independent of the ON/OFF toggle;
-                       detect-only records but ignores this. Persisted in localStorage
-                       under vibecode.codegraphTransport. -->
+                       detect-only records but ignores this. Shared with the CLI via
+                       global defaults.codegraph.transport. -->
                   <label id="codegraph-transport-label" for="codegraph-transport-select"
                     title="Choose how CodeGraph context is queried. CLI is the stable default; MCP uses codegraph serve --mcp; Auto prefers MCP and falls back to CLI."
                     style="margin-left:6px;display:inline-flex;gap:4px;align-items:center;font-size:11px;color:var(--muted,#888);text-transform:none;">
@@ -383,6 +383,7 @@
       let currentPreview = null;
       let lastSend = null;
       let activePanel = null;
+      let lastCodeGraphTransport = 'cli';
       // The tile the composer is currently attached to. We capture this at
       // open time so the final_prompt.md is sent back to that exact session
       // even if the user later focuses a different tile.
@@ -531,17 +532,47 @@
           : 'detect-only';
       }
 
-      function restoreStoredCodeGraphTransport() {
+      function setCodeGraphTransportSelectValue(transport) {
+        const normalized = window.VibecodeFlashSettings && window.VibecodeFlashSettings.normalizeCodeGraphTransport
+          ? window.VibecodeFlashSettings.normalizeCodeGraphTransport(transport)
+          : ((transport === 'mcp' || transport === 'auto') ? transport : 'cli');
+        lastCodeGraphTransport = normalized;
+        if (codegraphTransportSelect) codegraphTransportSelect.value = normalized;
+        return normalized;
+      }
+
+      async function loadGlobalCodeGraphTransport() {
+        // The helper calls config.getCodeGraphTransportSetting() via preload IPC.
         if (!codegraphTransportSelect) return 'cli';
-        var transport = 'cli';
-        if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.readCodeGraphTransport) {
-          transport = window.VibecodeFlashSettings.readCodeGraphTransport(localStorage);
-        } else {
-          var raw = localStorage.getItem('vibecode.codegraphTransport');
-          if (raw === 'mcp' || raw === 'auto' || raw === 'cli') transport = raw;
+        if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.loadCodeGraphTransportSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+          return setCodeGraphTransportSelectValue('cli');
         }
-        codegraphTransportSelect.value = transport;
-        return transport;
+        const transport = await window.VibecodeFlashSettings.loadCodeGraphTransportSetting(window.vibecodeAPI.config);
+        return setCodeGraphTransportSelectValue(transport);
+      }
+
+      async function saveCodeGraphTransportSelection() {
+        // The helper calls config.setCodeGraphTransportSetting(...) via preload IPC.
+        if (!codegraphTransportSelect) return;
+        const previous = lastCodeGraphTransport;
+        const selected = getCodeGraphTransport();
+        codegraphTransportSelect.disabled = true;
+        try {
+          if (!window.VibecodeFlashSettings || !window.VibecodeFlashSettings.writeCodeGraphTransportSetting || !window.vibecodeAPI || !window.vibecodeAPI.config) {
+            throw new Error('CodeGraph transport config bridge is unavailable.');
+          }
+          const saved = await window.VibecodeFlashSettings.writeCodeGraphTransportSetting(window.vibecodeAPI.config, selected);
+          setCodeGraphTransportSelectValue(saved);
+        } catch (error) {
+          codegraphTransportSelect.value = previous;
+          lastCodeGraphTransport = previous;
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn('CodeGraph transport setting was not saved.', error);
+          showToast('CodeGraph transport was not saved');
+          setFlashSettingsStatus('CodeGraph transport was not saved: ' + message, 'error');
+        } finally {
+          codegraphTransportSelect.disabled = false;
+        }
       }
 
       function getCodeGraphTransport() {
@@ -575,7 +606,7 @@
       restoreStoredCodeGraphToggleState();
       syncCodeGraphToggleAvailability();
       restoreStoredTaskNormalizerToggleState();
-      restoreStoredCodeGraphTransport();
+      void loadGlobalCodeGraphTransport();
 
       function refreshSendButton() {
         const ready = terminalReady();
@@ -1074,15 +1105,7 @@
       }
       if (codegraphTransportSelect) {
         codegraphTransportSelect.addEventListener('change', () => {
-          if (window.VibecodeFlashSettings && window.VibecodeFlashSettings.writeCodeGraphTransport) {
-            const normalized = window.VibecodeFlashSettings.writeCodeGraphTransport(localStorage, codegraphTransportSelect.value);
-            codegraphTransportSelect.value = normalized;
-          } else {
-            const v = codegraphTransportSelect.value;
-            const normalized = (v === 'mcp' || v === 'auto') ? v : 'cli';
-            localStorage.setItem('vibecode.codegraphTransport', normalized);
-            codegraphTransportSelect.value = normalized;
-          }
+          void saveCodeGraphTransportSelection();
         });
       }
       if (taskNormalizerToggle) {
@@ -1693,6 +1716,7 @@
       function openSettings() {
         settingsOverlay.classList.add('open');
         settingsOverlay.setAttribute('aria-hidden', 'false');
+        void loadGlobalCodeGraphTransport();
         if (flashController) void flashController.refresh();
       }
       function closeSettings() {
@@ -1716,6 +1740,7 @@
         });
         composerFlashModel.addEventListener('change', () => { void rememberComposerSelection(); });
         composerModeRadios.forEach((radio) => radio.addEventListener('change', applyComposerMode));
+        void loadGlobalCodeGraphTransport();
         void flashController.refresh();
       }
 

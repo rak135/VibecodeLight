@@ -84,7 +84,16 @@ export interface FlashSettingsView {
   setStatus(text: string, kind?: string): void;
 }
 
+export interface CodeGraphTransportSettingResponse {
+  ok: boolean;
+  transport?: CodeGraphTransport;
+  error?: { code: string; message: string; details?: string[] };
+}
+
 export interface FlashSettingsConfigApi {
+  getCodeGraphTransportSetting?(): Promise<CodeGraphTransportSettingResponse>;
+  setCodeGraphTransportSetting?(transport: CodeGraphTransport): Promise<CodeGraphTransportSettingResponse>;
+  resetCodeGraphTransportSetting?(): Promise<CodeGraphTransportSettingResponse>;
   show(): Promise<{ ok: boolean; resolution: unknown }>;
   providers(): Promise<{ ok: boolean; providers: unknown[] }>;
   rememberLiveSelection(provider: string, model: string): Promise<{ ok: boolean; provider: string; model: string; error?: { code: string; message: string; details?: string[] } }>;
@@ -109,8 +118,10 @@ export interface FlashSettingsModule {
   composerKeyStatus(providerList: ProviderListItem[], providerId: string): ComposerKeyStatus;
   readTaskNormalizerEnabled(storage: { getItem(key: string): string | null | undefined }): boolean;
   writeTaskNormalizerEnabled(storage: { setItem(key: string, value: string): void }, enabled: boolean): void;
-  readCodeGraphTransport(storage: { getItem(key: string): string | null | undefined }): CodeGraphTransport;
-  writeCodeGraphTransport(storage: { setItem(key: string, value: string): void }, transport: string | undefined): CodeGraphTransport;
+  loadCodeGraphTransportSetting(configApi: Pick<FlashSettingsConfigApi, 'getCodeGraphTransportSetting'>, legacyStorage?: { getItem(key: string): string | null | undefined }): Promise<CodeGraphTransport>;
+  writeCodeGraphTransportSetting(configApi: Pick<FlashSettingsConfigApi, 'setCodeGraphTransportSetting'>, transport: string | undefined, legacyStorage?: { setItem(key: string, value: string): void }): Promise<CodeGraphTransport>;
+  readCodeGraphTransport(storage?: { getItem(key: string): string | null | undefined }): CodeGraphTransport;
+  writeCodeGraphTransport(storage: { setItem(key: string, value: string): void } | undefined, transport: string | undefined): CodeGraphTransport;
   normalizeCodeGraphTransport(value: unknown): CodeGraphTransport;
   CODEGRAPH_TRANSPORT_STORAGE_KEY: 'vibecode.codegraphTransport';
   DEFAULT_CODEGRAPH_TRANSPORT: 'cli';

@@ -181,4 +181,72 @@ describe('desktop config bridge', () => {
     expect(fs.existsSync(path.join(repoRoot, '.vibecode', '.env'))).toBe(false);
     expect(fs.readFileSync(path.join(repoRoot, '.vibecode', 'config.yaml'), 'utf8')).not.toContain(SECRET);
   });
+
+  test('config:getCodeGraphTransportSetting reads the global CodeGraph transport setting', async () => {
+    writeGlobal(true, false);
+    fs.appendFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), '  codegraph:\n    transport: mcp\n', 'utf8');
+    const ipc = register();
+
+    const result = (await ipc.invoke('config:getCodeGraphTransportSetting')) as {
+      ok: boolean;
+      transport: string;
+      source: string;
+      global_config_path: string;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.transport).toBe('mcp');
+    expect(result.source).toBe('global');
+    expect(result.global_config_path).toBe(path.join(appData, 'vibecodelight', 'config.yaml'));
+  });
+
+  test('config:setCodeGraphTransportSetting writes defaults.codegraph.transport to global config only', async () => {
+    writeGlobal(true, false);
+    const ipc = register();
+
+    const result = (await ipc.invoke('config:setCodeGraphTransportSetting', 'auto')) as {
+      ok: boolean;
+      transport: string;
+      artifactPath: string;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.transport).toBe('auto');
+    expect(result.artifactPath).toBe(path.join(appData, 'vibecodelight', 'config.yaml'));
+    const globalYaml = fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8');
+    expect(globalYaml).toContain('codegraph:');
+    expect(globalYaml).toContain('transport: auto');
+    expect(fs.existsSync(path.join(repoRoot, 'config.yaml'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'config.yaml'))).toBe(false);
+  });
+
+  test('config:resetCodeGraphTransportSetting removes the global value and returns cli', async () => {
+    writeGlobal(true, false);
+    fs.appendFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), '  codegraph:\n    transport: mcp\n', 'utf8');
+    const ipc = register();
+
+    const result = (await ipc.invoke('config:resetCodeGraphTransportSetting')) as { ok: boolean; transport: string; source: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.transport).toBe('cli');
+    expect(result.source).toBe('default');
+    const get = (await ipc.invoke('config:getCodeGraphTransportSetting')) as { ok: boolean; transport: string; source: string };
+    expect(get).toMatchObject({ ok: true, transport: 'cli', source: 'default' });
+  });
+
+  test('config:setCodeGraphTransportSetting rejects invalid values without writing global config', async () => {
+    writeGlobal(true, false);
+    const before = fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8');
+    const ipc = register();
+
+    const result = (await ipc.invoke('config:setCodeGraphTransportSetting', 'socket')) as {
+      ok: boolean;
+      error?: { code: string; details: string[] };
+    };
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('INVALID_CODEGRAPH_TRANSPORT');
+    expect(result.error?.details).toContain('Expected one of: cli, mcp, auto.');
+    expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toBe(before);
+  });
 });
