@@ -21,6 +21,8 @@ function makeRunDir(tmpDir: string, opts?: {
   withGitStatus?: boolean;
   withExactTextMatches?: boolean;
   withScanExactTextHits?: boolean;
+  /** When set, writes scan/external_tools.json so the renderer can detect CodeGraph. */
+  codegraphState?: 'available' | 'not-available' | 'not-initialized';
 }): string {
   const runId = 'test-run-001';
   const runDir = path.join(tmpDir, runId);
@@ -206,6 +208,29 @@ function makeRunDir(tmpDir: string, opts?: {
     fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
     const instructions = { files: ['AGENTS.md', 'docs/ARCHITECTURE.md'] };
     fs.writeFileSync(path.join(runDir, 'scan', 'repo_instructions.json'), JSON.stringify(instructions, null, 2) + '\n', 'utf8');
+  }
+
+  // optional: scan/external_tools.json (CodeGraph availability)
+  if (opts?.codegraphState) {
+    fs.mkdirSync(path.join(runDir, 'scan'), { recursive: true });
+    const available = opts.codegraphState === 'available';
+    const initialized = opts.codegraphState === 'available';
+    const externalTools = {
+      tools: {
+        codegraph: {
+          available,
+          initialized,
+          mode: 'detect-only',
+          warnings: available ? [] : ['CODEGRAPH_NOT_FOUND: not on PATH'],
+          ...(available ? { codegraph_dir: '.codegraph' } : {}),
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(runDir, 'scan', 'external_tools.json'),
+      JSON.stringify(externalTools, null, 2) + '\n',
+      'utf8',
+    );
   }
 
   return runDir;
@@ -1289,5 +1314,116 @@ describe('renderFinalPrompt', () => {
     // No outer markdown fence around Product Shape.
     expect(content).toContain('## Product Shape');
     expect(content).not.toContain('```markdown');
+  });
+
+  describe('Available Repo Navigation Commands section (CodeGraph)', () => {
+    test('appears when CodeGraph is available and initialized', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      expect(content).toContain('# Available Repo Navigation Commands');
+    });
+
+    test('contains all 6 verified codegraph subcommands', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      expect(content).toContain('vibecode codegraph search "<query>"');
+      expect(content).toContain('vibecode codegraph context "<query>"');
+      expect(content).toContain('vibecode codegraph files');
+      expect(content).toContain('vibecode codegraph callers "<symbol>"');
+      expect(content).toContain('vibecode codegraph callees "<symbol>"');
+      expect(content).toContain('vibecode codegraph impact "<path-or-symbol>"');
+    });
+
+    test('explicitly guides rg/grep vs CodeGraph usage', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      expect(content).toMatch(/rg\/grep .* exact strings/i);
+      expect(content).toMatch(/CodeGraph .* symbols/i);
+      // section names the structural use cases
+      expect(content).toMatch(/call relationships/i);
+      expect(content).toMatch(/impact/i);
+    });
+
+    test('omits intentionally unsupported trace/explore commands', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).not.toMatch(/vibecode codegraph trace\b/);
+      expect(section).not.toMatch(/vibecode codegraph explore\b/);
+    });
+
+    test('does not advertise native MCP integration', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).not.toMatch(/MCP/i);
+      expect(section).not.toMatch(/Claude Code/i);
+      expect(section).not.toMatch(/Codex/i);
+      expect(section).not.toMatch(/Hermes/i);
+      expect(section).not.toMatch(/opencode/i);
+    });
+
+    test('appears only once', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const matches = content.match(/# Available Repo Navigation Commands/g) ?? [];
+      expect(matches.length).toBe(1);
+    });
+
+    test('is omitted when CodeGraph is not available', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'not-available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      expect(content).not.toContain('# Available Repo Navigation Commands');
+    });
+
+    test('is omitted when CodeGraph is available but not initialized', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'not-initialized' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      expect(content).not.toContain('# Available Repo Navigation Commands');
+    });
+
+    test('is omitted when scan/external_tools.json is missing', () => {
+      const runDir = makeRunDir(tmpDir);
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      expect(content).not.toContain('# Available Repo Navigation Commands');
+    });
+
+    test('section appears before Validation Expectations and after Repository Instructions', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const navIdx = content.indexOf('# Available Repo Navigation Commands');
+      const validationIdx = content.indexOf('# Validation Expectations');
+      const repoInstrIdx = content.indexOf('# Repository Instructions');
+      expect(repoInstrIdx).toBeGreaterThan(-1);
+      expect(navIdx).toBeGreaterThan(repoInstrIdx);
+      expect(navIdx).toBeLessThan(validationIdx);
+    });
+
+    test('existing required content remains stable when section is added', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      expect(content).toContain('Implement the feature X.');
+      expect(content).toContain('# Repository Context');
+      expect(content).toContain('# Context Pack');
+      expect(content).toContain('# Selected Skills');
+      expect(content).toContain('# Repository Instructions');
+      expect(content).toContain('# Validation Expectations');
+      expect(content).toContain('# Output Requirements');
+    });
   });
 });

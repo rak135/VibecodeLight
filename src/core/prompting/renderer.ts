@@ -459,7 +459,29 @@ interface BuildFinalPromptOptions {
   sanitizedRelevantFiles: string[];
   sanitizedFilesToInspect: string[];
   rendererWarnings: string[];
+  /** True when scan/external_tools.json reports CodeGraph available AND initialized. */
+  codegraphReady: boolean;
 }
+
+/**
+ * Conditional agent-tool advertisement. Shown only when CodeGraph appears
+ * available and initialized for this run, so we never tell the implementation
+ * agent to use a tool that does not exist. Kept intentionally short: 6
+ * verified read-only subcommands plus a one-line rg/grep vs CodeGraph
+ * guideline. No transport/MCP/agent-specific details.
+ */
+const AVAILABLE_REPO_NAVIGATION_COMMANDS_SECTION =
+  `# Available Repo Navigation Commands\n\n` +
+  `Use these shell commands for structural repository navigation when useful:\n\n` +
+  `- vibecode codegraph search "<query>"\n` +
+  `- vibecode codegraph context "<query>"\n` +
+  `- vibecode codegraph files\n` +
+  `- vibecode codegraph callers "<symbol>"\n` +
+  `- vibecode codegraph callees "<symbol>"\n` +
+  `- vibecode codegraph impact "<path-or-symbol>"\n\n` +
+  `Use rg/grep for exact strings, error messages, UI labels, and literal text.\n` +
+  `Use CodeGraph for symbols, call relationships, subsystem discovery, and impact analysis.\n\n` +
+  `Do not overuse CodeGraph. Prefer the smallest command that answers the question.\n`;
 
 function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
   const {
@@ -476,6 +498,7 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     sanitizedRelevantFiles,
     sanitizedFilesToInspect,
     rendererWarnings,
+    codegraphReady,
   } = opts;
 
   const exactPaths = exactGroups.map((g) => g.path);
@@ -558,6 +581,8 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     `# Selected Skills\n\n${skillsSection}\n`,
 
     `# Repository Instructions\n\nRead and follow repository instruction files before making changes:\n\n${instructionSection}`,
+
+    ...(codegraphReady ? [AVAILABLE_REPO_NAVIGATION_COMMANDS_SECTION] : []),
 
     `# Validation Expectations\n\n- Keep changes scoped to the requested task.\n- Run the relevant tests and checks listed above before reporting completion.\n- Do not introduce changes outside the stated scope.\n- Verify all modified files compile without errors.\n`,
 
@@ -669,6 +694,15 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       ? (scanCommandsJson.commands as string[])
       : [];
 
+    const externalToolsPath = path.join(runDir, 'scan', 'external_tools.json');
+    const externalToolsJson = readOptionalJson<{
+      tools?: { codegraph?: { available?: unknown; initialized?: unknown } };
+    }>(externalToolsPath);
+    const codegraphReady = Boolean(
+      externalToolsJson?.tools?.codegraph?.available === true &&
+        externalToolsJson?.tools?.codegraph?.initialized === true,
+    );
+
     const repoInstructionsJson = readOptionalJson<{
       files?: unknown;
       repo_instructions?: unknown;
@@ -696,6 +730,7 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       sanitizedRelevantFiles,
       sanitizedFilesToInspect,
       rendererWarnings: warnings,
+      codegraphReady,
     });
 
     // --- Write output/final_prompt.md ---
