@@ -223,6 +223,30 @@ Guidance for agents:
 - Use these CodeGraph commands for symbol search, call relationships, subsystem
   discovery, and impact analysis.
 
+#### Effective usage guidance
+
+Real dogfood runs show that the read-only query commands are not all equally
+useful for every question. Prefer the smallest command that answers the
+question; do not overuse CodeGraph.
+
+- **`context` first.** Use `context "<query>"` for subsystem mapping and
+  architecture orientation. It is the most useful command for "where does X
+  live and how does it connect".
+- **`search` for broad discovery.** Use it to find candidate symbols when you
+  do not yet know names, but expect possibly low-signal results for
+  keyword-style queries — fall back to `rg`/`grep` for literal text.
+- **`callers` / `callees` need an exact indexed symbol.** They return
+  "symbol not found" for names the upstream index has not surfaced. Get the
+  exact name from `context` or source before running them.
+- **`impact` is symbol-oriented.** Treat it as a symbol query. Do not assume
+  file paths are supported as input; verify against the upstream index before
+  relying on that form.
+- **Verify by reading source and tests.** After CodeGraph gives you a map,
+  confirm exact behaviour by reading the relevant source files and the tests
+  that pin them. Graph suggests, files verify, tests decide.
+- **`rg`/`grep` remain better for literals.** Use them for exact strings,
+  error messages, UI labels, and any literal text.
+
 `trace` and `explore` are intentionally **not** implemented because upstream
 CodeGraph does not expose matching subcommands. They will be added only when a
 verified upstream command exists.

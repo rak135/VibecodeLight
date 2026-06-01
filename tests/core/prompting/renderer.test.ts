@@ -1333,7 +1333,18 @@ describe('renderFinalPrompt', () => {
       expect(content).toContain('vibecode codegraph files');
       expect(content).toContain('vibecode codegraph callers "<symbol>"');
       expect(content).toContain('vibecode codegraph callees "<symbol>"');
-      expect(content).toContain('vibecode codegraph impact "<path-or-symbol>"');
+      expect(content).toContain('vibecode codegraph impact "<symbol>"');
+    });
+
+    test('impact example uses "<symbol>" placeholder, not "<path-or-symbol>"', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).toContain('vibecode codegraph impact "<symbol>"');
+      expect(section).not.toContain('<path-or-symbol>');
     });
 
     test('explicitly guides rg/grep vs CodeGraph usage', () => {
@@ -1341,10 +1352,61 @@ describe('renderFinalPrompt', () => {
       renderFinalPrompt(runDir);
       const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
       expect(content).toMatch(/rg\/grep .* exact strings/i);
-      expect(content).toMatch(/CodeGraph .* symbols/i);
-      // section names the structural use cases
-      expect(content).toMatch(/call relationships/i);
-      expect(content).toMatch(/impact/i);
+      expect(content).toMatch(/error messages/i);
+      expect(content).toMatch(/UI labels/i);
+      expect(content).toMatch(/literal text/i);
+    });
+
+    test('recommends context first for subsystem mapping', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).toMatch(/prefer context first .* subsystem mapping/i);
+    });
+
+    test('describes search as broad discovery with possible low-signal results', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).toMatch(/search .* broad discovery/i);
+      expect(section).toMatch(/low-signal/i);
+    });
+
+    test('warns that callers/callees require an exact indexed symbol name', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).toMatch(/callers\s*\/\s*callees .* exact indexed symbol name/i);
+    });
+
+    test('warns that impact is for indexed symbols and file paths are not assumed', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).toMatch(/impact .* indexed symbols/i);
+      expect(section).toMatch(/do not assume file paths are supported/i);
+    });
+
+    test('tells the agent to verify by reading source files and tests', () => {
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      renderFinalPrompt(runDir);
+      const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
+      const sectionStart = content.indexOf('# Available Repo Navigation Commands');
+      const sectionEnd = content.indexOf('# ', sectionStart + 1);
+      const section = sectionEnd > sectionStart ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
+      expect(section).toMatch(/verify .* reading source files and relevant tests/i);
     });
 
     test('omits intentionally unsupported trace/explore commands', () => {
@@ -1439,7 +1501,7 @@ describe('renderFinalPrompt', () => {
       expect(section).toContain(`vibecode codegraph files --run-id ${runId}`);
       expect(section).toContain(`vibecode codegraph callers "<symbol>" --run-id ${runId}`);
       expect(section).toContain(`vibecode codegraph callees "<symbol>" --run-id ${runId}`);
-      expect(section).toContain(`vibecode codegraph impact "<path-or-symbol>" --run-id ${runId}`);
+      expect(section).toContain(`vibecode codegraph impact "<symbol>" --run-id ${runId}`);
     });
 
     test('section omits MCP / agent vendor names even with --run-id present', () => {

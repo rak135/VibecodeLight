@@ -475,14 +475,19 @@ function renderAvailableRepoNavigationCommandsSection(runId: string): string {
   return (
     `# Available Repo Navigation Commands\n\n` +
     `Use these shell commands for structural repository navigation when useful:\n\n` +
-    `- vibecode codegraph search "<query>"${suffix}\n` +
     `- vibecode codegraph context "<query>"${suffix}\n` +
+    `- vibecode codegraph search "<query>"${suffix}\n` +
     `- vibecode codegraph files${suffix}\n` +
     `- vibecode codegraph callers "<symbol>"${suffix}\n` +
     `- vibecode codegraph callees "<symbol>"${suffix}\n` +
-    `- vibecode codegraph impact "<path-or-symbol>"${suffix}\n\n` +
-    `Use rg/grep for exact strings, error messages, UI labels, and literal text.\n` +
-    `Use CodeGraph for symbols, call relationships, subsystem discovery, and impact analysis.\n\n` +
+    `- vibecode codegraph impact "<symbol>"${suffix}\n\n` +
+    `Effective usage:\n\n` +
+    `- Prefer context first for subsystem mapping and architecture orientation.\n` +
+    `- Use search for broad discovery; expect possible low-signal results for keyword-style queries.\n` +
+    `- Use callers / callees only after you have an exact indexed symbol name.\n` +
+    `- Use impact for indexed symbols; do not assume file paths are supported.\n` +
+    `- Use rg/grep for exact strings, error messages, UI labels, and literal text.\n` +
+    `- After CodeGraph gives you a map, verify exact implementation details by reading source files and relevant tests.\n\n` +
     `Do not overuse CodeGraph. Prefer the smallest command that answers the question.\n`
   );
 }
