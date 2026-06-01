@@ -2,7 +2,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { getLocalConfigPath } from '../../src/core/config/user_profile';
 import { initWorkspace } from '../../src/core/workspace/initializer';
+import { getWorkspacePaths } from '../../src/core/workspace/paths';
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-workspace-'));
@@ -62,21 +64,29 @@ describe('workspace init', () => {
     expect(occurrences).toBe(1);
   });
 
-  test('initWorkspace does not overwrite existing config.yaml', async () => {
+  test('initWorkspace leaves an existing root config.yaml untouched but does not report it as Vibecode config', async () => {
     const root = tempDir();
     const configPath = path.join(root, 'config.yaml');
     fs.writeFileSync(configPath, 'project: existing-project\n');
     const before = fs.readFileSync(configPath, 'utf8');
     const result = await initWorkspace(root);
     expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
-    expect(result.existing).toContain('config.yaml');
+    expect(result.existing).not.toContain('config.yaml');
+    expect(result.created).not.toContain('config.yaml');
   });
 
-  test('initWorkspace creates config.yaml if it does not exist', async () => {
+  test('initWorkspace does not create root config.yaml', async () => {
     const root = tempDir();
     const result = await initWorkspace(root);
-    expect(fs.existsSync(path.join(root, 'config.yaml'))).toBe(true);
-    expect(result.created).toContain('config.yaml');
+    expect(fs.existsSync(path.join(root, 'config.yaml'))).toBe(false);
+    expect(result.created).not.toContain('config.yaml');
+  });
+
+  test('workspace path helpers do not expose root config.yaml as Vibecode config', () => {
+    const root = tempDir();
+    const paths = getWorkspacePaths(root) as ReturnType<typeof getWorkspacePaths> & { config?: string };
+    expect(paths.config).toBeUndefined();
+    expect(getLocalConfigPath(root)).toBe(path.join(root, '.vibecode', 'config.yaml'));
   });
 
   test('initWorkspace reports what was created vs already existed', async () => {
@@ -84,6 +94,7 @@ describe('workspace init', () => {
     await initWorkspace(root);
     const result = await initWorkspace(root);
     expect(result.created.length).toBe(0);
-    expect(result.existing).toEqual(expect.arrayContaining(['.vibecode', '.vibecode/runs', '.vibecode/current', 'config.yaml', '.gitignore']));
+    expect(result.existing).toEqual(expect.arrayContaining(['.vibecode', '.vibecode/runs', '.vibecode/current', '.vibecode/config.yaml', '.gitignore']));
+    expect(result.existing).not.toContain('config.yaml');
   });
 });

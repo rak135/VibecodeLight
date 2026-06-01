@@ -8,7 +8,6 @@ export function getWorkspacePaths(root: string): WorkspacePaths {
     vibecode,
     runs: path.join(vibecode, 'runs'),
     current: path.join(vibecode, 'current'),
-    config: path.join(root, 'config.yaml'),
     gitignore: path.join(root, '.gitignore'),
   };
 }

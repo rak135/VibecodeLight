@@ -237,7 +237,7 @@ Keep this boundary clean.
 main CLI command: vibecode
 workflow orchestration
 workspace initialization
-config.yaml
+global/local Vibecode config
 run store
 .vibecode/ layout
 .vibecode/current
@@ -357,13 +357,21 @@ Use structured diagnostics, not raw tracebacks, for expected user or validation 
 
 # Config Rules
 
-`config.yaml` is the only human-maintained project config.
+Never treat <repo>/config.yaml as Vibecode configuration.
 
-It lives in the repository root.
+Vibecode-owned config layers are:
 
-TypeScript owns `config.yaml`.
+```text
+1. Global user config: %LOCALAPPDATA%/vibecodelight/config.yaml
+2. Repo-local Vibecode config: <repo>/.vibecode/config.yaml
+3. Explicit per-run options / CLI flags / GUI state passed into the run
+4. Generated run artifacts under <repo>/.vibecode/runs/<run_id>/
+5. Renderer localStorage for pure UI state only, never semantic pipeline settings
+```
 
-TypeScript creates, preserves, reads, and validates `config.yaml`.
+The root config.yaml belongs to the target project. VibecodeLight must not create, read, write, or interpret <repo>/config.yaml as Vibecode settings. If root config.yaml appears in scans/context, it is only an ordinary target project file.
+
+TypeScript owns the global user config and repo-local `.vibecode/config.yaml` resolution.
 
 Python scanner receives resolved scanner configuration through:
 

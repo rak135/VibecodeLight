@@ -5,17 +5,11 @@ export interface RunManifest {
   status: 'created' | 'scanning' | 'done' | 'error';
 }
 
-export interface WorkspaceConfig {
-  project?: string;
-  scanner?: Record<string, unknown>;
-}
-
 export interface WorkspacePaths {
   root: string;
   vibecode: string;
   runs: string;
   current: string;
-  config: string;
   gitignore: string;
 }
 

@@ -179,6 +179,44 @@ describe('resolveFlashConfig (provider registry)', () => {
     expect(resolution.api_key_env).toBe('DEEPSEEK_API_KEY');
   });
 
+  test('root config.yaml is ignored even when it contains Vibecode-looking defaults', () => {
+    const repoRoot = path.join(root, 'repo');
+    writeYaml(path.join(repoRoot, 'config.yaml'), {
+      defaults: { flash: { provider: 'fake-root-provider', model: 'fake-root-model' } },
+      providers: {
+        'fake-root-provider': {
+          type: 'openai-compatible',
+          base_url: 'https://root.invalid/v1',
+          api_key_env: 'ROOT_KEY',
+          models: [{ id: 'fake-root-model', role: 'flash' }],
+        },
+      },
+    });
+    writeYaml(localConfigPath, {
+      version: 1,
+      providers: {
+        'local-provider': {
+          type: 'openai-compatible',
+          base_url: 'https://local.invalid/v1',
+          api_key_env: 'LOCAL_KEY',
+          models: [{ id: 'local-model', role: 'flash' }],
+        },
+      },
+      defaults: { flash: { provider: 'local-provider', model: 'local-model' } },
+    });
+    writeEnv(globalEnvPath, ['LOCAL_KEY=local-secret', 'ROOT_KEY=root-secret']);
+
+    const { resolution, providerConfig, error } = resolve({ repoRoot });
+
+    expect(error).toBeUndefined();
+    expect(resolution.provider).toBe('local-provider');
+    expect(resolution.model).toBe('local-model');
+    expect(resolution.baseUrl_host).toBe('local.invalid');
+    expect(resolution.source_map.provider).toBe('local');
+    expect(providerConfig?.provider).toBe('local-provider');
+    expect(JSON.stringify(resolution)).not.toContain('fake-root-provider');
+  });
+
   test('global config is used when local config is missing', () => {
     writeYaml(globalConfigPath, REGISTRY);
     writeEnv(globalEnvPath, [`OPENROUTER_API_KEY=${SECRET}`]);

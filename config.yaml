@@ -1,8 +1,9 @@
-# VibecodeLight project configuration
+# VibecodeLight repository project file
 #
-# This is the only human-maintained project config.
-# TypeScript owns this file and resolves it into per-run scanner_config.json.
-# Python scanner must not read this file directly.
+# This root config.yaml belongs to this target project and is not Vibecode-owned
+# configuration. VibecodeLight must not read, write, or interpret this file as
+# its own settings; it may only appear in scans/context as an ordinary project
+# file when relevant to a task.
 
 repo:
   name: "VibecodeLight"

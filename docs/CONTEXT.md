@@ -130,26 +130,30 @@ The application may read its own previous run artifacts from `.vibecode/`, but t
 
 ## Project Configuration
 
-Human-maintained configuration is layered:
+Human-maintained Vibecode configuration is layered:
 
 ```text
-%LOCALAPPDATA%\vibecodelight\config.yaml   # global provider registry/defaults
-<repo>\.vibecode\config.yaml               # per-repo overrides (wins over global)
-<repo>\config.yaml                         # project/scanner defaults
+%LOCALAPPDATA%/vibecodelight/config.yaml     # global provider registry/defaults and desktop.* settings
+<repo>/.vibecode/config.yaml                 # repo-local Vibecode overrides (wins over global)
+per-run options / CLI flags / GUI values     # one run only
+<repo>/.vibecode/runs/<run_id>/              # generated, secret-free run artifacts
+Renderer localStorage                        # pure UI state only, never semantic pipeline settings
 ```
 
-TypeScript owns this layered config model.
+Never treat <repo>/config.yaml as Vibecode configuration. The root config.yaml belongs to the target project. VibecodeLight must not create, read, write, or interpret `<repo>/config.yaml` as Vibecode settings. It may appear in scans/context only as an ordinary project file relevant to the user's task.
+
+TypeScript owns the global user config and repo-local `.vibecode/config.yaml` model. `.vibecode/config.yaml` may be initialized or synced from the global config.
 
 TypeScript:
 
-- creates config files when needed,
-- preserves existing content,
-- reads them,
+- creates global/local Vibecode config files when needed,
+- preserves existing global/local content,
+- reads the global user config and `<repo>/.vibecode/config.yaml`,
 - validates them,
 - resolves them into runtime settings,
 - creates a per-run scanner config for Python.
 
-Provider/model registry precedence is local workspace config over global user config. The repository-root `config.yaml` remains for project/scanner defaults rather than provider registry ownership. Secrets live only in `%LOCALAPPDATA%\vibecodelight\.env`.
+Provider/model registry precedence is local workspace config over global user config. Secrets live only in `%LOCALAPPDATA%\vibecodelight\.env` or process env.
 
 Desktop GUI remembered pipeline toggles are stored in the global user config under `desktop.*`: `desktop.codegraph.mode`, `desktop.task_normalizer.enabled`, and `desktop.auto_approve.enabled`. These are Desktop GUI preferences only, not CLI defaults. CLI remains explicit for CodeGraph mode, Task Normalizer, and auto-approve (`--codegraph` / `--no-codegraph` / `--codegraph-mode`, `--task-normalizer` / `--no-task-normalizer`, `--auto-approve`). `desktop.auto_approve.enabled` is safety-sensitive: it only initializes the Desktop GUI toggle and does not become a CLI/global default. Actual sends record the current per-send `auto_approve` value in send metadata. The existing exception is CodeGraph Transport: `defaults.codegraph.transport` (`cli` / `mcp` / `auto`) is intentionally shared by the GUI and CLI settings command. Renderer localStorage is not a source of truth for pipeline-affecting remembered settings; keep it to pure UI/session state only.
 
@@ -1861,7 +1865,7 @@ Fake success is worse than failure.
 The context system depends on these invariants:
 
 1. `ARCHITECTURE_DECISIONS.md` wins on concrete implementation details.
-2. Human-maintained config is layered: global `%LOCALAPPDATA%\vibecodelight\config.yaml`, local `<repo>\.vibecode\config.yaml` overrides, and repository-root `config.yaml` for project/scanner defaults.
+2. Human-maintained Vibecode config is layered: global `%LOCALAPPDATA%/vibecodelight/config.yaml`, local `<repo>/.vibecode/config.yaml` overrides, and explicit per-run options. Never treat `<repo>/config.yaml` as Vibecode configuration; root config.yaml belongs to the target project.
 3. `.vibecode/` is generated and ignored.
 4. The target repository scan excludes `.vibecode/`.
 5. Every sent prompt creates a new run package.

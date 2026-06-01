@@ -348,7 +348,7 @@ Owns the selected repository and workspace paths.
 Responsibilities:
 
 - locate the selected repo root,
-- load `config.yaml`,
+- expose the repo-local Vibecode config path (`<repo>/.vibecode/config.yaml`),
 - initialize `.vibecode/`,
 - ensure `.vibecode/` is present in `.gitignore`,
 - expose paths to run storage,
@@ -376,11 +376,23 @@ core/workspace/
 
 ### Config Ownership
 
-Human-maintained config is layered: `%LOCALAPPDATA%\vibecodelight\config.yaml` for global provider/default settings, `<repo>\.vibecode\config.yaml` for per-repo overrides, and repository-root `config.yaml` for project/scanner defaults. Local workspace config takes priority over the global user config.
+Never treat <repo>/config.yaml as Vibecode configuration.
 
-TypeScript owns it.
+Vibecode config layers are:
 
-TypeScript creates, preserves, reads, validates, and resolves this layered config model.
+```text
+1. Global user config: %LOCALAPPDATA%/vibecodelight/config.yaml
+2. Repo-local Vibecode config: <repo>/.vibecode/config.yaml
+3. Per-run options / CLI flags / GUI values
+4. Generated run artifacts under <repo>/.vibecode/runs/<run_id>/
+5. Renderer localStorage for pure UI state only
+```
+
+The root config.yaml belongs to the target project. VibecodeLight must not create, read, write, or interpret `<repo>/config.yaml` as Vibecode settings. `.vibecode/config.yaml` may be initialized or synced from the global config and takes priority over global settings for repo-local overrides. If root config.yaml appears in context, it is only an ordinary target project file.
+
+TypeScript owns the global user config and repo-local Vibecode config.
+
+TypeScript creates, preserves, reads, validates, and resolves this global/local config model.
 
 Python scanner receives only a per-run scanner input:
 

@@ -451,21 +451,23 @@ Generated `.vibecode/` artifacts are not committed.
 
 ---
 
-# `config.yaml` Ownership
+# Vibecode Config Ownership
 
-TypeScript owns `config.yaml`.
+Never treat <repo>/config.yaml as Vibecode configuration.
 
-> Update: human-maintained provider configuration now uses a global user
-> directory (`%LOCALAPPDATA%\vibecodelight\config.yaml` plus a sibling `.env` for
-> secrets) and a per-repository local workspace config at
-> `<repo>\.vibecode\config.yaml`. The local config takes priority over the
-> global config; sync between them is explicit. A single TypeScript-owned core
-> config service (`src/core/config`) performs resolution for both the CLI and the
-> desktop. This supersedes the earlier rule that the repository-root
-> `config.yaml` was treated as the sole human-maintained config; the root `config.yaml`
-> remains for project/scanner defaults. API keys live only in the AppData `.env`
-> and are never written to committed files, artifacts, or logs. The Python
-> scanner never reads the global or local YAML config directly.
+Vibecode-owned configuration uses only these layers:
+
+```text
+1. Global user config: %LOCALAPPDATA%/vibecodelight/config.yaml
+2. Repo-local Vibecode config: <repo>/.vibecode/config.yaml
+3. Explicit per-run options / CLI flags / GUI state passed into the run
+4. Generated run artifacts under <repo>/.vibecode/runs/<run_id>/
+5. Renderer localStorage for pure UI state only, never semantic pipeline settings
+```
+
+The root config.yaml belongs to the target project. VibecodeLight must not create, read, write, or interpret `<repo>/config.yaml` as Vibecode settings. If root config.yaml appears in context, it is only an ordinary target project file.
+
+TypeScript owns the global user config and repo-local `.vibecode/config.yaml`. `.vibecode/config.yaml` can be initialized or synced from the global config. A single TypeScript-owned core config service (`src/core/config`) performs resolution for both the CLI and the desktop. API keys live only in the AppData `.env` or process env and are never written to YAML, committed files, artifacts, or logs. The Python scanner never reads the global or local YAML config directly.
 >
 > Update 2: flash provider configuration is a **provider/model registry**, not
 > single fields. `config.yaml` (global and local) holds `providers.<id>`
@@ -496,20 +498,20 @@ TypeScript owns `config.yaml`.
 > `defaults.codegraph.transport` remains shared by the GUI and CLI command
 > (`vibecode codegraph transport get|set|reset`).
 
-Human-maintained config is layered: `%LOCALAPPDATA%\vibecodelight\config.yaml` for global provider/default settings, `<repo>\.vibecode\config.yaml` for per-repo overrides, and repository-root `config.yaml` for project/scanner defaults. Local workspace config takes priority over the global user config.
+Global user config (`%LOCALAPPDATA%/vibecodelight/config.yaml`) owns the providers registry, `defaults.flash.*`, `defaults.codegraph.transport`, and `desktop.*` remembered GUI settings. Repo-local Vibecode config (`<repo>/.vibecode/config.yaml`) owns repo-local non-secret overrides and local provider/model defaults. Local workspace config takes priority over the global user config.
 
 TypeScript:
 
 ```text
-creates config.yaml if missing
-preserves existing config.yaml
-validates config.yaml
-loads config.yaml
+creates/updates <repo>/.vibecode/config.yaml via init-local or sync --from-global
+preserves existing global/local Vibecode config unless explicitly asked to sync
+validates global/local Vibecode config
+loads only global config and <repo>/.vibecode/config.yaml as Vibecode settings
 resolves config into runtime settings
 creates scanner_config.json for Python
 ```
 
-Python scanner does not read `config.yaml` directly.
+Python scanner does not read YAML config directly.
 
 Instead, TypeScript writes:
 
@@ -1293,7 +1295,7 @@ Provider secrets live outside the project repository.
 
 Use user-profile configuration or local environment setup.
 
-Project `config.yaml` must not contain committed API keys or provider secrets.
+Vibecode global/local YAML must not contain API key values or provider secrets; secrets live in the AppData `.env` or process env.
 
 Allowed sources:
 

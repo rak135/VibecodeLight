@@ -333,6 +333,9 @@ describe('config CLI', () => {
     expect(payload.data.created).toBe(true);
     expect(payload.data.created_from_global).toBe(true);
     expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'config.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpRepo, 'config.yaml'))).toBe(false);
+    expect(payload.data.local_config_path).toBe(path.join(tmpRepo, '.vibecode', 'config.yaml'));
+    expect(payload.artifacts).toEqual([path.join(tmpRepo, '.vibecode', 'config.yaml')]);
     expect(fs.readFileSync(path.join(tmpRepo, '.vibecode', 'config.yaml'), 'utf8')).toContain('openrouter');
   });
 
@@ -346,6 +349,8 @@ describe('config CLI', () => {
     expect(payload.ok).toBe(true);
     expect(payload.data.direction).toBe('from-global');
     expect(payload.data.destination).toBe(path.join(tmpRepo, '.vibecode', 'config.yaml'));
+    expect(fs.existsSync(path.join(tmpRepo, 'config.yaml'))).toBe(false);
+    expect(payload.artifacts).toEqual([path.join(tmpRepo, '.vibecode', 'config.yaml')]);
     expect(fs.readFileSync(path.join(tmpRepo, '.vibecode', 'config.yaml'), 'utf8')).toContain('openrouter');
   });
 

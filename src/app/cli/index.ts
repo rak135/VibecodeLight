@@ -1072,12 +1072,12 @@ export function createCli(): Command {
     .description('Check local prerequisites and workspace status')
     .action(() => {
       const root = process.cwd();
-      const paths = getWorkspacePaths(root);
-      const configExists = fs.existsSync(paths.config);
+      const configPath = getConfigPaths(root).localConfig;
+      const configExists = fs.existsSync(configPath);
       let configStatus = 'missing';
       if (configExists) {
         try {
-          YAML.parse(fs.readFileSync(paths.config, 'utf8'));
+          YAML.parse(fs.readFileSync(configPath, 'utf8'));
           configStatus = 'ok';
         } catch {
           configStatus = 'invalid';
@@ -1087,7 +1087,7 @@ export function createCli(): Command {
       const pythonStatus = pythonAvailable() ? 'ok' : 'missing';
       console.log(`status: ok`);
       console.log(`node: ${nodeStatus}`);
-      console.log(`config.yaml: ${configStatus}`);
+      console.log(`.vibecode/config.yaml: ${configStatus}`);
       console.log(`python: ${pythonStatus}`);
     });
 

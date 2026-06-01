@@ -47,6 +47,26 @@ describe('scan command', () => {
     expect(fs.existsSync(path.join(scanDir, 'scan_manifest.json'))).toBe(true);
   });
 
+  test('root config.yaml is scanned as an ordinary project file only', () => {
+    fs.writeFileSync(path.join(tmpRepo, 'config.yaml'), 'defaults:\n  flash:\n    provider: fake-root-provider\n', 'utf8');
+
+    const result = runCli(['scan', 'ordinary root config scan', '--json'], tmpRepo);
+    expect(result.status).toBe(0);
+    const jsonOut = JSON.parse(result.stdout.trim());
+    const runDir = path.dirname(jsonOut.data.scan_dir);
+    const scanDir = jsonOut.data.scan_dir;
+    const repoTree = fs.readFileSync(path.join(scanDir, 'repo_tree.txt'), 'utf8');
+    const inventory = JSON.parse(fs.readFileSync(path.join(scanDir, 'file_inventory.json'), 'utf8'));
+    const scannerConfig = fs.readFileSync(path.join(runDir, 'scanner_config.json'), 'utf8');
+    const configSnapshot = fs.readFileSync(path.join(scanDir, 'config_snapshot.json'), 'utf8');
+
+    expect(repoTree).toContain('config.yaml');
+    const inventoryEntries = Array.isArray(inventory) ? inventory : inventory.files;
+    expect(inventoryEntries.some((entry: { path: string }) => entry.path === 'config.yaml')).toBe(true);
+    expect(scannerConfig).not.toContain('fake-root-provider');
+    expect(configSnapshot).not.toContain('fake-root-provider');
+  });
+
   test('vibecode scan "task" writes user_prompt.md', () => {
     const result = runCli(['scan', 'my test task'], tmpRepo);
     expect(result.status).toBe(0);

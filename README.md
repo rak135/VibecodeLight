@@ -583,7 +583,19 @@ Per-repository local workspace config:
 <repo>\.vibecode\config.yaml               # local provider/model registry (non-secret)
 ```
 
-`config.yaml` holds a **provider/model registry** (which providers exist, which models each provides, and the active flash defaults). It never holds API keys. `.env` holds **credentials only** and is global (never synced into `.vibecode`). Each provider names its key by env-variable NAME via `api_key_env`; the value lives only in `.env`.
+Global and local Vibecode `config.yaml` files hold a **provider/model registry** (which providers exist, which models each provides, and the active flash defaults). They never hold API keys. `.env` holds **credentials only** and is global (never synced into `.vibecode`). Each provider names its key by env-variable NAME via `api_key_env`; the value lives only in `.env`.
+
+Never treat <repo>/config.yaml as Vibecode configuration. The root config.yaml belongs to the target project. VibecodeLight must not create, read, write, or interpret <repo>/config.yaml as Vibecode settings. .vibecode/config.yaml can be initialized or synced from the global config; `<repo>/.vibecode/config.yaml` is the only repo-local Vibecode config path. If root config.yaml appears in context, it is only a target project file, not Vibecode settings. Renderer localStorage is allowed only for pure UI state, not semantic pipeline settings.
+
+Canonical Vibecode config layers:
+
+```text
+1. Global user config: %LOCALAPPDATA%/vibecodelight/config.yaml
+2. Repo-local Vibecode config: <repo>/.vibecode/config.yaml
+3. Per-run options / CLI flags / GUI values
+4. Generated run artifacts under <repo>/.vibecode/runs/<run_id>/
+5. Renderer localStorage for pure UI state only
+```
 
 Global `config.yaml` shape:
 
@@ -676,7 +688,7 @@ Resolution priority for the active flash provider/model and non-secret tuning:
 4. otherwise FLASH_PROVIDER_NOT_CONFIGURED / FLASH_MODEL_NOT_CONFIGURED
 ```
 
-The available provider/model registry comes only from `config.yaml` (local then global). The `.env` contributes only the secret value for the selected provider's `api_key_env`:
+The available provider/model registry comes only from the global user and repo-local Vibecode `config.yaml` files (local then global), never from `<repo>/config.yaml`. The `.env` contributes only the secret value for the selected provider's `api_key_env`:
 
 ```text
 1. AppData .env (global-env:<NAME>)
@@ -730,7 +742,7 @@ scan/config.json
 
 VibecodeLight is not a secret scanner. It respects ignore rules. Users are responsible for keeping secrets out of non-ignored repository content.
 
-> Note: this supersedes the earlier rule that the repository-root `config.yaml` is the only human-maintained config. The root `config.yaml` still exists for project/scanner defaults, but human-maintained provider configuration now lives in the global user directory and the per-repository `.vibecode/config.yaml`.
+> Note: this supersedes the earlier rule that the repository-root `config.yaml` is Vibecode-owned config. Root `config.yaml` may still exist in a target repo, but Vibecode treats it only as an ordinary project file.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

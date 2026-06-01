@@ -563,7 +563,7 @@ This checkpoint is documentation and repository setup only. It does not implemen
   - `docs/IMPLEMENTATION_MAP.md`
   - `docs/ARCHITECTURE_DECISIONS.md`
 - Ensure root `.gitignore` exists and ignores generated/local state.
-- Ensure root `config.yaml` exists for project/scanner defaults and docs reflect the layered human-maintained config model (`%LOCALAPPDATA%\vibecodelight\config.yaml` → `<repo>\.vibecode\config.yaml` overrides, plus root `config.yaml`).
+- Ensure docs reflect the Vibecode config model: global `%LOCALAPPDATA%/vibecodelight/config.yaml`, repo-local `<repo>/.vibecode/config.yaml`, per-run options, and generated run artifacts. Never treat `<repo>/config.yaml` as Vibecode configuration; root config.yaml belongs to the target project.
 - Ensure documentation agrees on:
   - TypeScript/Python ownership;
   - canonical repo layout;
@@ -617,7 +617,7 @@ Suggested checks:
 - All planning docs agree on the same implementation contract.
 - `ARCHITECTURE_DECISIONS.md` is clearly the source of truth for implementation decisions.
 - `AGENTS.md` is clearly the operational guide.
-- Root `config.yaml` exists.
+- Root `<repo>/config.yaml` is not created or owned by Vibecode; `<repo>/.vibecode/config.yaml` exists when local Vibecode config is initialized.
 - `.gitignore` exists and ignores `.vibecode/`, `.venv/`, `node_modules/`, build outputs, logs, and environment files.
 - No `.venv` is created.
 - No application scaffold is added yet.
@@ -708,8 +708,8 @@ Allow VibecodeLight to initialize the selected repository as a workspace.
 ## Implement
 
 - Repo root detection.
-- `config.yaml` creation or loading.
-- `config.yaml` preservation.
+- `<repo>/.vibecode/config.yaml` creation or loading.
+- Existing root `<repo>/config.yaml` is ignored as Vibecode config and preserved untouched.
 - `.vibecode/` directory creation.
 - `.vibecode/runs/` and `.vibecode/current/` creation.
 - `.vibecode/` insertion into `.gitignore` during initialization.
@@ -743,7 +743,7 @@ Suggested tests:
 - Initializing a fresh git repo creates `.vibecode/`.
 - Initialization inserts `.vibecode/` into `.gitignore`.
 - Re-running init is idempotent.
-- Existing `config.yaml` is not overwritten silently.
+- Existing `<repo>/.vibecode/config.yaml` is not overwritten silently; root `<repo>/config.yaml` is never written as Vibecode config.
 - Workspace paths resolve correctly.
 - `SKILLS/` status is reported if present.
 - `.vibecode/` is classified as generated workspace data.
@@ -754,7 +754,7 @@ Suggested tests:
 - A clean repo can be initialized with one command.
 - The command reports what it created or updated.
 - `.vibecode/` is ignored by git after initialization.
-- Human-maintained config is layered: global `%LOCALAPPDATA%\vibecodelight\config.yaml`, local `<repo>\.vibecode\config.yaml` overrides, and repository-root `config.yaml` for project/scanner defaults.
+- Human-maintained Vibecode config is layered: global `%LOCALAPPDATA%/vibecodelight/config.yaml`, local `<repo>/.vibecode/config.yaml` overrides, plus explicit per-run options. Root config.yaml belongs to the target project and is not Vibecode config.
 - The workspace model can locate repo root, config, `.vibecode`, runs, current, and `SKILLS/` paths.
 
 ---
@@ -823,7 +823,7 @@ Suggested tests:
 
 - Creating a run writes expected files.
 - Run IDs are unique and filesystem-safe.
-- `scanner_config.json` is written from resolved `config.yaml`.
+- `scanner_config.json` is written from resolved global/local Vibecode config and per-run options, never from root `<repo>/config.yaml`.
 - Scan output directory is created/authorized.
 - `current` points to the latest run data.
 - Previous run summary can be read.
