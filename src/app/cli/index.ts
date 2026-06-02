@@ -1,9 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
 
 import { Command } from 'commander';
-import YAML from 'yaml';
 
 import {
   buildCodeGraphContext,
@@ -26,14 +24,12 @@ import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
 import {
   ensureLocalConfig,
-  getConfigPaths,
   readCodeGraphTransportSetting,
   resolveFlashConfig,
   writeConfigResolution,
 } from '../../core/config/index.js';
 import { updateCurrent } from '../../core/runs/current.js';
 import { performScanPhase, writeRunManifest } from '../../core/runs/scan_phase.js';
-import { initWorkspace } from '../../core/workspace/initializer.js';
 import { getWorkspacePaths } from '../../core/workspace/paths.js';
 import { RunManifest } from '../../core/models/index.js';
 import { augmentExternalToolsWithCodeGraphContext } from '../../core/scanning/external_tools.js';
@@ -65,8 +61,10 @@ import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
 import { runTaskNormalizer, writeTaskIntentArtifacts } from '../../adapters/task_normalizer/index.js';
 import { registerCodeGraphCommands } from './commands/codegraph.js';
 import { registerConfigCommands } from './commands/config.js';
+import { registerDoctorCommand } from './commands/doctor.js';
 import { registerRunCreateCommand, registerRunsCommands, resolveRunDir } from './commands/runs.js';
 import { registerSkillsCommands } from './commands/skills.js';
+import { registerWorkspaceCommands } from './commands/workspace.js';
 
 export const BAD_PROVIDER_RESPONSE_TIP = 'Tip: This indicates an API endpoint, auth, model, or provider configuration error. Check pnpm vibecode config show for your current provider configuration.';
 
@@ -280,11 +278,6 @@ export async function runPromptCommand(options: PromptCommandOptions): Promise<P
     stdout.write('note: no terminal send in this checkpoint\n');
   }
   return result;
-}
-
-function pythonAvailable(): boolean {
-  const result = spawnSync('python', ['--version'], { encoding: 'utf8' });
-  return result.status === 0;
 }
 
 export interface ScanResult {
@@ -853,38 +846,8 @@ export function createCli(): Command {
   const program = new Command();
   program.name('vibecode').description('VibecodeLight CLI');
 
-  program
-    .command('doctor')
-    .description('Check local prerequisites and workspace status')
-    .action(() => {
-      const root = process.cwd();
-      const configPath = getConfigPaths(root).localConfig;
-      const configExists = fs.existsSync(configPath);
-      let configStatus = 'missing';
-      if (configExists) {
-        try {
-          YAML.parse(fs.readFileSync(configPath, 'utf8'));
-          configStatus = 'ok';
-        } catch {
-          configStatus = 'invalid';
-        }
-      }
-      const nodeStatus = process.versions.node;
-      const pythonStatus = pythonAvailable() ? 'ok' : 'missing';
-      console.log(`status: ok`);
-      console.log(`node: ${nodeStatus}`);
-      console.log(`.vibecode/config.yaml: ${configStatus}`);
-      console.log(`python: ${pythonStatus}`);
-    });
-
-  program
-    .command('init')
-    .option('--repo <path>', 'Repository path', process.cwd())
-    .description('Initialize the VibecodeLight workspace')
-    .action(async (options: { repo: string }) => {
-      const result = await initWorkspace(path.resolve(options.repo));
-      console.log(JSON.stringify(result, null, 2));
-    });
+  registerDoctorCommand(program);
+  registerWorkspaceCommands(program);
 
   registerConfigCommands(program);
 
