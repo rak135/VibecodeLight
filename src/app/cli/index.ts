@@ -24,6 +24,10 @@ import {
   type ContextBuildPhaseResult,
 } from '../../core/runs/context_build_phase.js';
 import {
+  performContextFinalizePhase,
+  type ContextFinalizePhaseResult,
+} from '../../core/runs/context_finalize_phase.js';
+import {
   performFlashPhase,
   type FlashPhaseResult,
 } from '../../core/runs/flash_phase.js';
@@ -33,7 +37,6 @@ import { getWorkspacePaths } from '../../core/workspace/paths.js';
 import { RunManifest } from '../../core/models/index.js';
 import {
   contextFinalizeErrorToDiagnostic,
-  finalizeContext,
   parseFlashOutput,
 } from '../../core/context/index.js';
 import { renderFinalPrompt, runPromptPipeline } from '../../core/prompting/index.js';
@@ -283,20 +286,7 @@ export type ContextBuildResult = ContextBuildPhaseResult;
 
 export type FlashRunResult = FlashPhaseResult;
 
-export interface ContextFinalizeCliResult {
-  status: 'ok' | 'error';
-  run_id?: string;
-  runDir?: string;
-  artifacts?: string[];
-  warnings?: string[];
-  missing_skills?: string[];
-  error?: {
-    code: string;
-    message: string;
-    path?: string;
-    details: string[];
-  };
-}
+export type ContextFinalizeCliResult = ContextFinalizePhaseResult;
 
 function toErrorEnvelope(error: unknown, fallbackPath?: string): NonNullable<FlashRunResult['error']> {
   if (error instanceof LlmAdapterError) {
@@ -480,41 +470,24 @@ export async function runContextFinalize(opts: {
   runSelector: string;
   repoRoot: string;
 }): Promise<ContextFinalizeCliResult> {
-  let resolvedRun: { runId: string; runDir: string } | undefined;
-
+  let resolvedRun: { runId: string; runDir: string };
   try {
     resolvedRun = resolveRunDir(opts.repoRoot, opts.runSelector);
-    const { runId, runDir } = resolvedRun;
-
-    if (!fs.existsSync(runDir)) {
-      throw new LlmAdapterError(`run not found: ${runId}`, {
-        code: 'RUN_NOT_FOUND',
-        path: runDir,
-        details: [],
-      });
-    }
-
-    const result = finalizeContext(runDir);
-    return {
-      status: 'ok',
-      run_id: result.run_id,
-      runDir,
-      artifacts: result.artifacts,
-      warnings: result.warnings,
-      missing_skills: result.missing_skills,
-    };
   } catch (error) {
-    const fallbackPath = resolvedRun?.runDir ?? path.join(getWorkspacePaths(opts.repoRoot).runs, opts.runSelector);
+    const fallbackPath = path.join(getWorkspacePaths(opts.repoRoot).runs, opts.runSelector);
     const diagnostic = error instanceof LlmAdapterError
       ? toErrorEnvelope(error, fallbackPath)
       : contextFinalizeErrorToDiagnostic(error, fallbackPath);
     return {
       status: 'error',
-      run_id: resolvedRun?.runId,
-      runDir: resolvedRun?.runDir,
       error: diagnostic,
     };
   }
+
+  return performContextFinalizePhase({
+    runId: resolvedRun.runId,
+    runDir: resolvedRun.runDir,
+  });
 }
 
 
