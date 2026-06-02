@@ -1,5 +1,9 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+
+import { writeCodeGraphContextArtifacts } from '../../src/adapters/codegraph/codegraph_context.js';
+import { runPromptPipeline } from '../../src/core/prompting/pipeline.js';
 
 import { describe, expect, test } from 'vitest';
 
@@ -18,6 +22,21 @@ function collectFiles(dir: string, extension: string): string[] {
     if (entry.isDirectory()) {
       files.push(...collectFiles(fullPath, extension));
     } else if (entry.isFile() && fullPath.endsWith(extension)) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+function collectAllFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectAllFiles(fullPath));
+    } else if (entry.isFile()) {
       files.push(fullPath);
     }
   }
@@ -185,5 +204,76 @@ describe('architecture boundary characterization', () => {
     expect(sendSource).not.toMatch(/runPromptPipeline\(/);
     expect(sendSource).not.toMatch(/buildFlashInput\(/);
     expect(sendSource).not.toMatch(/OpenAiCompatibleAdapter|MockFlashAdapter/);
+  });
+
+  test('current final_prompt mirror is byte-identical to the run output final_prompt when both exist', async () => {
+    const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-final-prompt-mirror-'));
+    try {
+      fs.writeFileSync(path.join(tmpRepo, 'README.md'), '# Mirror fixture\n', 'utf8');
+
+      const result = await runPromptPipeline({ task: 'mirror byte equality characterization', repoRoot: tmpRepo, mock: true });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const runFinalPromptPath = path.join(result.runDir, 'output', 'final_prompt.md');
+      const currentFinalPromptPath = path.join(tmpRepo, '.vibecode', 'current', 'final_prompt.md');
+      expect(fs.existsSync(runFinalPromptPath)).toBe(true);
+      expect(fs.existsSync(currentFinalPromptPath)).toBe(true);
+      expect(fs.readFileSync(currentFinalPromptPath)).toEqual(fs.readFileSync(runFinalPromptPath));
+    } finally {
+      fs.rmSync(tmpRepo, { recursive: true, force: true });
+    }
+  });
+
+  test('CodeGraph adapter writes only the current characterized run artifact surface', () => {
+    const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-codegraph-write-surface-'));
+    try {
+      const runDir = path.join(tmpRepo, '.vibecode', 'runs', '20260602-000000-CG00');
+      const scanDir = path.join(runDir, 'scan');
+      fs.mkdirSync(scanDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(scanDir, 'file_inventory.json'),
+        `${JSON.stringify({ files: [{ path: 'src/app/cli/index.ts' }] }, null, 2)}\n`,
+        'utf8',
+      );
+      const before = new Set(collectAllFiles(runDir).map((file) => path.relative(runDir, file).replace(/\\/g, '/')));
+
+      writeCodeGraphContextArtifacts({
+        runDir,
+        result: {
+          ok: true,
+          used: true,
+          mode: 'use-existing',
+          command: ['codegraph', 'context', 'characterize'],
+          outputText: '# CodeGraph Context\n### Entry Points\n- `src/app/cli/index.ts` — `runContextBuild`',
+          warnings: [],
+          reason: 'EXISTING_INDEX',
+        },
+      });
+
+      const written = collectAllFiles(runDir)
+        .map((file) => path.relative(runDir, file).replace(/\\/g, '/'))
+        .filter((relativePath) => !before.has(relativePath))
+        .sort();
+
+      expect(written).toEqual([
+        'scan/codegraph_context.md',
+        'scan/codegraph_repo_atlas.json',
+        'scan/codegraph_repo_atlas.md',
+        'scan/codegraph_usage.json',
+        // Legacy/back-compat duplicate artifacts for current production behavior.
+        'scan/repo_atlas.json',
+        'scan/repo_atlas.md',
+      ].sort());
+
+      // scan/codegraph_repo_atlas.* is the current canonical implementation path.
+      // scan/repo_atlas.* remains a legacy duplicate. Do not move these paths in this PR;
+      // scan/atlas/* may be a future cleanup target but is not current Stage 0 behavior.
+      expect(fs.existsSync(path.join(runDir, 'scan', 'atlas', 'codegraph_repo_atlas.md'))).toBe(false);
+      expect(fs.existsSync(path.join(runDir, 'scan', 'atlas', 'codegraph_repo_atlas.json'))).toBe(false);
+    } finally {
+      fs.rmSync(tmpRepo, { recursive: true, force: true });
+    }
   });
 });
