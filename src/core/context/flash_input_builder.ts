@@ -22,12 +22,14 @@ export function buildFlashInput(opts: BuildFlashInputOptions): string {
   // Validate the existing manifest contract first so missing required artifacts
   // keep the same structured diagnostics. The compact builder then consumes the
   // same saved scan artifacts and writes repo_atlas/task_slice/budget sidecars.
-  opts.manifest ?? buildFlashInputManifest({
-    run_id: opts.run_id,
-    task: opts.task,
-    repo_root: opts.repo_root,
-    runDir: opts.runDir,
-  });
+  if (opts.manifest === undefined) {
+    buildFlashInputManifest({
+      run_id: opts.run_id,
+      task: opts.task,
+      repo_root: opts.repo_root,
+      runDir: opts.runDir,
+    });
+  }
 
   return buildCompactFlashContext({
     run_id: opts.run_id,
