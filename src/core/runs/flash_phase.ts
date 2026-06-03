@@ -1,12 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 
+import type { LlmAdapter } from '../../adapters/llm/base.js';
 import { LlmAdapterError, ProviderNotConfiguredError } from '../../adapters/llm/errors.js';
 import { MockFlashAdapter } from '../../adapters/llm/mock_flash.js';
 import { OpenAiCompatibleAdapter } from '../../adapters/llm/openai_compatible_adapter.js';
 import { resolveFlashConfig, writeConfigResolution } from '../config/index.js';
-import { enrichFlashOutputMeta } from '../context/index.js';
-import { resolveFlashSystemPrompt, writeFlashSystemPromptArtifacts } from '../prompts/flash_system_prompt.js';
+import { resolveFlashSystemPrompt } from '../prompts/flash_system_prompt.js';
+import { executeFlashRequestAndWriteArtifacts } from './shared_flash_execution.js';
 
 export interface FlashPhaseOptions {
   runId: string;
@@ -90,7 +91,7 @@ export async function performFlashPhase(opts: FlashPhaseOptions): Promise<FlashP
       cliFlags: { provider: opts.flashProvider, model: opts.flashModel },
     });
 
-    let adapterResult;
+    let adapter: LlmAdapter;
     if (!opts.mock) {
       if (!resolved.providerConfig) {
         throw new ProviderNotConfiguredError('no flash provider configured; set provider config in the local/global config or AppData .env, or use --mock', {
@@ -106,53 +107,35 @@ export async function performFlashPhase(opts: FlashPhaseOptions): Promise<FlashP
         );
       }
 
-      const liveAdapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
-      adapterResult = await liveAdapter.run({
-        flashInputMd,
-        systemPrompt: resolvedSystemPrompt.content,
-        flashDir,
-        runId,
-        workspaceRoot: opts.repoRoot,
-      });
+      adapter = new OpenAiCompatibleAdapter(resolved.providerConfig);
     } else {
-      const adapter = new MockFlashAdapter();
-      adapterResult = await adapter.run({
-        flashInputMd,
-        systemPrompt: resolvedSystemPrompt.content,
-        flashDir,
-        runId,
-        workspaceRoot: opts.repoRoot,
-      });
+      adapter = new MockFlashAdapter();
     }
 
-    const flashSystemPromptArtifacts = writeFlashSystemPromptArtifacts(flashDir, resolvedSystemPrompt);
-    const configResolutionPath = writeConfigResolution(runDir, resolved.resolution);
-    const adapterMeta = adapterResult.meta as Record<string, unknown>;
-    enrichFlashOutputMeta(flashDir, {
-      provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
-      provider_label: resolved.resolution.provider_label,
-      model: (typeof adapterMeta.model === 'string' ? adapterMeta.model : resolved.resolution.model) ?? null,
-      model_label: resolved.resolution.model_label,
-      live: typeof adapterMeta.live === 'boolean' ? adapterMeta.live : false,
-      baseUrl_host: (typeof adapterMeta.baseUrl_host === 'string' ? adapterMeta.baseUrl_host : resolved.resolution.baseUrl_host) ?? null,
-      config_source: resolved.resolution.selected_config_source,
-      config_resolution_path: configResolutionPath,
+    const flashExecution = await executeFlashRequestAndWriteArtifacts({
+      adapter,
+      flashInputMd,
+      resolvedSystemPrompt,
+      flashDir,
+      runId,
+      workspaceRoot: opts.repoRoot,
+      meta: {
+        provider: resolved.resolution.provider,
+        provider_label: resolved.resolution.provider_label,
+        model: resolved.resolution.model,
+        model_label: resolved.resolution.model_label,
+        baseUrl_host: resolved.resolution.baseUrl_host,
+        config_source: resolved.resolution.selected_config_source,
+      },
+      resolveConfigResolutionPath: () => writeConfigResolution(runDir, resolved.resolution),
     });
-
-    const artifacts = [
-      flashSystemPromptArtifacts.promptPath,
-      flashSystemPromptArtifacts.metaPath,
-      path.join(flashDir, 'flash_output.md'),
-      path.join(flashDir, 'flash_output_meta.json'),
-      path.join(flashDir, 'tool_calls.json'),
-    ];
 
     return {
       status: 'ok',
       run_id: runId,
       runDir,
       flashDir,
-      artifacts,
+      artifacts: flashExecution.artifacts,
       warnings: [...resolved.resolution.warnings, ...resolvedSystemPrompt.warnings],
     };
   } catch (error) {

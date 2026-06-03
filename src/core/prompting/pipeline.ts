@@ -18,13 +18,12 @@ import {
   buildAndWriteFlashInputArtifacts,
   buildCompactFlashContext,
   contextFinalizeErrorToDiagnostic,
-  enrichFlashOutputMeta,
   finalizeContext,
   markFlashInputProviderCalled,
 } from '../context/index.js';
 import { buildCodeGraphTask } from './codegraph_task.js';
 import { renderFinalPrompt } from './renderer.js';
-import { resolveFlashSystemPrompt, writeFlashSystemPromptArtifacts } from '../../core/prompts/flash_system_prompt.js';
+import { resolveFlashSystemPrompt } from '../../core/prompts/flash_system_prompt.js';
 import type {
   PipelineEvent,
   PipelineEventPhase,
@@ -32,6 +31,7 @@ import type {
   PipelineProgressCallback,
 } from './pipeline_events.js';
 import { updateCurrent } from '../runs/current.js';
+import { executeFlashRequestAndWriteArtifacts } from '../runs/shared_flash_execution.js';
 import { augmentExternalToolsWithCodeGraphContext } from '../scanning/external_tools.js';
 import { performScanPhase, writeRunManifest } from '../runs/scan_phase.js';
 import type { RunManifest } from '../models/index.js';
@@ -659,43 +659,42 @@ async function executeFlashStep(
   });
 
   const flashRequestStart = Date.now();
-  const adapterResult = await adapter.run({
+  const flashExecution = await executeFlashRequestAndWriteArtifacts({
+    adapter,
     flashInputMd,
-    systemPrompt: resolvedSystemPrompt.content,
     flashDir,
     runId: scan.run_id,
     workspaceRoot: opts.repoRoot,
-  });
-  const flashRequestDuration = Date.now() - flashRequestStart;
-  markFlashInputProviderCalled(scan.runDir, true);
+    resolvedSystemPrompt,
+    meta: {
+      provider: resolved.resolution.provider,
+      provider_label: resolved.resolution.provider_label,
+      model: resolved.resolution.model,
+      model_label: resolved.resolution.model_label,
+      baseUrl_host: resolved.resolution.baseUrl_host,
+      config_source: resolved.resolution.selected_config_source,
+    },
+    resolveConfigResolutionPath: () => configResolutionPath,
+    afterAdapterRun: () => {
+      const flashRequestDuration = Date.now() - flashRequestStart;
+      markFlashInputProviderCalled(scan.runDir, true);
 
-  emitProgress({
-    phase: 'flash_request_completed',
-    status: 'completed',
-    label: 'Flash request',
-    message: 'Flash response received.',
-    run_id: scan.run_id,
-    duration_ms: flashRequestDuration,
-  });
-  emitProgress({
-    phase: 'flash_response_received',
-    status: 'completed',
-    label: 'Flash request',
-    message: 'Flash response received.',
-    run_id: scan.run_id,
-  });
-
-  const flashSystemPromptArtifacts = writeFlashSystemPromptArtifacts(flashDir, resolvedSystemPrompt);
-  const adapterMeta = adapterResult.meta as Record<string, unknown>;
-  enrichFlashOutputMeta(flashDir, {
-    provider: (typeof adapterMeta.provider === 'string' ? adapterMeta.provider : resolved.resolution.provider) ?? null,
-    provider_label: resolved.resolution.provider_label,
-    model: (typeof adapterMeta.model === 'string' ? adapterMeta.model : resolved.resolution.model) ?? null,
-    model_label: resolved.resolution.model_label,
-    live: typeof adapterMeta.live === 'boolean' ? adapterMeta.live : false,
-    baseUrl_host: (typeof adapterMeta.baseUrl_host === 'string' ? adapterMeta.baseUrl_host : resolved.resolution.baseUrl_host) ?? null,
-    config_source: resolved.resolution.selected_config_source,
-    config_resolution_path: configResolutionPath,
+      emitProgress({
+        phase: 'flash_request_completed',
+        status: 'completed',
+        label: 'Flash request',
+        message: 'Flash response received.',
+        run_id: scan.run_id,
+        duration_ms: flashRequestDuration,
+      });
+      emitProgress({
+        phase: 'flash_response_received',
+        status: 'completed',
+        label: 'Flash request',
+        message: 'Flash response received.',
+        run_id: scan.run_id,
+      });
+    },
   });
 
   emitProgress({
@@ -721,13 +720,7 @@ async function executeFlashStep(
     message: 'Flash output validated.',
     run_id: scan.run_id,
   });
-  artifacts.push(
-    flashSystemPromptArtifacts.promptPath,
-    flashSystemPromptArtifacts.metaPath,
-    path.join(flashDir, 'flash_output.md'),
-    path.join(flashDir, 'flash_output_meta.json'),
-    path.join(flashDir, 'tool_calls.json'),
-  );
+  artifacts.push(...flashExecution.artifacts);
 }
 
 async function finalizeAndRenderStep(args: {
