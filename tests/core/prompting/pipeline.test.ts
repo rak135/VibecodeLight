@@ -213,8 +213,8 @@ describe('full prompt pipeline', () => {
       const pathModule = await import('path');
       return {
         ...actual,
-        buildCompactFlashContext: (opts: { runDir: string }) => {
-          const budgetPath = pathModule.join(opts.runDir, 'flash', 'flash_input_budget.json');
+        buildAndWriteFlashInputArtifacts: (opts: { flashDir: string }) => {
+          const budgetPath = pathModule.join(opts.flashDir, 'flash_input_budget.json');
           fsModule.mkdirSync(pathModule.dirname(budgetPath), { recursive: true });
           fsModule.writeFileSync(
             budgetPath,

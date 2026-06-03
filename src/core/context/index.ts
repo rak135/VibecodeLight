@@ -1,6 +1,7 @@
 export * from './artifact_reader.js';
 export * from './context_finalize.js';
 export * from './context_pack_store.js';
+export * from './flash_input_artifacts.js';
 export * from './flash_input_builder.js';
 export * from './flash_input_manifest.js';
 export * from './flash_compaction.js';

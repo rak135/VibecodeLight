@@ -15,13 +15,11 @@ import {
   writeConfigResolution,
 } from '../config/index.js';
 import {
+  buildAndWriteFlashInputArtifacts,
   buildCompactFlashContext,
-  buildFlashInputManifest,
   contextFinalizeErrorToDiagnostic,
   enrichFlashOutputMeta,
   finalizeContext,
-  formatPreviousRunSummary,
-  getPreviousRunSummary,
   markFlashInputProviderCalled,
 } from '../context/index.js';
 import { buildCodeGraphTask } from './codegraph_task.js';
@@ -564,38 +562,27 @@ function buildFlashInputStep(
     run_id: scan.run_id,
   });
   const flashInputStart = Date.now();
-  const flashManifest = buildFlashInputManifest({
+  const {
+    compactResult,
+    flashInputPath,
+    flashInputManifestPath,
+    repoAtlasPath,
+    taskSlicePath,
+    relevanceSelectionPath,
+    flashInputBudgetPath,
+    warnings,
+  } = buildAndWriteFlashInputArtifacts({
     run_id: scan.run_id,
     task: opts.task,
     repo_root: opts.repoRoot,
     runDir: scan.runDir,
-  });
-  const previousRunSummary = formatPreviousRunSummary(
-    getPreviousRunSummary({
-      vibecodePath: scan.vibecodePath,
-      currentRunId: scan.run_id,
-    }),
-  );
-  const compactResult = buildCompactFlashContext({
-    run_id: scan.run_id,
-    task: opts.task,
-    repo_root: opts.repoRoot,
-    runDir: scan.runDir,
-    previousRunSummary,
+    flashDir,
+    vibecodePath: scan.vibecodePath,
     taskIntent,
   });
   const { paths: compactPaths, budget: compactBudget } = compactResult;
-  const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
-  const flashInputPath = path.join(flashDir, 'flash_input.md');
-  const repoAtlasPath = compactPaths.repo_atlas_path ?? compactPaths.run_repo_atlas_path;
-  const taskSlicePath = compactPaths.task_slice_path;
-  const relevanceSelectionPath = compactPaths.relevance_selection_path;
-  const flashInputBudgetPath = compactPaths.flash_input_budget_path;
-
-  fs.writeFileSync(flashManifestPath, `${JSON.stringify(flashManifest, null, 2)}\n`, 'utf8');
-  fs.writeFileSync(flashInputPath, compactResult.flashInput, 'utf8');
   artifacts.push(
-    flashManifestPath,
+    flashInputManifestPath,
     flashInputPath,
     repoAtlasPath,
     taskSlicePath,
@@ -605,7 +592,7 @@ function buildFlashInputStep(
   if (compactPaths.repo_atlas_path) {
     artifacts.push(compactPaths.repo_atlas_path);
   }
-  warningCollector.addWarnings('Flash input', flashManifest.warnings);
+  warningCollector.addWarnings('Flash input', warnings);
 
   const resolvedSystemPrompt = resolveFlashSystemPrompt({
     repoRoot: opts.repoRoot,

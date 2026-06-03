@@ -21,11 +21,8 @@ import {
   resolveFlashConfig,
 } from '../config/index.js';
 import {
-  buildFlashInput,
-  buildFlashInputManifest,
+  buildAndWriteFlashInputArtifacts,
   FlashInputManifestError,
-  formatPreviousRunSummary,
-  getPreviousRunSummary,
 } from '../context/index.js';
 import { RunManifest } from '../models/index.js';
 import { buildCodeGraphTask } from '../prompting/codegraph_task.js';
@@ -181,29 +178,19 @@ export async function performContextBuildPhase(
   augmentExternalToolsWithCodeGraphContext(result.scanDir, codegraphResult);
 
   try {
-    const flashManifest = buildFlashInputManifest({
+    const {
+      flashInputManifestPath: flashManifestPath,
+      flashInputPath,
+      warnings: flashWarnings,
+    } = buildAndWriteFlashInputArtifacts({
       run_id: result.run_id,
       task: opts.task,
       repo_root: opts.repoRoot,
       runDir: result.runDir,
-    });
-    const previousRunSummary = formatPreviousRunSummary(
-      getPreviousRunSummary({
-        vibecodePath: result.vibecodePath,
-        currentRunId: result.run_id,
-      }),
-    );
-    const flashInput = buildFlashInput({
-      run_id: result.run_id,
-      task: opts.task,
-      repo_root: opts.repoRoot,
-      runDir: result.runDir,
-      previousRunSummary,
-      manifest: flashManifest,
+      flashDir,
+      vibecodePath: result.vibecodePath,
       taskIntent,
     });
-    const flashManifestPath = path.join(flashDir, 'flash_input_manifest.json');
-    const flashInputPath = path.join(flashDir, 'flash_input.md');
 
     writeRunManifest(result.runManifestPath, {
       ...result.manifest,
@@ -213,9 +200,6 @@ export async function performContextBuildPhase(
       ...result.manifest,
       status: 'done',
     });
-
-    fs.writeFileSync(flashManifestPath, `${JSON.stringify(flashManifest, null, 2)}\n`, 'utf8');
-    fs.writeFileSync(flashInputPath, flashInput, 'utf8');
 
     const artifactPaths = [
       path.join(result.runDir, 'user_prompt.md'),
@@ -242,7 +226,7 @@ export async function performContextBuildPhase(
       scanDir: result.scanDir,
       flashDir,
       artifacts: [...new Set(artifactPaths)],
-      warnings: [...result.warnings, ...normalizerWarnings, ...(taskIntent.ok ? [] : taskIntent.warnings), ...codegraphResult.warnings, ...flashManifest.warnings],
+      warnings: [...result.warnings, ...normalizerWarnings, ...(taskIntent.ok ? [] : taskIntent.warnings), ...codegraphResult.warnings, ...flashWarnings],
     };
   } catch (error) {
     const diagnostic = error instanceof Error ? error.message : String(error);
