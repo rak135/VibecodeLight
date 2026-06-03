@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { writeCodeGraphContextArtifacts } from '../../src/adapters/codegraph/codegraph_context.js';
+import { writeCodeGraphContextArtifacts } from '../../src/core/runs/codegraph_artifacts.js';
 import { runPromptPipeline } from '../../src/core/prompting/pipeline.js';
 
 import { describe, expect, test } from 'vitest';
@@ -275,5 +275,39 @@ describe('architecture boundary characterization', () => {
     } finally {
       fs.rmSync(tmpRepo, { recursive: true, force: true });
     }
+  });
+
+  test('CodeGraph adapter does not own run-artifact writing or run-artifact path constants', () => {
+    const adapterPath = path.join(repoRoot, 'src', 'adapters', 'codegraph', 'codegraph_context.ts');
+    const adapterSource = read(adapterPath);
+
+    // Run-artifact writing is owned by core/runs/codegraph_artifacts.ts. The adapter
+    // must not export the writer (no compatibility shim) and must not encode the
+    // run-artifact relative paths it would write.
+    expect(adapterSource).not.toMatch(/writeCodeGraphContextArtifacts/);
+    expect(adapterSource).not.toMatch(/CodeGraphArtifactWriteResult/);
+    expect(adapterSource).not.toMatch(/codegraph_usage\.json/);
+    expect(adapterSource).not.toMatch(/codegraph_repo_atlas\.(?:md|json)/);
+    expect(adapterSource).not.toMatch(/scan\/repo_atlas\.(?:md|json)/);
+
+    // Production runtime imports of the writer must come from core/runs, not the
+    // adapter path. Tests are allowed to import the adapter freely.
+    const productionTsFiles = collectFiles(path.join(repoRoot, 'src'), '.ts');
+    const adapterImportRegex = /from\s+['"][^'"]*adapters\/codegraph\/codegraph_context(?:\.js)?['"]/;
+    const offenders: string[] = [];
+    for (const file of productionTsFiles) {
+      const source = read(file);
+      if (!source.includes('writeCodeGraphContextArtifacts')) continue;
+      // The writer definition itself is allowed to live in core/runs without
+      // matching an import line.
+      const lines = source.split(/\r?\n/);
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (!line.includes('writeCodeGraphContextArtifacts')) continue;
+        if (!adapterImportRegex.test(line)) continue;
+        offenders.push(`${repoPath(file)}:${index + 1}`);
+      }
+    }
+    assertNoViolations('Production code imported writeCodeGraphContextArtifacts from the adapter path:', offenders);
   });
 });

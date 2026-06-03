@@ -7,10 +7,10 @@ import { describe, expect, test } from 'vitest';
 import {
   buildCodeGraphContext,
   parseWindowsNpmShimTarget,
-  writeCodeGraphContextArtifacts,
   type CodeGraphContextRunner,
   type CodeGraphReadinessProvider,
 } from '../../../src/adapters/codegraph/codegraph_context.js';
+import { writeCodeGraphContextArtifacts } from '../../../src/core/runs/codegraph_artifacts.js';
 
 function tempRun(): { repoRoot: string; runDir: string; scanDir: string } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-codegraph-context-'));

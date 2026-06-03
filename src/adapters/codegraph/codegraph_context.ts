@@ -18,7 +18,7 @@ export type CodeGraphContextMode = 'detect-only' | 'use-existing';
 /**
  * Which transport actually produced the CodeGraph context, or `none` when
  * context was not queried (detect-only, or use-existing failures that did not
- * yield context). Recorded in `scan/codegraph_usage.json` alongside the
+ * yield context). Recorded by the CodeGraph artifact writer alongside the
  * requested transport.
  */
 export type CodeGraphTransportUsed = CodeGraphTransport | 'none';
@@ -464,8 +464,3 @@ function finalizeResult(
     ...(meta.fallbackReason ? { fallbackReason: meta.fallbackReason } : {}),
   };
 }
-
-export {
-  writeCodeGraphContextArtifacts,
-  type CodeGraphArtifactWriteResult,
-} from '../../core/runs/codegraph_artifacts.js';
