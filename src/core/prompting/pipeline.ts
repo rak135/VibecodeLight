@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { LlmAdapter } from '../../adapters/llm/base.js';
-import { buildCodeGraphContext, writeCodeGraphContextArtifacts, type CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
+import type { CodeGraphContextMode } from '../../adapters/codegraph/codegraph_context.js';
 import { DEFAULT_CODEGRAPH_TRANSPORT, type CodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
 import type { CodeGraphMcpContextRunner } from '../../adapters/codegraph/codegraph_mcp.js';
 import { LlmAdapterError } from '../../adapters/llm/errors.js';
@@ -21,7 +21,6 @@ import {
   finalizeContext,
   markFlashInputProviderCalled,
 } from '../context/index.js';
-import { buildCodeGraphTask } from './codegraph_task.js';
 import { renderFinalPrompt } from './renderer.js';
 import { resolveFlashSystemPrompt } from '../../core/prompts/flash_system_prompt.js';
 import type {
@@ -32,7 +31,10 @@ import type {
 } from './pipeline_events.js';
 import { updateCurrent } from '../runs/current.js';
 import { executeFlashRequestAndWriteArtifacts } from '../runs/shared_flash_execution.js';
-import { augmentExternalToolsWithCodeGraphContext } from '../scanning/external_tools.js';
+import {
+  buildAndWriteCodeGraphRunContext,
+  type BuildAndWriteCodeGraphRunContextResult,
+} from '../runs/shared_codegraph_context.js';
 import { performScanPhase, writeRunManifest } from '../runs/scan_phase.js';
 import type { RunManifest } from '../models/index.js';
 
@@ -179,8 +181,8 @@ interface ScanBootstrapResult {
 
 interface CodeGraphStepResult {
   flashDir: string;
-  codegraphResult: Awaited<ReturnType<typeof buildCodeGraphContext>>;
-  codegraphArtifacts: ReturnType<typeof writeCodeGraphContextArtifacts>;
+  codegraphResult: BuildAndWriteCodeGraphRunContextResult['codegraphResult'];
+  codegraphArtifacts: BuildAndWriteCodeGraphRunContextResult['codegraphArtifacts'];
 }
 
 interface FlashInputStepResult {
@@ -442,7 +444,6 @@ async function runCodeGraphStep(
 
   const codegraphMode: CodeGraphContextMode = opts.codegraphMode ?? 'detect-only';
   const codegraphTransport: CodeGraphTransport = opts.codegraphTransport ?? DEFAULT_CODEGRAPH_TRANSPORT;
-  const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
   if (codegraphMode === 'detect-only') {
     emitProgress({
       phase: 'codegraph_detect_started',
@@ -464,15 +465,17 @@ async function runCodeGraphStep(
   }
 
   const codegraphStart = Date.now();
-  const codegraphResult = await buildCodeGraphContext({
+  const codegraphStep = await buildAndWriteCodeGraphRunContext({
     repoRoot: opts.repoRoot,
-    task: codegraphTask,
+    task: opts.task,
+    taskIntent,
+    runDir: scan.runDir,
+    scanDir: scan.scanDir,
     mode: codegraphMode,
     transport: codegraphTransport,
     ...(opts.codegraphMcpRunner ? { mcpRunner: opts.codegraphMcpRunner } : {}),
   });
-  const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: scan.runDir, result: codegraphResult });
-  augmentExternalToolsWithCodeGraphContext(scan.scanDir, codegraphResult);
+  const { codegraphResult, codegraphArtifacts } = codegraphStep;
   const codegraphDuration = Date.now() - codegraphStart;
   const transportUsedDisplay = codegraphResult.transportUsed === 'mcp'
     ? 'MCP'

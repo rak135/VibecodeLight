@@ -2,8 +2,6 @@ import fs from 'fs';
 import path from 'path';
 
 import {
-  buildCodeGraphContext,
-  writeCodeGraphContextArtifacts,
   type CodeGraphContextMode,
   type CodeGraphContextResult,
   type CodeGraphContextRunner,
@@ -25,10 +23,9 @@ import {
   FlashInputManifestError,
 } from '../context/index.js';
 import { RunManifest } from '../models/index.js';
-import { buildCodeGraphTask } from '../prompting/codegraph_task.js';
-import { augmentExternalToolsWithCodeGraphContext } from '../scanning/external_tools.js';
 import { updateCurrent } from './current.js';
 import { performScanPhase, writeRunManifest } from './scan_phase.js';
+import { buildAndWriteCodeGraphRunContext } from './shared_codegraph_context.js';
 
 export interface ContextBuildPhaseOptions {
   task: string;
@@ -148,34 +145,20 @@ export async function performContextBuildPhase(
 
   const codegraphMode = opts.codegraphMode ?? 'detect-only';
   const codegraphTransport: CodeGraphTransport = opts.codegraphTransport ?? readCodeGraphTransportSetting({ env: process.env }).transport;
-  const codegraphTask = buildCodeGraphTask(opts.task, taskIntent);
-  let codegraphResult: CodeGraphContextResult = {
-    ok: true,
-    used: false,
+  const { codegraphResult, codegraphArtifacts } = await buildAndWriteCodeGraphRunContext({
+    repoRoot: opts.repoRoot,
+    task: opts.task,
+    taskIntent,
+    runDir: result.runDir,
+    scanDir: result.scanDir,
     mode: codegraphMode,
-    reason: 'DETECT_ONLY',
-    warnings: [],
-    transportRequested: codegraphTransport,
-    transportUsed: 'none',
-    mcpAttempted: false,
-    fallbackUsed: false,
-  };
-  try {
-    codegraphResult = await buildCodeGraphContext({
-      repoRoot: opts.repoRoot,
-      task: codegraphTask,
-      mode: codegraphMode,
-      transport: codegraphTransport,
-      ...(opts.codegraphRunner ? { runner: opts.codegraphRunner } : {}),
-      ...(opts.codegraphReadinessProvider ? { readinessProvider: opts.codegraphReadinessProvider } : {}),
-      ...(opts.codegraphCommand ? { command: opts.codegraphCommand } : {}),
-      ...(opts.codegraphMcpRunner ? { mcpRunner: opts.codegraphMcpRunner } : {}),
-    });
-  } catch (error) {
-    codegraphResult = codeGraphContextFallbackResult(codegraphMode, error, codegraphTransport);
-  }
-  const codegraphArtifacts = writeCodeGraphContextArtifacts({ runDir: result.runDir, result: codegraphResult });
-  augmentExternalToolsWithCodeGraphContext(result.scanDir, codegraphResult);
+    transport: codegraphTransport,
+    ...(opts.codegraphRunner ? { runner: opts.codegraphRunner } : {}),
+    ...(opts.codegraphReadinessProvider ? { readinessProvider: opts.codegraphReadinessProvider } : {}),
+    ...(opts.codegraphCommand ? { command: opts.codegraphCommand } : {}),
+    ...(opts.codegraphMcpRunner ? { mcpRunner: opts.codegraphMcpRunner } : {}),
+    onBuildError: (error) => codeGraphContextFallbackResult(codegraphMode, error, codegraphTransport),
+  });
 
   try {
     const {
