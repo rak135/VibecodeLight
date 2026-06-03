@@ -1,12 +1,14 @@
 import {
   buildCodeGraphContext,
-  writeCodeGraphContextArtifacts,
-  type CodeGraphArtifactWriteResult,
   type CodeGraphContextMode,
   type CodeGraphContextResult,
   type CodeGraphContextRunner,
   type CodeGraphReadinessProvider,
 } from '../../adapters/codegraph/codegraph_context.js';
+import {
+  writeCodeGraphContextArtifacts,
+  type CodeGraphArtifactWriteResult,
+} from './codegraph_artifacts.js';
 import type { CodeGraphMcpContextRunner } from '../../adapters/codegraph/codegraph_mcp.js';
 import type { CodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
 import type { TaskIntent } from '../../adapters/task_normalizer/index.js';
