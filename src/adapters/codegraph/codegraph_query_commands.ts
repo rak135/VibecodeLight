@@ -50,6 +50,21 @@ export interface CodeGraphQueryError {
   hint?: string;
 }
 
+/**
+ * Schema metadata describing how the upstream CodeGraph `query` score should
+ * be interpreted. The upstream score is an unbounded query-relative ranking
+ * score — not a probability, confidence, or percentage. Vibecode surfaces this
+ * metadata so agents and downstream consumers do not misread the number.
+ */
+export interface CodeGraphScoreMeta {
+  score_kind: 'raw_upstream_rank_score';
+  score_is_percentage: false;
+  score_scope: 'query_relative';
+  /** Largest raw upstream score observed in this result set, or null. */
+  max_score: number | null;
+  note: string;
+}
+
 export interface CodeGraphQueryResult {
   ok: boolean;
   command: string[];
@@ -58,6 +73,8 @@ export interface CodeGraphQueryResult {
   parsedJson?: unknown;
   warnings: string[];
   error?: CodeGraphQueryError;
+  /** Search-specific score metadata (set by runCodeGraphSearch only). */
+  scoreMeta?: CodeGraphScoreMeta;
 }
 
 export interface CodeGraphQueryCommonOptions {
@@ -333,6 +350,128 @@ function validatePositiveInteger(value: number | undefined, label: string): { ok
   return { ok: true };
 }
 
+/**
+ * Strip upstream percentage-formatted score annotations like `(2872%)` so that
+ * unbounded raw rank scores are not surfaced as misleading percentages. Used
+ * as a defensive fallback when JSON parsing fails.
+ */
+function stripUpstreamPercentScores(text: string): string {
+  return text.replace(/\s*\(\d+(?:\.\d+)?%\)/g, '');
+}
+
+function extractScore(item: unknown): number | null {
+  if (item && typeof item === 'object' && 'score' in (item as Record<string, unknown>)) {
+    const v = (item as Record<string, unknown>).score;
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  }
+  return null;
+}
+
+function computeMaxScore(items: unknown[]): number | null {
+  let max: number | null = null;
+  for (const it of items) {
+    const s = extractScore(it);
+    if (s === null) continue;
+    if (max === null || s > max) max = s;
+  }
+  return max;
+}
+
+const SCORE_NOTE =
+  'score is the upstream CodeGraph raw rank score: query-relative, not a percentage';
+
+function enrichSearchResult(
+  item: unknown,
+  rank: number,
+  maxScore: number | null,
+): unknown {
+  if (!item || typeof item !== 'object') return item;
+  const score = extractScore(item);
+  if (score === null) return item;
+  const enriched: Record<string, unknown> = { ...(item as Record<string, unknown>) };
+  enriched.rank = rank;
+  enriched.raw_score = score;
+  if (maxScore !== null && maxScore > 0) {
+    enriched.relative_score = score / maxScore;
+  }
+  enriched.score_kind = 'raw_upstream_rank_score';
+  enriched.score_is_percentage = false;
+  enriched.score_scope = 'query_relative';
+  return enriched;
+}
+
+interface NormalizedSearch {
+  parsedJson: unknown;
+  results: unknown[];
+  maxScore: number | null;
+}
+
+function normalizeSearchPayload(parsedJson: unknown): NormalizedSearch {
+  if (Array.isArray(parsedJson)) {
+    const maxScore = computeMaxScore(parsedJson);
+    const enriched = parsedJson.map((r, i) => enrichSearchResult(r, i + 1, maxScore));
+    return { parsedJson: enriched, results: enriched, maxScore };
+  }
+  if (
+    parsedJson &&
+    typeof parsedJson === 'object' &&
+    Array.isArray((parsedJson as { results?: unknown }).results)
+  ) {
+    const arr = (parsedJson as { results: unknown[] }).results;
+    const maxScore = computeMaxScore(arr);
+    const enriched = arr.map((r, i) => enrichSearchResult(r, i + 1, maxScore));
+    return {
+      parsedJson: { ...(parsedJson as Record<string, unknown>), results: enriched },
+      results: enriched,
+      maxScore,
+    };
+  }
+  return { parsedJson, results: [], maxScore: null };
+}
+
+function readField(obj: unknown, keys: string[]): string | number | null {
+  if (!obj || typeof obj !== 'object') return null;
+  const rec = obj as Record<string, unknown>;
+  for (const k of keys) {
+    const v = rec[k];
+    if (typeof v === 'string' && v.length > 0) return v;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+function renderSearchText(results: unknown[]): string {
+  if (results.length === 0) return '';
+  const lines: string[] = [];
+  lines.push(`Note: ${SCORE_NOTE}.`);
+  lines.push('');
+  for (const r of results) {
+    const rec = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
+    const node = rec.node && typeof rec.node === 'object' ? (rec.node as Record<string, unknown>) : null;
+    const kind = node ? readField(node, ['kind', 'node_kind', 'type']) : readField(rec, ['kind', 'node_kind', 'type']);
+    const name = node ? readField(node, ['name', 'symbol', 'id']) : readField(rec, ['name', 'symbol', 'id']);
+    const file = node ? readField(node, ['path', 'file', 'file_path']) : readField(rec, ['path', 'file', 'file_path']);
+    const line = node ? readField(node, ['start_line', 'line', 'line_number']) : readField(rec, ['start_line', 'line', 'line_number']);
+    const rank = rec.rank;
+    const raw = rec.raw_score;
+    const rel = rec.relative_score;
+
+    const headParts: string[] = [];
+    headParts.push(`${typeof rank === 'number' ? rank : '?'}.`);
+    if (kind) headParts.push(`[${kind}]`);
+    if (name) headParts.push(String(name));
+    if (file) headParts.push(line ? `(${file}:${line})` : `(${file})`);
+    if (headParts.length === 1) headParts.push('(no node metadata)');
+    lines.push(headParts.join(' '));
+
+    const scoreParts: string[] = [];
+    if (typeof raw === 'number') scoreParts.push(`raw_score=${raw.toFixed(2)}`);
+    if (typeof rel === 'number') scoreParts.push(`relative_score=${rel.toFixed(3)}`);
+    if (scoreParts.length > 0) lines.push(`   ${scoreParts.join(' ')}`);
+  }
+  return lines.join('\n');
+}
+
 /** vibecode codegraph search — wraps `codegraph query`. */
 export function runCodeGraphSearch(options: CodeGraphSearchOptions): CodeGraphQueryResult {
   if (!options.query || !options.query.trim()) {
@@ -341,10 +480,40 @@ export function runCodeGraphSearch(options: CodeGraphSearchOptions): CodeGraphQu
   const valid = validatePositiveInteger(options.maxResults, '--max-results');
   if (!valid.ok) return invalidArgResult(options, 'query', valid.message);
 
+  // Always request JSON from upstream so Vibecode renders its own scores.
+  // Upstream's text renderer multiplies the unbounded raw rank score by 100
+  // and appends `%`, which is misleading. By driving from JSON we never print
+  // those upstream percentage strings.
   const args = [...buildPathArgs(path.resolve(options.repoRoot)), options.query];
   if (options.maxResults !== undefined) args.push('--limit', String(options.maxResults));
-  if (options.json) args.push('--json');
-  return executeQuery(options, 'query', args);
+  args.push('--json');
+  const result = executeQuery({ ...options, json: true }, 'query', args);
+  if (!result.ok) {
+    if (result.stdoutText) result.stdoutText = stripUpstreamPercentScores(result.stdoutText);
+    return result;
+  }
+
+  const normalized = normalizeSearchPayload(result.parsedJson);
+  result.parsedJson = normalized.parsedJson;
+  result.scoreMeta = {
+    score_kind: 'raw_upstream_rank_score',
+    score_is_percentage: false,
+    score_scope: 'query_relative',
+    max_score: normalized.maxScore,
+    note: SCORE_NOTE,
+  };
+
+  if (!options.json) {
+    // For text-mode callers, replace upstream stdout with Vibecode's own
+    // rendering driven by parsed JSON. Falls back to a sanitized upstream
+    // string (with `(NN%)` annotations stripped) if parsing failed.
+    if (normalized.results.length > 0 || result.parsedJson !== undefined) {
+      result.stdoutText = renderSearchText(normalized.results);
+    } else if (result.stdoutText) {
+      result.stdoutText = stripUpstreamPercentScores(result.stdoutText);
+    }
+  }
+  return result;
 }
 
 /** vibecode codegraph context — wraps `codegraph context`. */

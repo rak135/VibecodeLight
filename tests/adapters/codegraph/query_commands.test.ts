@@ -279,6 +279,131 @@ describe('codegraph query commands adapter', () => {
     expect(runnerCalls).toHaveLength(0);
   });
 
+  test('search always invokes upstream with --json regardless of caller json flag', () => {
+    const repoRoot = makeInitializedRepo();
+    const { runner, calls } = makeRunner('[]');
+    runCodeGraphSearch({
+      repoRoot,
+      query: 'x',
+      runner,
+      versionProbe: alwaysAvailable(),
+      initializedProbe: alwaysInitialized(),
+    });
+    expect(calls[0]!.args[calls[0]!.args.length - 1]).toBe('--json');
+  });
+
+  test('search renders its own text from parsed JSON (no upstream percentages)', () => {
+    const repoRoot = makeInitializedRepo();
+    const upstream = JSON.stringify([
+      { node: { name: 'fooFn', kind: 'function', path: 'src/foo.ts', start_line: 10 }, score: 28.71846336436746 },
+      { node: { name: 'barFn', kind: 'function', path: 'src/bar.ts', start_line: 22 }, score: 14.3 },
+    ]);
+    const { runner } = makeRunner(upstream);
+    const result = runCodeGraphSearch({
+      repoRoot,
+      query: 'x',
+      runner,
+      versionProbe: alwaysAvailable(),
+      initializedProbe: alwaysInitialized(),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.stdoutText).toBeDefined();
+    // No `%` anywhere in text output, and no upstream `(2872%)` rendering.
+    expect(result.stdoutText!).not.toContain('%');
+    expect(result.stdoutText!).not.toContain('2872');
+    // Contains the raw score (rounded), labels score as query-relative.
+    expect(result.stdoutText!).toContain('raw_score=28.72');
+    expect(result.stdoutText!.toLowerCase()).toContain('query-relative');
+    expect(result.stdoutText!.toLowerCase()).toContain('not a percentage');
+  });
+
+  test('search does not render raw 100.73 as 10073% in text', () => {
+    const repoRoot = makeInitializedRepo();
+    const upstream = JSON.stringify([
+      { node: { name: 'topFn', path: 'src/top.ts' }, score: 100.73 },
+    ]);
+    const { runner } = makeRunner(upstream);
+    const result = runCodeGraphSearch({
+      repoRoot,
+      query: 'x',
+      runner,
+      versionProbe: alwaysAvailable(),
+      initializedProbe: alwaysInitialized(),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.stdoutText!).not.toContain('10073');
+    expect(result.stdoutText!).not.toContain('%');
+    expect(result.stdoutText!).toContain('raw_score=100.73');
+  });
+
+  test('search JSON envelope preserves raw upstream score and adds enrichment fields', () => {
+    const repoRoot = makeInitializedRepo();
+    const upstream = JSON.stringify([
+      { node: { name: 'a' }, score: 20 },
+      { node: { name: 'b' }, score: 5 },
+    ]);
+    const { runner } = makeRunner(upstream);
+    const result = runCodeGraphSearch({
+      repoRoot,
+      query: 'x',
+      json: true,
+      runner,
+      versionProbe: alwaysAvailable(),
+      initializedProbe: alwaysInitialized(),
+    });
+    expect(result.ok).toBe(true);
+    const arr = result.parsedJson as Array<Record<string, unknown>>;
+    expect(Array.isArray(arr)).toBe(true);
+    expect(arr).toHaveLength(2);
+    // Original `score` preserved
+    expect(arr[0]!.score).toBe(20);
+    expect(arr[1]!.score).toBe(5);
+    // Enrichment fields
+    expect(arr[0]!.raw_score).toBe(20);
+    expect(arr[0]!.score_kind).toBe('raw_upstream_rank_score');
+    expect(arr[0]!.score_is_percentage).toBe(false);
+    expect(arr[0]!.score_scope).toBe('query_relative');
+    expect(arr[0]!.rank).toBe(1);
+    expect(arr[1]!.rank).toBe(2);
+    // Relative score is relative to top score in this result set
+    expect(arr[0]!.relative_score).toBe(1);
+    expect(arr[1]!.relative_score).toBeCloseTo(0.25, 5);
+  });
+
+  test('search exposes scoreMeta envelope with max_score and non-percentage flags', () => {
+    const repoRoot = makeInitializedRepo();
+    const upstream = JSON.stringify([{ node: {}, score: 42.5 }]);
+    const { runner } = makeRunner(upstream);
+    const result = runCodeGraphSearch({
+      repoRoot,
+      query: 'x',
+      json: true,
+      runner,
+      versionProbe: alwaysAvailable(),
+      initializedProbe: alwaysInitialized(),
+    });
+    expect(result.scoreMeta).toMatchObject({
+      score_kind: 'raw_upstream_rank_score',
+      score_is_percentage: false,
+      score_scope: 'query_relative',
+      max_score: 42.5,
+    });
+  });
+
+  test('search leaves results without a numeric score untouched', () => {
+    const repoRoot = makeInitializedRepo();
+    const { runner } = makeRunner('[{"node":{"name":"foo"}}]');
+    const result = runCodeGraphSearch({
+      repoRoot,
+      query: 'x',
+      json: true,
+      runner,
+      versionProbe: alwaysAvailable(),
+      initializedProbe: alwaysInitialized(),
+    });
+    expect(result.parsedJson).toEqual([{ node: { name: 'foo' } }]);
+  });
+
   test('rejects non-positive --max-results', () => {
     const repoRoot = makeInitializedRepo();
     const { runner } = makeRunner('');

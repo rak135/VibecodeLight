@@ -231,6 +231,86 @@ describe('vibecode codegraph query commands (CLI)', () => {
     expect(process.exitCode).toBe(1);
   });
 
+  test('search text output never prints upstream % scores and labels score as query-relative', async () => {
+    const runCodeGraphSearch = vi.fn().mockReturnValue({
+      ok: true,
+      command: ['codegraph', 'query', '--path', tmpRepo, 'q', '--json'],
+      repoRoot: tmpRepo,
+      stdoutText:
+        'Note: score is the upstream CodeGraph raw rank score: query-relative, not a percentage.\n\n' +
+        '1. [function] fooFn (src/foo.ts:10)\n' +
+        '   raw_score=28.72 relative_score=1.000',
+      scoreMeta: {
+        score_kind: 'raw_upstream_rank_score',
+        score_is_percentage: false,
+        score_scope: 'query_relative',
+        max_score: 28.71846336436746,
+        note: 'score is the upstream CodeGraph raw rank score: query-relative, not a percentage',
+      },
+      warnings: [],
+    });
+    mockAdapter({ runCodeGraphSearch });
+
+    const { createCli } = await import('../../../src/app/cli/index.js');
+    await createCli().parseAsync([
+      'node', 'vibecode', 'codegraph', 'search', 'q',
+      '--repo', tmpRepo,
+    ]);
+
+    const joined = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(joined).not.toContain('%');
+    expect(joined).not.toContain('2872');
+    expect(joined).toContain('raw_score');
+    expect(joined.toLowerCase()).toMatch(/query-relative|not a percentage/);
+  });
+
+  test('search --json envelope preserves raw score and includes score_meta', async () => {
+    const runCodeGraphSearch = vi.fn().mockReturnValue({
+      ok: true,
+      command: ['codegraph', 'query', '--path', tmpRepo, 'q', '--json'],
+      repoRoot: tmpRepo,
+      stdoutText: '[]',
+      parsedJson: [
+        {
+          node: { name: 'foo' },
+          score: 28.71846336436746,
+          raw_score: 28.71846336436746,
+          relative_score: 1,
+          rank: 1,
+          score_kind: 'raw_upstream_rank_score',
+          score_is_percentage: false,
+          score_scope: 'query_relative',
+        },
+      ],
+      scoreMeta: {
+        score_kind: 'raw_upstream_rank_score',
+        score_is_percentage: false,
+        score_scope: 'query_relative',
+        max_score: 28.71846336436746,
+        note: 'score is the upstream CodeGraph raw rank score: query-relative, not a percentage',
+      },
+      warnings: [],
+    });
+    mockAdapter({ runCodeGraphSearch });
+
+    const { createCli } = await import('../../../src/app/cli/index.js');
+    await createCli().parseAsync([
+      'node', 'vibecode', 'codegraph', 'search', 'q',
+      '--repo', tmpRepo,
+      '--json',
+    ]);
+
+    const payload = JSON.parse(logSpy.mock.calls[0]![0] as string);
+    expect(Array.isArray(payload.parsedJson)).toBe(true);
+    // Raw upstream score preserved unmodified
+    expect(payload.parsedJson[0].score).toBe(28.71846336436746);
+    // Envelope-level score metadata
+    expect(payload.score_meta).toBeDefined();
+    expect(payload.score_meta.score_is_percentage).toBe(false);
+    expect(payload.score_meta.score_kind).toBe('raw_upstream_rank_score');
+    expect(payload.score_meta.score_scope).toBe('query_relative');
+  });
+
   test('default human output is concise: header, repo, results, command, warnings', async () => {
     const runCodeGraphSearch = vi.fn().mockReturnValue({
       ok: true,

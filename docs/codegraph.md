@@ -212,6 +212,54 @@ Default human output is bounded markdown with the upstream command echoed; the
 }
 ```
 
+For the other read-only subcommands (`context`, `files`, `callers`,
+`callees`, `impact`), the default human output is upstream stdout passed
+through verbatim under a small Vibecode header. **`search` is the
+exception** — see below — because the upstream text renderer for `query`
+formats raw rank scores as misleading percentages.
+
+#### Search score handling (`vibecode codegraph search`)
+
+Upstream `codegraph query` returns an **unbounded raw ranking score** per
+result (e.g. `28.7184…`, `100.73`, …). It is not a probability, not a
+confidence, and not a percentage. The score is only comparable **within a
+single query result set**; do not compare scores across different queries.
+
+Upstream's own text renderer multiplies that raw score by 100 and appends
+`%`, which prints absurd values like `(2872%)` or `(10073%)`. Vibecode
+search output deliberately does **not** treat these as percentages:
+
+- `vibecode codegraph search` always invokes upstream with `--json` and
+  renders its own text output. Search text output never contains `%`
+  appended to a score, and never prints upstream's percentage formatting.
+- The text output shows rank order, the node kind/name/path/line when
+  available, and `raw_score` rounded to two decimals. When the result set
+  contains more than one scored result, a `relative_score` (0..1 within
+  the query result set) is shown alongside.
+- A one-line note at the top of the search output reminds the reader the
+  score is query-relative and not a percentage.
+
+For other CodeGraph query subcommands, upstream stdout is still surfaced
+verbatim — only `search` rewrites it.
+
+The `--json` envelope for `search` preserves the original upstream
+`score` field on every result and adds explicit score metadata:
+
+- per-result fields (when the result contained a numeric `score`):
+  - `raw_score` — copy of the upstream rank score
+  - `relative_score` — `raw_score / max_score_in_this_result_set` (only
+    added when the maximum score in the result set is > 0)
+  - `rank` — 1-indexed position in the result set
+  - `score_kind: "raw_upstream_rank_score"`
+  - `score_is_percentage: false`
+  - `score_scope: "query_relative"`
+- an envelope-level `score_meta` block with `score_kind`,
+  `score_is_percentage`, `score_scope`, the observed `max_score`, and a
+  short human-readable `note`.
+
+`relative_score` is only meaningful **within one query's result set**.
+Do not compare `relative_score` values across different searches.
+
 Stale index handling: query commands surface a warning if upstream reports
 pending changes but still serve the query against the existing index. They do
 not auto-sync. Use `vibecode codegraph sync --repo <path>` explicitly.

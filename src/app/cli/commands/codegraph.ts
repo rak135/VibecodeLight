@@ -237,6 +237,7 @@ function emitCodeGraphQueryResult(
     if (envelope.inputValue !== undefined) payload[envelope.inputKey] = envelope.inputValue;
     if (result.stdoutText !== undefined) payload.stdoutText = result.stdoutText;
     if (result.parsedJson !== undefined) payload.parsedJson = result.parsedJson;
+    if (result.scoreMeta) payload.score_meta = result.scoreMeta;
     if (result.error) payload.error = result.error;
     if (logBlock) payload.log = logBlock;
     console.log(JSON.stringify(payload));
