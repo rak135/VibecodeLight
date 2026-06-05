@@ -326,7 +326,15 @@ vibecode runs list
 vibecode runs show latest
 vibecode skills list
 vibecode skills copy <skill-id>
+vibecode mcp serve --repo <path>
+vibecode mcp tools
 ```
+
+`vibecode mcp serve` starts a repo-bound stdio MCP server exposing the
+Phase MCP-1 read-only CodeGraph tools. Agents with MCP support call those
+tools; agents without MCP support use the equivalent CLI commands
+(`vibecode codegraph status|search|context|files|callers|callees|impact`).
+Both call the same Vibecode core services.
 
 ## Debug/internal CLI
 

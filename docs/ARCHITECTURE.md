@@ -189,11 +189,12 @@ JSON/Markdown artifacts
 
 ### App Layer
 
-The app layer contains the desktop shell and CLI entrypoints.
+The app layer contains the desktop shell, CLI entrypoint, and the VibecodeMCP stdio server. Each is a thin protocol adapter over the same core services.
 
 ```text
 src/app/desktop/
 src/app/cli/
+src/app/mcp/
 ```
 
 Responsibilities:
@@ -204,7 +205,10 @@ Responsibilities:
 - show summaries of run artifacts,
 - call core services,
 - send approved prompt into the active terminal,
-- expose debug commands through CLI.
+- expose debug commands through CLI,
+- expose read-only MCP tools (Phase MCP-1: repo-bound stdio CodeGraph tools).
+
+`src/app/mcp/` is the third app entrypoint — a peer to `cli/` and `desktop/`. It registers MCP tools whose handlers call the same `src/core/*` and `src/adapters/codegraph/*` services the CLI calls. It is provider-agnostic by construction (no provider SDK crosses the MCP boundary) and does not contain business logic — only protocol formatting and per-call logging.
 
 The app layer must remain thin.
 

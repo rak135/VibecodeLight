@@ -6,7 +6,29 @@ Current implemented behavior lives in `docs/codegraph.md`.
 
 Everything below is roadmap / not implemented yet unless `docs/codegraph.md` says otherwise.
 
-## Current MCP status (Phase 1A + 1B — implemented)
+## Current MCP status (Phase 1A + 1B + MCP-1 — implemented)
+
+Phase MCP-1 (Vibecode-owned stdio MCP server) is now implemented as well:
+
+- `vibecode mcp serve --repo <path>` starts a repo-bound stdio MCP server
+  exposing seven read-only CodeGraph tools (`vibecode_codegraph_status`,
+  `_search`, `_context`, `_files`, `_callers`, `_callees`, `_impact`).
+- `vibecode mcp tools` prints the canonical tool name list without starting
+  the server (`--json` available).
+- Tool handlers call the existing in-process core services
+  (`runCodeGraphSearch` / `runCodeGraphContextQuery` / etc.) directly — no
+  shell-out, no CLI text parsing. Provider-agnostic by construction.
+- stdout is reserved for the MCP JSON-RPC stream. Diagnostic logs go to
+  stderr (controlled by `--log-level info|warn|silent`); per-call usage
+  rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` (schema v1).
+- No HTTP transport, no multi-repo binding, no agent config writes, no
+  write/shell/terminal/git tools. Tools do not accept a `repo` argument —
+  the repo is bound at startup.
+
+Phase 2 (Vibecode MCP run/artifact tools, agent config install) and later
+phases below remain future work.
+
+
 
 VibecodeLight integrates with the existing upstream CodeGraph MCP server
 started by `codegraph serve --mcp`. It does **not** implement its own

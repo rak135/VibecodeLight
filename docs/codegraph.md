@@ -513,18 +513,50 @@ The important distinction is:
 - `scan/codegraph_repo_atlas.*` = CodeGraph-derived scan artifacts
 - `flash/repo_atlas.md` = flash-input artifact for this specific run
 
+## VibecodeMCP server (Phase MCP-1)
+
+VibecodeLight now ships its own native MCP server, `vibecode mcp serve --repo <path>`. It is distinct from upstream CodeGraph's MCP server: `codegraph serve --mcp` is the upstream code-intelligence server that VibecodeLight may *call* (via the existing CodeGraph MCP transport in the prompt pipeline), while `vibecode mcp serve` is a Vibecode-owned protocol adapter that any MCP client (Claude Code, Codex, OpenCode, Hermes, anything that speaks MCP) can connect to. The two coexist; one does not replace the other.
+
+Phase MCP-1 is read-only and stdio-only. The server is bound to one repository at startup and tools do not accept a `repo` argument. Tool handlers call the same in-process core services as the CLI (`getCodeGraphStatus`, `runCodeGraphSearch`, `runCodeGraphContextQuery`, `runCodeGraphFiles`, `runCodeGraphCallers`, `runCodeGraphCallees`, `runCodeGraphImpact`) — no shell-out, no CLI text parsing, provider-agnostic by construction.
+
+Exposed tools:
+
+```text
+vibecode_codegraph_status
+vibecode_codegraph_search
+vibecode_codegraph_context
+vibecode_codegraph_files
+vibecode_codegraph_callers
+vibecode_codegraph_callees
+vibecode_codegraph_impact
+```
+
+Per-call usage is recorded as bounded, secret-free JSONL at `<repo>/.vibecode/logs/mcp_tool_usage.jsonl`. stdout is reserved exclusively for the MCP JSON-RPC stream; diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`).
+
+Anti-scope for MCP-1:
+
+- HTTP transport, multi-repo workspaces (future phase);
+- agent config installer (Phase 2 — current `vibecode codegraph mcp config --print` remains print-only);
+- terminal write / shell exec / file write / git commit tools;
+- arbitrary file or repo path arguments on tools;
+- upstream CodeGraph maintenance (`init`/`sync`/`index`/`watch`) — explicit CLI/Desktop actions only.
+
+Agents with MCP support use these tools. Agents without MCP support use the `vibecode codegraph ...` CLI commands above. Both paths call the same Vibecode core services.
+
 ## What is intentionally not implemented
 
 The following are not part of the current implementation:
 
-- a VibecodeLight-owned CodeGraph MCP server (Phase 1A integrates with the
-  upstream `codegraph serve --mcp` server only)
-- `vibecode mcp serve` (VibecodeLight MCP gateway)
-- agent config installation helpers (Phase 2 — Phase 1A only prints snippets)
-- HTTP server mode
+- a VibecodeLight-owned CodeGraph MCP server that proxies upstream CodeGraph
+  (Phase 1A integrates with the upstream `codegraph serve --mcp` server as
+  a client; VibecodeMCP exposes its own Vibecode-native tools instead)
+- HTTP transport for VibecodeMCP (Phase MCP-1 is stdio only)
+- run/artifact MCP tools (Phase MCP-2)
+- agent config installation helpers (current `mcp config` is print-only)
 - background watch/serve/index orchestration during prompt build
 - automatic CodeGraph installation or updates
 - automatic writes to external agent configs
+- terminal/shell/write/git tools on the MCP surface
 
 If you see those ideas elsewhere, treat them as roadmap material, not current supported behavior.
 

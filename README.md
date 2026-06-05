@@ -973,6 +973,59 @@ pnpm vibecode codegraph impact   "<path-or-symbol>"   --repo <path> [--limit <n>
 
 These wrap the verified read-only upstream subcommands (`query`, `context`, `files`, `callers`, `callees`, `impact`). They are provider-agnostic: any terminal agent (Claude Code, Codex, Hermes, opencode, or anything else that can run a shell command) can invoke them. They are **not** native MCP tools, and they are **not** a Vibecode-owned MCP server. Native MCP integration remains optional future work. The commands are strictly read-only — they never run `codegraph init`, `sync`, `index`, `watch`, or `serve`, never create `.codegraph/`, never mutate the repository, and never call an LLM provider. If CodeGraph is missing or the repository is not initialized, they return a structured `CODEGRAPH_NOT_INSTALLED` / `CODEGRAPH_NOT_INITIALIZED` envelope that points to the explicit maintenance commands above. Use `rg`/`grep` for exact text and error messages; use these commands for structural symbol search, call relationships, and impact analysis.
 
+### VibecodeMCP server (Phase MCP-1)
+
+VibecodeLight now exposes its **own** native Model Context Protocol server: a repo-bound stdio process that any MCP-capable agent (Claude Code, Codex, OpenCode, Hermes, anything that speaks MCP) can connect to. It is distinct from upstream CodeGraph's MCP server (`codegraph serve --mcp`) — VibecodeMCP is a Vibecode-owned protocol adapter that calls the same internal core services the CLI calls. Provider-agnostic by construction: no provider SDK ever crosses the MCP boundary.
+
+Start the server:
+
+```powershell
+pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo
+pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --codegraph-transport mcp
+pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --codegraph-bin C:\Tools\codegraph.exe
+pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --log-level silent
+```
+
+`--repo` is required and the resolved path is bound to the server for its lifetime. Tools never accept a `repo` argument. stdout is reserved for the MCP JSON-RPC stream; human/diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`) and per-call usage rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` as bounded, secret-free JSONL.
+
+Phase MCP-1 scope:
+
+- transport: **stdio only**;
+- mode: **read-only**;
+- bound to a **single repo** at startup;
+- tools call existing core services in-process (no shell-out, no CLI text parsing).
+
+Tools exposed:
+
+```text
+vibecode_codegraph_status
+vibecode_codegraph_search
+vibecode_codegraph_context
+vibecode_codegraph_files
+vibecode_codegraph_callers
+vibecode_codegraph_callees
+vibecode_codegraph_impact
+```
+
+List them without starting the server:
+
+```powershell
+pnpm vibecode mcp tools
+pnpm vibecode mcp tools --json
+```
+
+Each tool returns both a `content` text block (model-friendly Markdown, bounded) and a `structuredContent` envelope (`ok`, `tool`, `repo_root`, `command`, `warnings`, `truncated`, `duration_ms`, `data`, or `error` with stable codes: `CODEGRAPH_NOT_INSTALLED`, `CODEGRAPH_NOT_INITIALIZED`, `CODEGRAPH_QUERY_FAILED`, `INVALID_ARGUMENT`, `MCP_TOOL_TIMEOUT`, `OUTPUT_TRUNCATED`, `UNSUPPORTED_TOOL`, `REPO_NOT_FOUND`, `REPO_NOT_A_DIRECTORY`).
+
+Anti-scope for MCP-1 (intentionally **not** exposed):
+
+- HTTP transport, multi-repo workspace registry;
+- agent config installer or auto-write;
+- terminal write / shell exec / file write / git commit tools;
+- arbitrary file read; arbitrary repo path arguments on tools;
+- upstream CodeGraph maintenance (`init`/`sync`/`index`/`watch`) — those remain explicit CLI/Desktop actions.
+
+Agents with MCP support use VibecodeMCP tools. Agents without MCP support use the equivalent `vibecode codegraph ...` CLI commands above. Both paths call the same Vibecode core/adapters.
+
 ### Internal scanner CLI
 
 ```powershell
