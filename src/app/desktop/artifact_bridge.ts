@@ -1,6 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 
+import {
+  RENDERER_RUN_ARTIFACTS,
+  readRunArtifactText,
+} from '../../core/runs/run_artifacts.js';
 import { getWorkspacePaths } from '../../core/workspace/paths.js';
 
 interface IpcMainLike {
@@ -17,41 +21,24 @@ export interface ArtifactReadResult {
   error?: string;
 }
 
-const ALLOWED_RUN_ARTIFACTS = new Set([
-  'flash/flash_output.md',
-  'flash/provider_error.json',
-  'output/context_pack.md',
-  'output/final_prompt.md',
-  'task_intent.json',
-  'task_intent.md',
-  'config_resolution.json',
-  'flash/flash_output_meta.json',
-  'scan/codegraph_usage.json',
-  'scan/codegraph_context.md',
-  'scan/codegraph_repo_atlas.md',
-  'scan/codegraph_repo_atlas.json',
-  'scan/repo_atlas.md',
-  'scan/repo_atlas.json',
-]);
-
-function normalizeRelativePath(relativePath: string): string {
-  return relativePath.replace(/\\/g, '/');
-}
-
 function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+/**
+ * Renderer-facing artifact read. The renderer never touches the filesystem
+ * directly; it calls this through the contextBridge IPC channel.
+ *
+ * The allowlist, alias-free normalization, and per-artifact path-escape guard
+ * all live in `src/core/runs/run_artifacts.ts`; this function adds only the
+ * desktop-specific input validation, the runs-directory existence check, and
+ * the legacy flat-error string format that the renderer already consumes.
+ */
 export function readRunArtifact(repoRoot: string, runId: string, relativePath: string): ArtifactReadResult {
   if (!repoRoot) return { ok: false, error: 'repo root required' };
   if (!runId) return { ok: false, error: 'run id required' };
   if (!relativePath) return { ok: false, error: 'artifact path required' };
-
-  const safeRelativePath = normalizeRelativePath(relativePath);
-  if (!ALLOWED_RUN_ARTIFACTS.has(safeRelativePath)) {
-    return { ok: false, error: `artifact path is not allowed: ${relativePath}` };
-  }
 
   const paths = getWorkspacePaths(repoRoot);
   const runsDir = path.resolve(paths.runs);
@@ -63,19 +50,26 @@ export function readRunArtifact(repoRoot: string, runId: string, relativePath: s
     return { ok: false, error: `run not found: ${runId}` };
   }
 
-  const artifactPath = path.resolve(runDir, ...safeRelativePath.split('/'));
-  if (!isInside(runDir, artifactPath)) {
-    return { ok: false, error: 'artifact path resolves outside the run directory' };
-  }
-  if (!fs.existsSync(artifactPath)) {
-    return { ok: false, error: `artifact not found: ${safeRelativePath}` };
+  // The shared core resolver applies the renderer allowlist (no CLI aliases),
+  // checks the per-artifact path-escape guard, and reads the file as UTF-8.
+  // Error codes are translated back into the legacy flat error strings the
+  // renderer already handles.
+  const result = readRunArtifactText(runDir, relativePath, {
+    allowlist: RENDERER_RUN_ARTIFACTS,
+    applyAliases: false,
+  });
+
+  if (result.ok) {
+    return { ok: true, content: result.value.content };
   }
 
-  try {
-    return { ok: true, content: fs.readFileSync(artifactPath, 'utf8') };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  if (result.error.code === 'ARTIFACT_NOT_ALLOWED') {
+    return { ok: false, error: `artifact path is not allowed: ${relativePath}` };
   }
+  if (result.error.code === 'PATH_OUTSIDE_RUN') {
+    return { ok: false, error: 'artifact path resolves outside the run directory' };
+  }
+  return { ok: false, error: result.error.message };
 }
 
 export function registerDesktopArtifactIpcHandlers(ipcMain: IpcMainLike, options: ArtifactBridgeOptions): void {

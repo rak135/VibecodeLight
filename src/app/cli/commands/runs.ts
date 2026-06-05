@@ -6,64 +6,44 @@ import { Command } from 'commander';
 import { LlmAdapterError } from '../../../adapters/llm/errors.js';
 import { createRun } from '../../../core/runs/run_store.js';
 import { getRunInfo, listRuns } from '../../../core/runs/run_display.js';
+import {
+  RUN_SHOW_ARTIFACTS,
+  resolveRunArtifactPath as resolveRunArtifactPathCore,
+} from '../../../core/runs/run_artifacts.js';
+import { resolveRunDir as resolveRunDirCore } from '../../../core/runs/run_resolver.js';
 import { getWorkspacePaths } from '../../../core/workspace/paths.js';
-import type { RunManifest } from '../../../core/models/index.js';
 import type { TaskIntent } from '../../../adapters/task_normalizer/types.js';
 
-function normalizeRunArtifactSelector(selector: string): string {
-  const normalized = selector.replace(/\\/g, '/');
-  if (normalized === 'codegraph') return 'scan/codegraph_usage.json';
-  if (normalized === 'task-intent') return 'task_intent.json';
-  return normalized;
-}
-
-const RUN_SHOW_ARTIFACTS = new Set([
-  'user_prompt.md',
-  'run_manifest.json',
-  'task_intent.json',
-  'task_intent.md',
-  'scanner_config.json',
-  'flash/flash_input.md',
-  'flash/flash_output.md',
-  'output/context_pack.md',
-  'skills/selected_skills.json',
-  'output/final_prompt.md',
-  'terminal/send_metadata.json',
-  'scan/codegraph_usage.json',
-  'scan/codegraph_context.md',
-  'scan/codegraph_repo_atlas.md',
-  'scan/codegraph_repo_atlas.json',
-  'scan/repo_atlas.md',
-  'scan/repo_atlas.json',
-]);
-
 function resolveRunArtifactPath(runDir: string, selector: string): { relativePath: string; absolutePath: string } {
-  const relativePath = normalizeRunArtifactSelector(selector);
-  if (!RUN_SHOW_ARTIFACTS.has(relativePath)) {
-    throw new LlmAdapterError(`artifact path is not allowed: ${selector}`, {
+  const resolved = resolveRunArtifactPathCore(runDir, selector, {
+    allowlist: RUN_SHOW_ARTIFACTS,
+    applyAliases: true,
+  });
+  if (resolved.ok) return resolved.value;
+
+  // Preserve the historical CLI mapping: both ARTIFACT_NOT_ALLOWED and
+  // PATH_OUTSIDE_RUN surfaced as ARTIFACT_NOT_ALLOWED, ARTIFACT_NOT_FOUND
+  // surfaced as ARTIFACT_NOT_FOUND. Details/paths are kept compatible with
+  // the CLI envelopes already exercised by existing tests.
+  if (resolved.error.code === 'ARTIFACT_NOT_ALLOWED') {
+    throw new LlmAdapterError(resolved.error.message, {
       code: 'ARTIFACT_NOT_ALLOWED',
       path: selector,
-      details: Array.from(RUN_SHOW_ARTIFACTS).sort(),
+      details: resolved.error.allowed ?? Array.from(RUN_SHOW_ARTIFACTS).sort(),
     });
   }
-  const runRoot = path.resolve(runDir);
-  const artifactPath = path.resolve(runRoot, ...relativePath.split('/'));
-  const relToRun = path.relative(runRoot, artifactPath);
-  if (relToRun.startsWith('..') || path.isAbsolute(relToRun)) {
-    throw new LlmAdapterError(`artifact path resolves outside run directory: ${selector}`, {
+  if (resolved.error.code === 'PATH_OUTSIDE_RUN') {
+    throw new LlmAdapterError(resolved.error.message, {
       code: 'ARTIFACT_NOT_ALLOWED',
       path: selector,
       details: [],
     });
   }
-  if (!fs.existsSync(artifactPath)) {
-    throw new LlmAdapterError(`artifact not found: ${relativePath}`, {
-      code: 'ARTIFACT_NOT_FOUND',
-      path: artifactPath,
-      details: [],
-    });
-  }
-  return { relativePath, absolutePath: artifactPath };
+  throw new LlmAdapterError(resolved.error.message, {
+    code: 'ARTIFACT_NOT_FOUND',
+    path: resolved.error.resolvedPath ?? selector,
+    details: [],
+  });
 }
 
 function readTaskIntentSummary(runDir: string): TaskIntent | undefined {
@@ -135,31 +115,13 @@ function writeCodeGraphSummary(info: ReturnType<typeof getRunInfo>): void {
   }
 }
 
-export function resolveRunDir(repoRoot: string, runSelector: string): { runId: string; runDir: string } {
-  const paths = getWorkspacePaths(repoRoot);
-  if (runSelector === 'latest') {
-    const currentManifestPath = path.join(paths.current, 'run_manifest.json');
-    if (!fs.existsSync(currentManifestPath)) {
-      throw new LlmAdapterError('no latest run found; run context-build first', {
-        code: 'RUN_NOT_FOUND',
-        path: currentManifestPath,
-        details: ['Expected .vibecode/current/run_manifest.json to identify the latest run.'],
-      });
-    }
-
-    const manifest = JSON.parse(fs.readFileSync(currentManifestPath, 'utf8')) as Partial<RunManifest>;
-    if (!manifest.run_id) {
-      throw new LlmAdapterError('latest run manifest does not contain run_id', {
-        code: 'RUN_MANIFEST_INVALID',
-        path: currentManifestPath,
-        details: [],
-      });
-    }
-    return { runId: manifest.run_id, runDir: path.join(paths.runs, manifest.run_id) };
-  }
-
-  return { runId: runSelector, runDir: path.join(paths.runs, runSelector) };
-}
+/**
+ * Re-export of the shared core run-dir resolver. Kept here so CLI call sites
+ * (and any test that imports `resolveRunDir` from this module) continue to
+ * work; the implementation lives in `src/core/runs/run_resolver.ts` and is
+ * shared with the Desktop and (future) MCP adapters.
+ */
+export const resolveRunDir = resolveRunDirCore;
 
 export function registerRunCreateCommand(program: Command): void {
   const run = program.command('run').description('Run operations');
