@@ -453,8 +453,6 @@ interface BuildFinalPromptOptions {
   task: string;
   manifest: RunManifest;
   contextPack: string;
-  skillContents: string;
-  hasSelectedSkills: boolean;
   flashMeta: FlashOutputMeta | null;
   scanCommands: string[];
   repoInstructionFiles: string[];
@@ -469,7 +467,8 @@ interface BuildFinalPromptOptions {
    * UI-selected skills manifest. When present (and contains selected_skills),
    * the renderer emits a short Selected Skills section that names the skills
    * and tells the agent how to load them on demand. Full skill bodies are not
-   * embedded in final_prompt.md.
+   * embedded in final_prompt.md. This manifest is the only source of the
+   * Selected Skills section; flash output is never consulted.
    */
   selectedSkillsManifest: SelectedSkillsManifest | null;
 }
@@ -528,8 +527,6 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     task,
     manifest,
     contextPack,
-    skillContents,
-    hasSelectedSkills,
     flashMeta,
     scanCommands,
     repoInstructionFiles,
@@ -555,27 +552,16 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
     ? flashMeta.commands_to_run
     : scanCommands;
 
-  // Prefer the new UI-driven manifest when it exists. It encodes ONLY the
-  // selected skills and never embeds their full bodies; the agent loads each
-  // on demand via `vibecode skills show <id> --run-id <run_id>`.
-  //
-  // When no skills are selected at all (manifest with empty list, or no
-  // manifest plus an empty legacy selection) the section is omitted entirely
-  // — no "no selected skills" placeholder, no empty header.
+  // The UI-driven manifest is the ONLY source of the Selected Skills section.
+  // Flash output's # Selected Skills section is never consulted, and the
+  // legacy `selected_skill_contents.md` body is never rendered. When no skills
+  // are selected, the section is omitted entirely — no "no selected skills"
+  // placeholder, no empty header.
   let skillsSectionContent = '';
-  let omitSkillsSection = false;
-  let useManifestSection = false;
+  let omitSkillsSection = true;
   if (opts.selectedSkillsManifest && opts.selectedSkillsManifest.selected_skills.length > 0) {
     skillsSectionContent = renderSelectedSkillsManifestSection(opts.selectedSkillsManifest).trim();
-    useManifestSection = true;
-  } else if (opts.selectedSkillsManifest) {
-    // Manifest exists but no skills selected — omit the section entirely.
-    omitSkillsSection = true;
-  } else if (hasSelectedSkills && skillContents.trim().length > 0) {
-    skillsSectionContent = skillContents.trim();
-  } else {
-    // No manifest and no legacy selection — omit entirely.
-    omitSkillsSection = true;
+    omitSkillsSection = false;
   }
 
   const instructionSection =
@@ -636,11 +622,7 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
 
     `# Context Pack\n\n${contextPackBlocks.join('\n\n')}\n`,
 
-    ...(omitSkillsSection
-      ? []
-      : useManifestSection
-        ? [`${skillsSectionContent}\n`]
-        : [`# Selected Skills\n\n${skillsSectionContent}\n`]),
+    ...(omitSkillsSection ? [] : [`${skillsSectionContent}\n`]),
 
     `# Repository Instructions\n\nRead and follow repository instruction files before making changes:\n\n${instructionSection}`,
 
@@ -666,8 +648,6 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
     const userPromptPath = path.join(runDir, 'user_prompt.md');
     const manifestPath = path.join(runDir, 'run_manifest.json');
     const contextPackPath = path.join(runDir, 'output', 'context_pack.md');
-    const selectedSkillsPath = path.join(runDir, 'skills', 'selected_skills.json');
-    const selectedSkillContentsPath = path.join(runDir, 'skills', 'selected_skill_contents.md');
 
     const userPrompt = readRequired(userPromptPath, 'USER_PROMPT_NOT_FOUND');
     const manifestRaw = readRequired(manifestPath, 'RUN_MANIFEST_NOT_FOUND');
@@ -676,37 +656,10 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
     const manifest = JSON.parse(manifestRaw) as RunManifest;
     const task = userPrompt.trim();
 
-    // Legacy artifacts. When the new UI-driven manifest is present the
-    // renderer prefers that path; the legacy artifacts may not exist for
-    // skills-disabled runs and must therefore be optional.
-    const hasNewManifest = fs.existsSync(path.join(runDir, 'skills', 'manifest.json'));
-    let selectedSkillsRaw = '';
-    let skillContents = '';
-    if (fs.existsSync(selectedSkillsPath)) {
-      selectedSkillsRaw = fs.readFileSync(selectedSkillsPath, 'utf8');
-    } else if (!hasNewManifest) {
-      readRequired(selectedSkillsPath, 'SELECTED_SKILLS_NOT_FOUND');
-    }
-    if (fs.existsSync(selectedSkillContentsPath)) {
-      skillContents = fs.readFileSync(selectedSkillContentsPath, 'utf8');
-    } else if (!hasNewManifest) {
-      readRequired(selectedSkillContentsPath, 'SELECTED_SKILL_CONTENTS_NOT_FOUND');
-    }
-
-    let selectedSkillsList: string[] = [];
-    if (selectedSkillsRaw) {
-      try {
-        const selectedSkillsData = JSON.parse(selectedSkillsRaw) as {
-          selected_skills?: string[];
-          selected?: string[];
-        };
-        selectedSkillsList =
-          selectedSkillsData.selected_skills ?? selectedSkillsData.selected ?? [];
-      } catch {
-        selectedSkillsList = [];
-      }
-    }
-    const hasSelectedSkills = selectedSkillsList.length > 0;
+    // Legacy flash-derived artifacts (`skills/selected_skills.json` and
+    // `skills/selected_skill_contents.md`) are intentionally not read here.
+    // The Selected Skills section is driven exclusively by the UI/CLI manual
+    // selected-skills manifest below.
 
     // --- Optional artifacts ---
     const flashMetaPath = path.join(runDir, 'flash', 'flash_output_meta.json');
@@ -807,8 +760,6 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       task,
       manifest,
       contextPack,
-      skillContents,
-      hasSelectedSkills,
       flashMeta,
       scanCommands,
       repoInstructionFiles,
@@ -835,9 +786,6 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
 
       fs.writeFileSync(path.join(currentDir, 'run_manifest.json'), manifestRaw, 'utf8');
       fs.writeFileSync(path.join(currentDir, 'context_pack.md'), contextPack, 'utf8');
-      if (selectedSkillsRaw) {
-        fs.writeFileSync(path.join(currentDir, 'selected_skills.json'), selectedSkillsRaw, 'utf8');
-      }
       if (selectedSkillsManifest) {
         fs.writeFileSync(
           path.join(currentDir, 'manifest.json'),

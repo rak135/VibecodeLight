@@ -111,14 +111,21 @@ describe('finalizeContext with selectedSkillIds', () => {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  test('no selectedSkillIds keeps the legacy artifact for backward compatibility', () => {
+  test('no selectedSkillIds writes no legacy flash-derived artifacts', () => {
     const { repoRoot, runDir } = seedRepoWithRun();
 
     const result = finalizeContext(runDir);
 
-    const legacyPath = path.join(runDir, 'skills', 'selected_skill_contents.md');
-    expect(fs.existsSync(legacyPath)).toBe(true);
-    expect(result.artifacts).toContain(legacyPath);
+    const legacyContentsPath = path.join(runDir, 'skills', 'selected_skill_contents.md');
+    const legacySelectedPath = path.join(runDir, 'skills', 'selected_skills.json');
+    expect(fs.existsSync(legacyContentsPath)).toBe(false);
+    expect(fs.existsSync(legacySelectedPath)).toBe(false);
+    expect(result.artifacts).not.toContain(legacyContentsPath);
+    expect(result.artifacts).not.toContain(legacySelectedPath);
+    // No flash-derived warnings, even though the flash output names a skill.
+    for (const warning of result.warnings) {
+      expect(warning).not.toMatch(/was not found in skills_catalog\.json/);
+    }
 
     fs.rmSync(repoRoot, { recursive: true, force: true });
   });

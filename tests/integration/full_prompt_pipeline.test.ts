@@ -32,14 +32,16 @@ describe('full prompt pipeline integration', () => {
       'flash/flash_input.md',
       'flash/flash_output.md',
       'output/context_pack.md',
-      'skills/selected_skills.json',
-      'skills/selected_skill_contents.md',
       'output/final_prompt.md',
     ];
 
     for (const relativePath of expectedArtifacts) {
       expect(fs.existsSync(path.join(result.runDir, relativePath))).toBe(true);
     }
+
+    // Flash-derived legacy artifacts must not be produced.
+    expect(fs.existsSync(path.join(result.runDir, 'skills', 'selected_skills.json'))).toBe(false);
+    expect(fs.existsSync(path.join(result.runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
 
     const finalPrompt = fs.readFileSync(path.join(result.runDir, 'output', 'final_prompt.md'), 'utf8');
     expect(finalPrompt).toContain('fixture repo full mock prompt run');

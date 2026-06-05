@@ -88,42 +88,75 @@ describe('prompt render integration', () => {
       const vibecodePath = path.join(tmpRepo, '.vibecode');
       expect(fs.existsSync(path.join(vibecodePath, 'current', 'run_manifest.json'))).toBe(true);
       expect(fs.existsSync(path.join(vibecodePath, 'current', 'context_pack.md'))).toBe(true);
-      expect(fs.existsSync(path.join(vibecodePath, 'current', 'selected_skills.json'))).toBe(true);
+      // Legacy flash-derived selected_skills.json is no longer mirrored.
+      expect(fs.existsSync(path.join(vibecodePath, 'current', 'selected_skills.json'))).toBe(false);
       expect(fs.existsSync(path.join(vibecodePath, 'current', 'final_prompt.md'))).toBe(true);
     } finally {
       fs.rmSync(tmpRepo, { recursive: true, force: true });
     }
   });
 
-  test('fixture repo with skill contents: selected skill content appears in final_prompt.md', () => {
-    const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-prompt-render-skill-'));
-    fs.writeFileSync(path.join(tmpRepo, 'README.md'), 'skill contents fixture\n', 'utf8');
+  test('fixture repo with manual --skill: selected skills section points to load command, no skill body', () => {
+    const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-prompt-render-manual-skill-'));
+    fs.writeFileSync(path.join(tmpRepo, 'README.md'), 'manual skill fixture\n', 'utf8');
+    const skillDir = path.join(tmpRepo, 'SKILLS', 'my-test-skill');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\ntitle: My Test Skill\nsummary: Manual selection sanity check.\n---\n# My Test Skill\n\nFull body content that must NOT appear inline.\n',
+      'utf8',
+    );
 
     try {
-      const build = runCli(['context-build', 'skill contents test', '--repo', tmpRepo, '--json'], tmpRepo);
+      const build = runCli(
+        ['context-build', 'manual skill test', '--repo', tmpRepo, '--skill', 'my-test-skill', '--json'],
+        tmpRepo,
+      );
       expect(build.status).toBe(0);
       const built = JSON.parse(build.stdout.trim());
 
       runCli(['flash', 'run', 'latest', '--mock', '--repo', tmpRepo], tmpRepo);
-      runCli(['context', 'finalize', 'latest', '--repo', tmpRepo], tmpRepo);
-
-      // Manually inject skill content to simulate a run with skill selected
-      const runDir = built.data.runDir;
-      fs.writeFileSync(
-        path.join(runDir, 'skills', 'selected_skills.json'),
-        JSON.stringify({ selected_skills: ['my-test-skill'], warnings: [], missing_skills: [] }, null, 2) + '\n',
-        'utf8',
+      runCli(
+        ['context', 'finalize', 'latest', '--repo', tmpRepo, '--skill', 'my-test-skill'],
+        tmpRepo,
       );
-      fs.writeFileSync(
-        path.join(runDir, 'skills', 'selected_skill_contents.md'),
-        '# Skill: my-test-skill\n\nStep 1: do the thing.\nStep 2: verify.\n',
-        'utf8',
-      );
-
       runCli(['prompt', 'render', 'latest', '--repo', tmpRepo], tmpRepo);
 
+      const runDir = built.data.runDir;
+      expect(fs.existsSync(path.join(runDir, 'skills', 'manifest.json'))).toBe(true);
+      expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
+
       const finalPrompt = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-      expect(finalPrompt).toContain('Step 1: do the thing.');
+      expect(finalPrompt).toMatch(/^# Selected Skills$/m);
+      expect(finalPrompt).toContain('- my-test-skill');
+      expect(finalPrompt).toContain('vibecode skills show my-test-skill --run-id');
+      expect(finalPrompt).not.toContain('Full body content that must NOT appear inline.');
+    } finally {
+      fs.rmSync(tmpRepo, { recursive: true, force: true });
+    }
+  });
+
+  test('manual unknown --skill fails with SKILL_NOT_FOUND and writes no manifest', () => {
+    const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-prompt-render-unknown-skill-'));
+    fs.writeFileSync(path.join(tmpRepo, 'README.md'), 'unknown skill fixture\n', 'utf8');
+
+    try {
+      const build = runCli(
+        ['context-build', 'unknown skill test', '--repo', tmpRepo, '--skill', 'definitely-not-a-real-skill', '--json'],
+        tmpRepo,
+      );
+      expect(build.status).toBe(1);
+      const payload = JSON.parse(build.stdout.trim());
+      expect(payload.ok).toBe(false);
+      expect(payload.error.code).toBe('SKILL_NOT_FOUND');
+
+      // Find the run dir from any newly created run.
+      const runsDir = path.join(tmpRepo, '.vibecode', 'runs');
+      if (fs.existsSync(runsDir)) {
+        for (const runId of fs.readdirSync(runsDir)) {
+          expect(fs.existsSync(path.join(runsDir, runId, 'skills', 'manifest.json'))).toBe(false);
+        }
+      }
     } finally {
       fs.rmSync(tmpRepo, { recursive: true, force: true });
     }

@@ -56,9 +56,12 @@ const requiredArtifacts = [
   'flash/flash_output_meta.json',
   'flash/tool_calls.json',
   'output/context_pack.md',
+  'output/final_prompt.md',
+];
+
+const forbiddenFlashSkillArtifacts = [
   'skills/selected_skills.json',
   'skills/selected_skill_contents.md',
-  'output/final_prompt.md',
 ];
 
 const forbiddenArtifacts = [
@@ -101,6 +104,10 @@ describe('full prompt pipeline', () => {
     for (const relativePath of requiredArtifacts) {
       expect(fs.existsSync(path.join(result.runDir, relativePath))).toBe(true);
     }
+    // Flash-derived legacy skill artifacts must not be produced.
+    for (const relativePath of forbiddenFlashSkillArtifacts) {
+      expect(fs.existsSync(path.join(result.runDir, relativePath))).toBe(false);
+    }
   });
 
   test('full mock prompt run updates current/ artifacts', async () => {
@@ -110,7 +117,8 @@ describe('full prompt pipeline', () => {
     const currentDir = path.join(tmpRepo, '.vibecode', 'current');
     expect(fs.existsSync(path.join(currentDir, 'run_manifest.json'))).toBe(true);
     expect(fs.existsSync(path.join(currentDir, 'context_pack.md'))).toBe(true);
-    expect(fs.existsSync(path.join(currentDir, 'selected_skills.json'))).toBe(true);
+    // Legacy mirror of selected_skills.json is gone in the manual-only flow.
+    expect(fs.existsSync(path.join(currentDir, 'selected_skills.json'))).toBe(false);
     expect(fs.existsSync(path.join(currentDir, 'final_prompt.md'))).toBe(true);
   });
 

@@ -42,8 +42,9 @@ describe('context finalize flow', () => {
     expect(fs.existsSync(path.join(runDir, 'flash', 'flash_output_meta.json'))).toBe(true);
     expect(fs.existsSync(path.join(runDir, 'flash', 'tool_calls.json'))).toBe(true);
     expect(fs.existsSync(path.join(runDir, 'output', 'context_pack.md'))).toBe(true);
-    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skills.json'))).toBe(true);
-    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skill_contents.md'))).toBe(true);
+    // Flash-derived skill artifacts are intentionally absent in the manual-only flow.
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skills.json'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
     expect(fs.existsSync(path.join(runDir, 'output', 'final_prompt.md'))).toBe(false);
 
     fs.rmSync(tmpRepo, { recursive: true, force: true });

@@ -44,19 +44,22 @@ describe('prompt pipeline phase boundary characterization', () => {
       for (const relativePath of [
         'run_manifest.json',
         'context_pack.md',
-        'selected_skills.json',
         'final_prompt.md',
       ]) {
         expect(fs.existsSync(path.join(currentDir, relativePath))).toBe(true);
       }
+      // The legacy flash-derived selected_skills.json mirror is gone.
+      expect(fs.existsSync(path.join(currentDir, 'selected_skills.json'))).toBe(false);
 
       for (const relativePath of [
         'output/final_prompt.md',
         'output/context_pack.md',
-        'skills/selected_skills.json',
       ]) {
         expect(fs.existsSync(path.join(result.runDir, relativePath))).toBe(true);
       }
+      // Flash-derived legacy skill artifacts must not be produced.
+      expect(fs.existsSync(path.join(result.runDir, 'skills', 'selected_skills.json'))).toBe(false);
+      expect(fs.existsSync(path.join(result.runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
     } finally {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }

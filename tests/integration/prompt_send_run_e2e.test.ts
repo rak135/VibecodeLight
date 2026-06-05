@@ -105,7 +105,6 @@ describe('prompt/send/run end-to-end characterization', () => {
         'flash/flash_output.md',
         'output/context_pack.md',
         'output/final_prompt.md',
-        'skills/selected_skills.json',
       ];
 
       for (const relativePath of expectedRunArtifacts) {

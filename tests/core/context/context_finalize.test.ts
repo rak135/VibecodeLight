@@ -90,18 +90,16 @@ function makeRepoWithRun(opts: { flashOutput?: string | null; invalidFlashOutput
 }
 
 describe('context finalize', () => {
-  test('context finalize writes all three artifacts', () => {
+  test('context finalize writes context_pack.md and no flash-derived legacy artifacts', () => {
     const { repo, runDir } = makeRepoWithRun();
 
     const result = finalizeContext(runDir);
 
     expect(fs.existsSync(path.join(runDir, 'output', 'context_pack.md'))).toBe(true);
-    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skills.json'))).toBe(true);
-    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skill_contents.md'))).toBe(true);
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skills.json'))).toBe(false);
+    expect(fs.existsSync(path.join(runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
       'context_pack.md',
-      'selected_skills.json',
-      'selected_skill_contents.md',
     ]);
     fs.rmSync(repo, { recursive: true, force: true });
   });
@@ -121,8 +119,6 @@ describe('context finalize', () => {
     expect(Array.isArray(payload.artifacts)).toBe(true);
     expect(payload.artifacts.map((artifact: string) => path.basename(artifact))).toEqual([
       'context_pack.md',
-      'selected_skills.json',
-      'selected_skill_contents.md',
     ]);
     fs.rmSync(repo, { recursive: true, force: true });
   });

@@ -271,11 +271,14 @@ describe('renderFinalPrompt', () => {
     expect(content).toContain('Context content here.');
   });
 
-  test('final_prompt.md includes selected_skill_contents.md content when present', () => {
+  test('final_prompt.md does NOT include legacy selected_skill_contents.md body even when present', () => {
+    // The legacy flash-derived selected_skill_contents.md path is dead.
+    // Manual selection via skills/manifest.json is now the only source.
     const runDir = makeRunDir(tmpDir, { withSkillContents: true });
     renderFinalPrompt(runDir);
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-    expect(content).toContain('Follow these steps:');
+    expect(content).not.toContain('Follow these steps:');
+    expect(content).not.toMatch(/^# Selected Skills$/m);
   });
 
   test('final_prompt.md omits the Selected Skills section when no skills are selected', () => {
@@ -533,13 +536,14 @@ describe('renderFinalPrompt', () => {
     expect(fs.existsSync(path.join(vibecodePath, 'current', 'context_pack.md'))).toBe(true);
   });
 
-  test('prompt render updates .vibecode/current/selected_skills.json', () => {
+  test('prompt render does NOT mirror legacy selected_skills.json into current/', () => {
+    // The flash-derived selected_skills.json is no longer written or mirrored.
     const runDir = makeRunDir(tmpDir);
     const vibecodePath = path.join(tmpDir, '.vibecode');
     fs.mkdirSync(path.join(vibecodePath, 'current'), { recursive: true });
 
     renderFinalPrompt(runDir, { vibecodePath });
-    expect(fs.existsSync(path.join(vibecodePath, 'current', 'selected_skills.json'))).toBe(true);
+    expect(fs.existsSync(path.join(vibecodePath, 'current', 'selected_skills.json'))).toBe(false);
   });
 
   test('prompt render does not create terminal/send_metadata.json', () => {
@@ -570,7 +574,30 @@ describe('renderFinalPrompt', () => {
   });
 
   test('final_prompt.md has stable required section headers', () => {
-    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withSkillContents: true });
+    // Use the manifest-driven manual selection path. # Selected Skills only
+    // renders from skills/manifest.json now.
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
+    fs.writeFileSync(
+      path.join(runDir, 'skills', 'manifest.json'),
+      JSON.stringify(
+        {
+          schema_version: 1,
+          run_id: 'test-run-001',
+          skills_dir: 'SKILLS',
+          selected_skills: [
+            {
+              id: 'test-skill',
+              title: 'Test Skill',
+              summary: 'Test summary',
+              source_path: 'SKILLS/test-skill/SKILL.md',
+            },
+          ],
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
     renderFinalPrompt(runDir);
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
     // Top-level sections (single #)
@@ -1477,7 +1504,28 @@ describe('renderFinalPrompt', () => {
     });
 
     test('existing required content remains stable when section is added', () => {
-      const runDir = makeRunDir(tmpDir, { codegraphState: 'available', withSkillContents: true });
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      fs.writeFileSync(
+        path.join(runDir, 'skills', 'manifest.json'),
+        JSON.stringify(
+          {
+            schema_version: 1,
+            run_id: 'test-run-001',
+            skills_dir: 'SKILLS',
+            selected_skills: [
+              {
+                id: 'test-skill',
+                title: 'Test Skill',
+                summary: 'Test summary',
+                source_path: 'SKILLS/test-skill/SKILL.md',
+              },
+            ],
+          },
+          null,
+          2,
+        ) + '\n',
+        'utf8',
+      );
       renderFinalPrompt(runDir);
       const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
       expect(content).toContain('Implement the feature X.');

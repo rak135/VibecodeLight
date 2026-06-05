@@ -35,14 +35,16 @@ describe('composer preview integration flow', () => {
       'flash/flash_input_budget.json',
       'flash/flash_output.md',
       'output/context_pack.md',
-      'skills/selected_skills.json',
-      'skills/selected_skill_contents.md',
       'output/final_prompt.md',
     ];
 
     for (const rel of expected) {
       expect(fs.existsSync(path.join(result.runDir, rel))).toBe(true);
     }
+
+    // Flash-derived legacy skill artifacts must not appear.
+    expect(fs.existsSync(path.join(result.runDir, 'skills', 'selected_skills.json'))).toBe(false);
+    expect(fs.existsSync(path.join(result.runDir, 'skills', 'selected_skill_contents.md'))).toBe(false);
 
     const savedFinal = fs.readFileSync(result.finalPromptPath, 'utf8');
     expect(result.finalPrompt).toEqual(savedFinal);

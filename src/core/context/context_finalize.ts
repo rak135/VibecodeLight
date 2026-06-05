@@ -1,11 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
-import type { SkillsCatalog } from '../models/index.js';
 import { parseFlashOutput } from './markdown_flash_output_parser.js';
 import { writeContextPack } from './context_pack_store.js';
-import { writeSelectedSkills } from './selected_skills.js';
-import { writeSelectedSkillContents } from './selected_skill_contents.js';
 import {
   buildSelectedSkillsManifest,
   SelectedSkillsManifestError,
@@ -51,9 +48,11 @@ export interface ContextFinalizeResult {
 
 export interface ContextFinalizeOptions {
   /**
-   * UI-selected skill ids. When provided alongside `repoRoot`, a
+   * UI/CLI-selected skill ids. The only source of selected skills in the new
+   * manual-only flow. When provided alongside `repoRoot`, a
    * `skills/manifest.json` is written with only the metadata of selected
-   * skills. Full skill bodies are not embedded.
+   * skills. Full skill bodies are not embedded. Flash output's
+   * `# Selected Skills` section is ignored regardless of this option.
    */
   selectedSkillIds?: readonly string[];
   /** Required to resolve selected skill source paths in <repoRoot>/SKILLS. */
@@ -71,34 +70,6 @@ function readRunId(runDir: string): string {
     // Keep finalization tolerant of older/debug runs without a valid manifest.
   }
   return path.basename(runDir);
-}
-
-function readSkillsCatalog(catalogPath: string): SkillsCatalog {
-  if (!fs.existsSync(catalogPath)) {
-    throw new ContextFinalizeError('missing skills_catalog.json for context finalize', {
-      code: 'SKILLS_CATALOG_NOT_FOUND',
-      path: catalogPath,
-      details: ['Run context-build first, or choose a run containing skills/skills_catalog.json.'],
-    });
-  }
-
-  try {
-    const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as SkillsCatalog;
-    if (!catalog || !Array.isArray(catalog.skills) || !Array.isArray(catalog.warnings)) {
-      throw new Error('skills catalog must contain skills and warnings arrays');
-    }
-    return catalog;
-  } catch (error) {
-    if (error instanceof ContextFinalizeError) {
-      throw error;
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    throw new ContextFinalizeError(`invalid skills_catalog.json: ${message}`, {
-      code: 'SKILLS_CATALOG_INVALID',
-      path: catalogPath,
-      details: [message],
-    });
-  }
 }
 
 export function contextFinalizeErrorToDiagnostic(error: unknown, fallbackPath: string): ContextFinalizeDiagnostic {
@@ -149,33 +120,13 @@ export function finalizeContext(
     });
   }
 
+  // Flash output's `# Selected Skills` section is intentionally NOT consulted.
+  // Manual selectedSkillIds are the only source of selected skills.
   const contextPackPath = writeContextPack(runDir, flashOutputMd);
-  const catalogPath = path.join(runDir, 'skills', 'skills_catalog.json');
-  const catalog = readSkillsCatalog(catalogPath);
-  const selectedSkills = writeSelectedSkills(runDir, parsed.sections, catalog);
 
-  // The new selected repo-local skills flow stores only a metadata manifest;
-  // the legacy full-body snapshot at skills/selected_skill_contents.md must
-  // not be written when the caller explicitly provided selectedSkillIds.
-  const useNewSelectedSkillsFlow = Boolean(
-    opts.selectedSkillIds && opts.selectedSkillIds.length > 0,
-  );
+  const warnings: string[] = [];
+  const artifacts: string[] = [contextPackPath];
 
-  const warnings: string[] = [
-    ...catalog.warnings,
-    ...selectedSkills.data.warnings,
-  ];
-
-  const artifacts: string[] = [contextPackPath, selectedSkills.path];
-
-  if (!useNewSelectedSkillsFlow) {
-    const selectedSkillContents = writeSelectedSkillContents(runDir, selectedSkills.data);
-    warnings.push(...selectedSkillContents.warnings);
-    artifacts.push(selectedSkillContents.path);
-  }
-
-  // When the UI/CLI supplied an explicit selection AND we have a repoRoot,
-  // write the canonical manifest. Full skill bodies are NOT embedded here.
   if (opts.selectedSkillIds && opts.selectedSkillIds.length > 0 && opts.repoRoot) {
     try {
       const built = buildSelectedSkillsManifest({
@@ -202,6 +153,6 @@ export function finalizeContext(
     run_id: readRunId(runDir),
     artifacts,
     warnings,
-    missing_skills: selectedSkills.data.missing_skills,
+    missing_skills: [],
   };
 }

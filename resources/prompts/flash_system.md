@@ -12,3 +12,4 @@ The 8 sections are:
 Each section must start with a top-level heading exactly as shown above.
 Do not include any text before "# Task Summary".
 Do not include any additional sections.
+Leave the Selected Skills section empty. Users select skills manually before context build; do not infer, propose, or list skills here.
