@@ -328,6 +328,11 @@ vibecode skills list
 vibecode skills copy <skill-id>
 vibecode mcp serve --repo <path>
 vibecode mcp tools
+vibecode mcp config --agent codex --repo <path> --print
+vibecode mcp config --agent codex --repo <path> --json
+vibecode mcp install --agent codex --repo <path> --dry-run
+vibecode mcp install --agent codex --repo <path> --yes
+vibecode mcp doctor --agent codex --repo <path>
 ```
 
 `vibecode mcp serve` starts a repo-bound stdio MCP server exposing the
@@ -335,6 +340,11 @@ Phase MCP-1 read-only CodeGraph tools. Agents with MCP support call those
 tools; agents without MCP support use the equivalent CLI commands
 (`vibecode codegraph status|search|context|files|callers|callees|impact`).
 Both call the same Vibecode core services.
+
+`vibecode mcp config|install|doctor --agent codex` manages only Codex
+`[mcp_servers.vibecode]` configuration. It preserves unrelated Codex settings,
+does not write secrets, backs up existing config before writes, and reports
+that Codex must be restarted or reloaded after installation.
 
 ## Debug/internal CLI
 

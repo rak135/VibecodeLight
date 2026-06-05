@@ -375,7 +375,8 @@ modifies external agent configs.
   reasons.
 
 Phase 1B adds an optional MCP transport for the prompt/context pipeline (see
-below). Future MCP work (agent config install, multi-agent control) lives in
+below). Future MCP work beyond the Codex installer (additional agents,
+multi-agent control) lives in
 `docs/codegraph_mcp_roadmap.md`.
 
 ## CodeGraph MCP transport (Phase 1B)
@@ -536,7 +537,7 @@ Per-call usage is recorded as bounded, secret-free JSONL at `<repo>/.vibecode/lo
 Anti-scope for MCP-1:
 
 - HTTP transport, multi-repo workspaces (future phase);
-- agent config installer (Phase 2 — current `vibecode codegraph mcp config --print` remains print-only);
+- non-Codex agent config installers (Codex is managed by `vibecode mcp config|install|doctor --agent codex`);
 - terminal write / shell exec / file write / git commit tools;
 - arbitrary file or repo path arguments on tools;
 - upstream CodeGraph maintenance (`init`/`sync`/`index`/`watch`) — explicit CLI/Desktop actions only.
@@ -552,11 +553,17 @@ The following are not part of the current implementation:
   a client; VibecodeMCP exposes its own Vibecode-native tools instead)
 - HTTP transport for VibecodeMCP (Phase MCP-1 is stdio only)
 - run/artifact MCP tools (Phase MCP-2)
-- agent config installation helpers (current `mcp config` is print-only)
+- non-Codex agent config installation helpers
 - background watch/serve/index orchestration during prompt build
 - automatic CodeGraph installation or updates
-- automatic writes to external agent configs
+- automatic writes to external agent configs without explicit `--yes`
 - terminal/shell/write/git tools on the MCP surface
+
+### Codex MCP install
+
+Codex is the first managed MCP client. `vibecode mcp config --agent codex --repo <path> --print` prints the TOML block for `[mcp_servers.vibecode]`; `--json` returns the same data in a stable envelope. `vibecode mcp install --agent codex --repo <path> --dry-run` previews the change without writing, and `--yes` creates or updates only `[mcp_servers.vibecode]` in Codex `config.toml`, preserving unrelated settings and backing up existing config first. `vibecode mcp doctor --agent codex --repo <path>` checks the installed block and the expected read-only tool list.
+
+Default scope is user config (`$CODEX_HOME/config.toml`, or `~/.codex/config.toml` when `CODEX_HOME` is unset). `--scope project` targets `<repo>/.codex/config.toml` and warns that Codex must trust the project before loading project config. Codex must be restarted or reloaded after install; use `/mcp` inside the Codex TUI to verify the active server.
 
 If you see those ideas elsewhere, treat them as roadmap material, not current supported behavior.
 

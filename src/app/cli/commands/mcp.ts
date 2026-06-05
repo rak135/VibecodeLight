@@ -4,6 +4,14 @@ import {
   parseCodeGraphTransport,
   type CodeGraphTransport,
 } from '../../../adapters/codegraph/codegraph_transport.js';
+import {
+  applyCodexMcpInstall,
+  buildCodexMcpConfig,
+  parseMcpAgent,
+  parseMcpScope,
+  runCodexMcpDoctor,
+  type McpConfigScope,
+} from '../../../core/mcp/codex_config.js';
 import { resolveRepoRoot } from '../../../core/workspace/repo_root.js';
 import {
   createVibecodeMcpServer,
@@ -45,6 +53,41 @@ function parseLogLevel(value: string | undefined): McpLogLevel | undefined {
   return undefined;
 }
 
+function parseAgentAndScope(options: { agent?: string; scope?: string }):
+  | { ok: true; scope: McpConfigScope }
+  | { ok: false; error: CliStructuredError } {
+  if (!parseMcpAgent(options.agent)) {
+    return {
+      ok: false,
+      error: {
+        code: 'INVALID_AGENT',
+        message: `invalid --agent: ${options.agent ?? ''}`,
+        path: '',
+        details: ['Only codex is supported by this command.'],
+      },
+    };
+  }
+
+  const scope = parseMcpScope(options.scope);
+  if (!scope) {
+    return {
+      ok: false,
+      error: {
+        code: 'INVALID_SCOPE',
+        message: `invalid --scope: ${options.scope ?? ''}`,
+        path: '',
+        details: ['Expected one of: user, project.'],
+      },
+    };
+  }
+
+  return { ok: true, scope };
+}
+
+function printJson(payload: unknown): void {
+  console.log(JSON.stringify(payload));
+}
+
 export function registerMcpCommands(
   program: Command,
   dependencies: McpCommandDependencies,
@@ -52,6 +95,132 @@ export function registerMcpCommands(
   const { makeCliStructuredError, emitCliStructuredError } = dependencies;
 
   const mcp = program.command('mcp').description('VibecodeMCP server commands');
+
+  mcp
+    .command('config')
+    .description('Generate agent MCP config for VibecodeMCP')
+    .requiredOption('--agent <agent>', 'Agent to configure (currently: codex)')
+    .requiredOption('--repo <path>', 'Repository path to bind VibecodeMCP to')
+    .option('--scope <scope>', 'Codex config scope: user | project', 'user')
+    .option('--print', 'Print the TOML snippet')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { agent: string; repo: string; scope?: string; print?: boolean; json?: boolean }) => {
+      const parsed = parseAgentAndScope(options);
+      if (!parsed.ok) {
+        emitCliStructuredError(parsed.error, { json: options.json, prefix: 'mcp config failed' });
+        return;
+      }
+      const resolved = resolveRepoRoot({ repoArg: options.repo });
+      if (!resolved.ok) {
+        emitCliStructuredError(
+          makeCliStructuredError(resolved.error.code, resolved.error.message, resolved.error.resolvedPath, resolved.error.details),
+          { json: options.json, prefix: 'mcp config failed' },
+        );
+        return;
+      }
+
+      const result = buildCodexMcpConfig({ repoRoot: resolved.repoRoot, scope: parsed.scope });
+      if (options.json) {
+        printJson(result);
+        return;
+      }
+      console.log(result.toml_snippet.trimEnd());
+    });
+
+  mcp
+    .command('install')
+    .description('Install or update VibecodeMCP in an agent config')
+    .requiredOption('--agent <agent>', 'Agent to configure (currently: codex)')
+    .requiredOption('--repo <path>', 'Repository path to bind VibecodeMCP to')
+    .option('--scope <scope>', 'Codex config scope: user | project', 'user')
+    .option('--dry-run', 'Preview the planned config change without writing')
+    .option('--yes', 'Write the config change')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { agent: string; repo: string; scope?: string; dryRun?: boolean; yes?: boolean; json?: boolean }) => {
+      const parsed = parseAgentAndScope(options);
+      if (!parsed.ok) {
+        emitCliStructuredError(parsed.error, { json: options.json, prefix: 'mcp install failed' });
+        return;
+      }
+      const resolved = resolveRepoRoot({ repoArg: options.repo });
+      if (!resolved.ok) {
+        emitCliStructuredError(
+          makeCliStructuredError(resolved.error.code, resolved.error.message, resolved.error.resolvedPath, resolved.error.details),
+          { json: options.json, prefix: 'mcp install failed' },
+        );
+        return;
+      }
+
+      const result = applyCodexMcpInstall({
+        repoRoot: resolved.repoRoot,
+        scope: parsed.scope,
+        dryRun: options.dryRun === true,
+        yes: options.yes === true,
+      });
+      if (!result.ok) {
+        if (options.json) printJson(result);
+        else {
+          console.error(`mcp install failed: ${result.error.message}`);
+          if (result.error.path) console.error(`path: ${result.error.path}`);
+          for (const detail of result.error.details ?? []) console.error(`detail: ${detail}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+      if (options.json) {
+        printJson(result);
+        return;
+      }
+      console.log(`Codex MCP config: ${result.config_path}`);
+      console.log(`Action: ${result.action} [mcp_servers.vibecode]`);
+      console.log(`Existing server: ${result.existing_server ? 'yes' : 'no'}`);
+      if (result.dry_run) console.log('Dry run: no files were written.');
+      if (result.backup_path) console.log(`Backup: ${result.backup_path}`);
+      console.log('Restart or reload Codex before using VibecodeMCP.');
+    });
+
+  mcp
+    .command('doctor')
+    .description('Check VibecodeMCP Codex config and tool availability')
+    .requiredOption('--agent <agent>', 'Agent to inspect (currently: codex)')
+    .requiredOption('--repo <path>', 'Repository path bound to VibecodeMCP')
+    .option('--scope <scope>', 'Codex config scope: user | project', 'user')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { agent: string; repo: string; scope?: string; json?: boolean }) => {
+      const parsed = parseAgentAndScope(options);
+      if (!parsed.ok) {
+        emitCliStructuredError(parsed.error, { json: options.json, prefix: 'mcp doctor failed' });
+        return;
+      }
+      const resolved = resolveRepoRoot({ repoArg: options.repo });
+      if (!resolved.ok) {
+        emitCliStructuredError(
+          makeCliStructuredError(resolved.error.code, resolved.error.message, resolved.error.resolvedPath, resolved.error.details),
+          { json: options.json, prefix: 'mcp doctor failed' },
+        );
+        return;
+      }
+
+      const result = runCodexMcpDoctor({ repoRoot: resolved.repoRoot, scope: parsed.scope });
+      if (options.json) {
+        printJson(result);
+      } else {
+        console.log(`Codex MCP doctor: ${result.ok ? 'OK' : 'FAILED'}`);
+        console.log(`Config: ${result.config_path}`);
+        for (const [name, check] of Object.entries(result.checks)) {
+          console.log(`${check.ok ? 'OK' : 'WARN'} ${name}: ${check.message}`);
+        }
+        if (result.warnings.length > 0) {
+          console.log('Warnings:');
+          for (const warning of result.warnings) console.log(`  - ${warning}`);
+        }
+        if (result.suggestions.length > 0) {
+          console.log('Suggestions:');
+          for (const suggestion of result.suggestions) console.log(`  - ${suggestion}`);
+        }
+      }
+      if (!result.ok) process.exitCode = 1;
+    });
 
   mcp
     .command('serve')

@@ -1016,10 +1016,28 @@ pnpm vibecode mcp tools --json
 
 Each tool returns both a `content` text block (model-friendly Markdown, bounded) and a `structuredContent` envelope (`ok`, `tool`, `repo_root`, `command`, `warnings`, `truncated`, `duration_ms`, `data`, or `error` with stable codes: `CODEGRAPH_NOT_INSTALLED`, `CODEGRAPH_NOT_INITIALIZED`, `CODEGRAPH_QUERY_FAILED`, `INVALID_ARGUMENT`, `MCP_TOOL_TIMEOUT`, `OUTPUT_TRUNCATED`, `UNSUPPORTED_TOOL`, `REPO_NOT_FOUND`, `REPO_NOT_A_DIRECTORY`).
 
+Install VibecodeMCP for Codex without manually editing Codex config:
+
+```powershell
+pnpm vibecode mcp config --agent codex --repo C:\DATA\PROJECTS\YourRepo --print
+pnpm vibecode mcp config --agent codex --repo C:\DATA\PROJECTS\YourRepo --json
+pnpm vibecode mcp install --agent codex --repo C:\DATA\PROJECTS\YourRepo --dry-run
+pnpm vibecode mcp install --agent codex --repo C:\DATA\PROJECTS\YourRepo --yes
+pnpm vibecode mcp doctor --agent codex --repo C:\DATA\PROJECTS\YourRepo --json
+```
+
+Default scope is Codex user config (`$CODEX_HOME/config.toml`, or
+`~/.codex/config.toml` when `CODEX_HOME` is unset). Project scope is explicit:
+add `--scope project` to target `<repo>/.codex/config.toml`; Codex only loads
+project config for trusted projects. Install preserves unrelated Codex settings,
+updates only `[mcp_servers.vibecode]`, creates a backup before writing an
+existing config, and never writes secrets. Restart or reload Codex after
+install; inside the Codex TUI, use `/mcp` to inspect the active server.
+
 Anti-scope for MCP-1 (intentionally **not** exposed):
 
 - HTTP transport, multi-repo workspace registry;
-- agent config installer or auto-write;
+- non-Codex agent config installers or broad auto-write;
 - terminal write / shell exec / file write / git commit tools;
 - arbitrary file read; arbitrary repo path arguments on tools;
 - upstream CodeGraph maintenance (`init`/`sync`/`index`/`watch`) — those remain explicit CLI/Desktop actions.

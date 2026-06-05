@@ -21,12 +21,16 @@ Phase MCP-1 (Vibecode-owned stdio MCP server) is now implemented as well:
 - stdout is reserved for the MCP JSON-RPC stream. Diagnostic logs go to
   stderr (controlled by `--log-level info|warn|silent`); per-call usage
   rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` (schema v1).
-- No HTTP transport, no multi-repo binding, no agent config writes, no
+- No HTTP transport, no multi-repo binding, no non-Codex agent config writes, no
   write/shell/terminal/git tools. Tools do not accept a `repo` argument —
   the repo is bound at startup.
+- Codex installer is implemented: `vibecode mcp config --agent codex`,
+  `vibecode mcp install --agent codex`, and
+  `vibecode mcp doctor --agent codex` manage only
+  `[mcp_servers.vibecode]`.
 
-Phase 2 (Vibecode MCP run/artifact tools, agent config install) and later
-phases below remain future work.
+Phase 2 (Vibecode MCP run/artifact tools, additional agent installers) and
+later phases below remain future work.
 
 
 
@@ -85,8 +89,8 @@ Added in Phase 1B (optional pipeline transport):
 - No auto-init/sync/index/watch is performed during prompt generation,
   regardless of transport.
 
-Phase 2 (agent config install) is still future work — see the relevant
-section below.
+Codex agent config install is implemented for VibecodeMCP. Additional agent
+installers are still future work — see the relevant section below.
 
 ## 1. Verdikt
 
