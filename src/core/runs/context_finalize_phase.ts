@@ -6,6 +6,10 @@ import { contextFinalizeErrorToDiagnostic, finalizeContext } from '../context/in
 export interface ContextFinalizePhaseOptions {
   runId: string;
   runDir: string;
+  /** Repo root for resolving skill source paths when writing the manifest. */
+  repoRoot?: string;
+  /** UI-selected repo-local skill ids to record in the manifest. */
+  selectedSkillIds?: readonly string[];
 }
 
 export interface ContextFinalizePhaseResult {
@@ -49,7 +53,10 @@ export async function performContextFinalizePhase(
       });
     }
 
-    const result = finalizeContext(runDir);
+    const result = finalizeContext(runDir, {
+      selectedSkillIds: opts.selectedSkillIds,
+      repoRoot: opts.repoRoot,
+    });
     return {
       status: 'ok',
       run_id: result.run_id,

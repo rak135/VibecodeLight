@@ -107,7 +107,7 @@ describe('desktop renderer CodeGraph transport shared global setting', () => {
       }],
       codegraphTransport: 'auto',
     });
-    expect(composer.generatePreview).toHaveBeenCalledWith('transport mock', 'detect-only', false, 'auto');
+    expect(composer.generatePreview).toHaveBeenCalledWith('transport mock', 'detect-only', false, 'auto', []);
     expect(composer.generatePreviewLive).not.toHaveBeenCalled();
     expect(outcome.codegraphTransport).toBe('auto');
   });
@@ -140,6 +140,7 @@ describe('desktop renderer CodeGraph transport shared global setting', () => {
       'use-existing',
       false,
       'mcp',
+      [],
     );
     expect(outcome.codegraphTransport).toBe('mcp');
   });

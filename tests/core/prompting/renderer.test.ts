@@ -278,11 +278,12 @@ describe('renderFinalPrompt', () => {
     expect(content).toContain('Follow these steps:');
   });
 
-  test('final_prompt.md explicitly handles empty selected skills', () => {
+  test('final_prompt.md omits the Selected Skills section when no skills are selected', () => {
     const runDir = makeRunDir(tmpDir); // emptySkillContents by default
     renderFinalPrompt(runDir);
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-    expect(content).toMatch(/no selected skills/i);
+    expect(content).not.toMatch(/no selected skills/i);
+    expect(content).not.toMatch(/^# Selected Skills$/m);
   });
 
   test('final_prompt.md includes relevant files from flash metadata when present', () => {
@@ -569,7 +570,7 @@ describe('renderFinalPrompt', () => {
   });
 
   test('final_prompt.md has stable required section headers', () => {
-    const runDir = makeRunDir(tmpDir, { withFlashMeta: true });
+    const runDir = makeRunDir(tmpDir, { withFlashMeta: true, withSkillContents: true });
     renderFinalPrompt(runDir);
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
     // Top-level sections (single #)
@@ -1476,7 +1477,7 @@ describe('renderFinalPrompt', () => {
     });
 
     test('existing required content remains stable when section is added', () => {
-      const runDir = makeRunDir(tmpDir, { codegraphState: 'available' });
+      const runDir = makeRunDir(tmpDir, { codegraphState: 'available', withSkillContents: true });
       renderFinalPrompt(runDir);
       const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
       expect(content).toContain('Implement the feature X.');

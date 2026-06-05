@@ -21,6 +21,8 @@ export interface PromptPreviewRequest {
   codegraphTransport?: CodeGraphTransport;
   taskNormalizerEnabled?: boolean;
   onProgress?: PipelineProgressCallback;
+  /** UI-selected repo-local skill ids; threaded into the run manifest. */
+  selectedSkillIds?: readonly string[];
 }
 
 export interface PromptPreviewError {
@@ -178,6 +180,7 @@ export async function generatePromptPreview(request: PromptPreviewRequest): Prom
     codegraphMode: request.codegraphMode,
     codegraphTransport: request.codegraphTransport,
     taskNormalizerEnabled: request.taskNormalizerEnabled === true,
+    selectedSkillIds: request.selectedSkillIds,
     onProgress: request.onProgress,
   });
   if (pipelineResult.ok === false) {

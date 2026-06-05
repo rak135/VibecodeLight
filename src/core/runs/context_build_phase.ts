@@ -23,6 +23,11 @@ import {
   FlashInputManifestError,
 } from '../context/index.js';
 import { RunManifest } from '../models/index.js';
+import {
+  buildSelectedSkillsManifest,
+  SelectedSkillsManifestError,
+  writeSelectedSkillsManifest,
+} from '../skills/selected_manifest.js';
 import { updateCurrent } from './current.js';
 import { performScanPhase, writeRunManifest } from './scan_phase.js';
 import { buildAndWriteCodeGraphRunContext } from './shared_codegraph_context.js';
@@ -42,6 +47,12 @@ export interface ContextBuildPhaseOptions {
   codegraphCommand?: string;
   /** Test seam for the MCP transport; CLI never sets this. */
   codegraphMcpRunner?: CodeGraphMcpContextRunner;
+  /**
+   * UI-selected repo-local skill ids. When supplied, a selected-skills manifest
+   * is written under .vibecode/runs/<id>/skills/manifest.json. The full skill
+   * bodies are NOT embedded in the run artifacts.
+   */
+  selectedSkillIds?: readonly string[];
 }
 
 export interface ContextBuildPhaseResult {
@@ -175,6 +186,38 @@ export async function performContextBuildPhase(
       taskIntent,
     });
 
+    let selectedSkillsManifestPath: string | undefined;
+    const selectedSkillsWarnings: string[] = [];
+    if (opts.selectedSkillIds && opts.selectedSkillIds.length > 0) {
+      try {
+        const built = buildSelectedSkillsManifest({
+          runId: result.run_id,
+          repoRoot: opts.repoRoot,
+          selectedSkillIds: opts.selectedSkillIds,
+        });
+        selectedSkillsManifestPath = writeSelectedSkillsManifest(result.runDir, built.manifest);
+        selectedSkillsWarnings.push(...built.warnings);
+      } catch (error) {
+        if (error instanceof SelectedSkillsManifestError) {
+          return {
+            status: 'error',
+            run_id: result.run_id,
+            runDir: result.runDir,
+            scanDir: result.scanDir,
+            flashDir,
+            diagnostic: error.message,
+            error: {
+              code: error.code,
+              message: error.message,
+              path: error.path ?? path.join(result.runDir, 'skills', 'manifest.json'),
+              details: error.details,
+            },
+          };
+        }
+        throw error;
+      }
+    }
+
     writeRunManifest(result.runManifestPath, {
       ...result.manifest,
       status: 'done',
@@ -200,6 +243,7 @@ export async function performContextBuildPhase(
       ...(codegraphArtifacts.legacyRepoAtlasJsonArtifact ? [codegraphArtifacts.legacyRepoAtlasJsonArtifact] : []),
       flashManifestPath,
       flashInputPath,
+      ...(selectedSkillsManifestPath ? [selectedSkillsManifestPath] : []),
     ];
 
     return {
@@ -209,7 +253,14 @@ export async function performContextBuildPhase(
       scanDir: result.scanDir,
       flashDir,
       artifacts: [...new Set(artifactPaths)],
-      warnings: [...result.warnings, ...normalizerWarnings, ...(taskIntent.ok ? [] : taskIntent.warnings), ...codegraphResult.warnings, ...flashWarnings],
+      warnings: [
+        ...result.warnings,
+        ...normalizerWarnings,
+        ...(taskIntent.ok ? [] : taskIntent.warnings),
+        ...codegraphResult.warnings,
+        ...flashWarnings,
+        ...selectedSkillsWarnings,
+      ],
     };
   } catch (error) {
     const diagnostic = error instanceof Error ? error.message : String(error);

@@ -10,6 +10,7 @@ import { registerDesktopConfigIpcHandlers } from './config_bridge.js';
 import { registerDesktopRunsIpcHandlers } from './runs_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 import { registerCodeGraphBridge } from './codegraph_bridge.js';
+import { registerDesktopSkillsIpcHandlers } from './skills_bridge.js';
 
 let mainWindow: BrowserWindow | undefined;
 let ipcRegistered = false;
@@ -87,6 +88,8 @@ function createWindow(): void {
         error: repoResolution.error,
       };
     });
+
+    registerDesktopSkillsIpcHandlers(ipcMain, { getRepoPath });
 
     ipcMain.handle('artifacts:copyToClipboard', (_event, text: string) => {
       clipboard.writeText(typeof text === 'string' ? text : '');

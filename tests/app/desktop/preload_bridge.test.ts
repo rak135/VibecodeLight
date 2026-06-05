@@ -41,7 +41,7 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'runs', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'runs', 'skills', 'terminal', 'workspace']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'list', 'onData', 'onExit', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
@@ -116,6 +116,7 @@ describe('desktop preload bridge boundary', () => {
       undefined,
       false,
       undefined,
+      [],
     );
     await composer.generatePreview('integration smoke', 'use-existing');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -127,6 +128,7 @@ describe('desktop preload bridge boundary', () => {
       'use-existing',
       false,
       undefined,
+      [],
     );
   });
 
@@ -158,6 +160,7 @@ describe('desktop preload bridge boundary', () => {
       'use-existing',
       false,
       undefined,
+      [],
     );
   });
 

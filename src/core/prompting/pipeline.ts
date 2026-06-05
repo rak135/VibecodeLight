@@ -53,6 +53,12 @@ export interface PromptPipelineOptions {
   flashModel?: string;
   taskNormalizerEnabled?: boolean;
   onProgress?: PipelineProgressCallback;
+  /**
+   * UI-selected repo-local skill ids. Threaded into context finalization so that
+   * `.vibecode/runs/<id>/skills/manifest.json` lists only the selected skills.
+   * Full skill bodies are not embedded in artifacts.
+   */
+  selectedSkillIds?: readonly string[];
 }
 
 export interface PromptPipelineSuccess {
@@ -740,6 +746,8 @@ async function finalizeAndRenderStep(args: {
   artifacts: string[];
   warningCollector: PipelineWarningCollector;
   progress: PipelineProgressController;
+  selectedSkillIds?: readonly string[];
+  repoRoot: string;
 }): Promise<PromptPipelineResult> {
   const {
     scan,
@@ -758,7 +766,10 @@ async function finalizeAndRenderStep(args: {
   } = args;
   const { emitProgress } = progress;
 
-  const contextResult = finalizeContext(scan.runDir);
+  const contextResult = finalizeContext(scan.runDir, {
+    selectedSkillIds: args.selectedSkillIds,
+    repoRoot: args.repoRoot,
+  });
   artifacts.push(...contextResult.artifacts);
   warningCollector.addWarnings('Context', contextResult.warnings);
   emitProgress({
@@ -1051,6 +1062,8 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
       artifacts,
       warningCollector,
       progress,
+      selectedSkillIds: opts.selectedSkillIds,
+      repoRoot: opts.repoRoot,
     });
   } catch (error) {
     const diagnostic = contextFinalizeErrorToDiagnostic(error, scan.runDir);

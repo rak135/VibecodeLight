@@ -345,8 +345,9 @@
       var codegraphMode = normalizeCodeGraphMode(opts.codegraphMode);
       var codegraphTransport = normalizeCodeGraphTransport(opts.codegraphTransport);
       var taskNormalizerEnabled = opts.taskNormalizerEnabled === true;
+      var selectedSkillIds = Array.isArray(opts.selectedSkillIds) ? opts.selectedSkillIds.slice() : [];
       if (mode === 'mock') {
-        var mockResult = await composer.generatePreview(opts.task, codegraphMode, taskNormalizerEnabled, codegraphTransport);
+        var mockResult = await composer.generatePreview(opts.task, codegraphMode, taskNormalizerEnabled, codegraphTransport, selectedSkillIds);
         return {
           mode: 'mock',
           flashMode: 'mock',
@@ -391,6 +392,7 @@
         codegraphMode,
         taskNormalizerEnabled,
         codegraphTransport,
+        selectedSkillIds,
       );
       return {
         mode: 'live',

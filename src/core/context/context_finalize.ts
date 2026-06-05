@@ -6,6 +6,11 @@ import { parseFlashOutput } from './markdown_flash_output_parser.js';
 import { writeContextPack } from './context_pack_store.js';
 import { writeSelectedSkills } from './selected_skills.js';
 import { writeSelectedSkillContents } from './selected_skill_contents.js';
+import {
+  buildSelectedSkillsManifest,
+  SelectedSkillsManifestError,
+  writeSelectedSkillsManifest,
+} from '../skills/selected_manifest.js';
 
 export interface ContextFinalizeDiagnostic {
   code: string;
@@ -42,6 +47,17 @@ export interface ContextFinalizeResult {
   artifacts: string[];
   warnings: string[];
   missing_skills: string[];
+}
+
+export interface ContextFinalizeOptions {
+  /**
+   * UI-selected skill ids. When provided alongside `repoRoot`, a
+   * `skills/manifest.json` is written with only the metadata of selected
+   * skills. Full skill bodies are not embedded.
+   */
+  selectedSkillIds?: readonly string[];
+  /** Required to resolve selected skill source paths in <repoRoot>/SKILLS. */
+  repoRoot?: string;
 }
 
 function readRunId(runDir: string): string {
@@ -99,7 +115,10 @@ export function contextFinalizeErrorToDiagnostic(error: unknown, fallbackPath: s
   };
 }
 
-export function finalizeContext(runDir: string): ContextFinalizeResult {
+export function finalizeContext(
+  runDir: string,
+  opts: ContextFinalizeOptions = {},
+): ContextFinalizeResult {
   const flashOutputPath = path.join(runDir, 'flash', 'flash_output.md');
   if (!fs.existsSync(flashOutputPath)) {
     throw new ContextFinalizeError('missing flash_output.md for context finalize', {
@@ -134,16 +153,54 @@ export function finalizeContext(runDir: string): ContextFinalizeResult {
   const catalogPath = path.join(runDir, 'skills', 'skills_catalog.json');
   const catalog = readSkillsCatalog(catalogPath);
   const selectedSkills = writeSelectedSkills(runDir, parsed.sections, catalog);
-  const selectedSkillContents = writeSelectedSkillContents(runDir, selectedSkills.data);
-  const warnings = [
+
+  // The new selected repo-local skills flow stores only a metadata manifest;
+  // the legacy full-body snapshot at skills/selected_skill_contents.md must
+  // not be written when the caller explicitly provided selectedSkillIds.
+  const useNewSelectedSkillsFlow = Boolean(
+    opts.selectedSkillIds && opts.selectedSkillIds.length > 0,
+  );
+
+  const warnings: string[] = [
     ...catalog.warnings,
     ...selectedSkills.data.warnings,
-    ...selectedSkillContents.warnings,
   ];
+
+  const artifacts: string[] = [contextPackPath, selectedSkills.path];
+
+  if (!useNewSelectedSkillsFlow) {
+    const selectedSkillContents = writeSelectedSkillContents(runDir, selectedSkills.data);
+    warnings.push(...selectedSkillContents.warnings);
+    artifacts.push(selectedSkillContents.path);
+  }
+
+  // When the UI/CLI supplied an explicit selection AND we have a repoRoot,
+  // write the canonical manifest. Full skill bodies are NOT embedded here.
+  if (opts.selectedSkillIds && opts.selectedSkillIds.length > 0 && opts.repoRoot) {
+    try {
+      const built = buildSelectedSkillsManifest({
+        runId: readRunId(runDir),
+        repoRoot: opts.repoRoot,
+        selectedSkillIds: opts.selectedSkillIds,
+      });
+      const manifestPath = writeSelectedSkillsManifest(runDir, built.manifest);
+      artifacts.push(manifestPath);
+      warnings.push(...built.warnings);
+    } catch (error) {
+      if (error instanceof SelectedSkillsManifestError) {
+        throw new ContextFinalizeError(error.message, {
+          code: error.code,
+          path: error.path ?? path.join(runDir, 'skills', 'manifest.json'),
+          details: error.details,
+        });
+      }
+      throw error;
+    }
+  }
 
   return {
     run_id: readRunId(runDir),
-    artifacts: [contextPackPath, selectedSkills.path, selectedSkillContents.path],
+    artifacts,
     warnings,
     missing_skills: selectedSkills.data.missing_skills,
   };

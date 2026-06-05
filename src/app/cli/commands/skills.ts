@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 
 import { Command } from 'commander';
@@ -7,17 +8,303 @@ import {
   discoverProjectSkills,
 } from '../../../core/skills/catalog.js';
 import { copyAllSkills, copySkill } from '../../../core/skills/copy.js';
+import {
+  isSafeSkillId,
+  readSelectedSkillsManifest,
+  resolveSkillSourcePath,
+} from '../../../core/skills/selected_manifest.js';
+import { appendSkillUsage, type SkillUsageCommand } from '../../../core/skills/skill_usage_log.js';
+import { getWorkspacePaths } from '../../../core/workspace/paths.js';
+
+interface StructuredCliError {
+  code: string;
+  message: string;
+  path?: string;
+  details: string[];
+}
+
+function emitJsonError(error: StructuredCliError): void {
+  console.log(JSON.stringify({ ok: false, error }));
+}
+
+function emitTextError(prefix: string, error: StructuredCliError): void {
+  console.error(`${prefix}: ${error.code}: ${error.message}`);
+  if (error.path) console.error(`path: ${error.path}`);
+  for (const detail of error.details) console.error(`detail: ${detail}`);
+}
+
+function logSkillUsage(
+  repoRoot: string,
+  runId: string,
+  command: SkillUsageCommand,
+  ok: boolean,
+  extra: { skillId?: string; sourcePath?: string; errorCode?: string } = {},
+): void {
+  try {
+    const paths = getWorkspacePaths(repoRoot);
+    const runDir = path.join(paths.runs, runId);
+    appendSkillUsage({
+      runDir,
+      vibecodeRoot: paths.vibecode,
+      event: {
+        timestamp: new Date().toISOString(),
+        run_id: runId,
+        command,
+        ok,
+        source: 'repo_skills_dir',
+        ...(extra.skillId ? { skill_id: extra.skillId } : {}),
+        ...(extra.sourcePath ? { source_path: extra.sourcePath } : {}),
+        ...(extra.errorCode ? { error: extra.errorCode } : {}),
+      },
+    });
+  } catch {
+    // logging must not break the CLI command
+  }
+}
 
 export function registerSkillsCommands(program: Command): void {
   const skills = program.command('skills').description('Manage VibecodeLight skills');
 
   skills
-    .command('list')
-    .description('List skills (user-profile and project SKILLS/)')
+    .command('show <skillId>')
+    .description("Print the current content of a selected repo-local skill")
+    .option('--run-id <runId>', 'Run id whose selected skills are queried')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; json?: boolean }) => {
+    .action((skillId: string, options: { runId?: string; repo: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      const runId = (options.runId ?? '').trim();
+      if (!runId) {
+        const err: StructuredCliError = {
+          code: 'RUN_ID_REQUIRED',
+          message: '--run-id is required',
+          details: ['Pass --run-id <runId> identifying which run\'s selected skills to query.'],
+        };
+        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      if (!isSafeSkillId(skillId)) {
+        const err: StructuredCliError = {
+          code: 'UNSAFE_SKILL_ID',
+          message: `unsafe skill id: ${skillId}`,
+          details: ['Skill ids must match /^[a-zA-Z0-9._-]+$/.'],
+        };
+        logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      const paths = getWorkspacePaths(repoRoot);
+      const runDir = path.join(paths.runs, runId);
+      const manifest = readSelectedSkillsManifest(runDir);
+      if (!manifest) {
+        const err: StructuredCliError = {
+          code: 'RUN_NOT_FOUND',
+          message: `no selected-skills manifest for run ${runId}`,
+          path: path.join(runDir, 'skills', 'manifest.json'),
+          details: [],
+        };
+        logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      const entry = manifest.selected_skills.find((s) => s.id === skillId);
+      if (!entry) {
+        const err: StructuredCliError = {
+          code: 'SKILL_NOT_SELECTED',
+          message: `skill "${skillId}" was not selected for run ${runId}`,
+          details: [],
+        };
+        logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      const resolved = resolveSkillSourcePath(repoRoot, skillId);
+      if (!resolved || !fs.existsSync(resolved.filePath)) {
+        const err: StructuredCliError = {
+          code: 'SKILL_FILE_NOT_FOUND',
+          message: `skill file not found for "${skillId}"`,
+          path: resolved?.filePath ?? path.join(repoRoot, 'SKILLS', `${skillId}.md`),
+          details: [],
+        };
+        logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      const content = fs.readFileSync(resolved.filePath, 'utf8');
+      logSkillUsage(repoRoot, runId, 'show', true, {
+        skillId,
+        sourcePath: resolved.relativePath,
+      });
+      if (options.json) {
+        console.log(
+          JSON.stringify({
+            ok: true,
+            data: {
+              run_id: runId,
+              skill_id: skillId,
+              source_path: resolved.relativePath,
+              content,
+            },
+            artifacts: [resolved.filePath],
+            warnings: [],
+          }),
+        );
+      } else {
+        process.stdout.write(content);
+        if (!content.endsWith('\n')) process.stdout.write('\n');
+      }
+    });
+
+  skills
+    .command('path <skillId>')
+    .description('Print the resolved path of a selected repo-local skill')
+    .option('--run-id <runId>', 'Run id whose selected skills are queried')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((skillId: string, options: { runId?: string; repo: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      const runId = (options.runId ?? '').trim();
+      if (!runId) {
+        const err: StructuredCliError = {
+          code: 'RUN_ID_REQUIRED',
+          message: '--run-id is required',
+          details: ['Pass --run-id <runId> identifying which run\'s selected skills to query.'],
+        };
+        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      if (!isSafeSkillId(skillId)) {
+        const err: StructuredCliError = {
+          code: 'UNSAFE_SKILL_ID',
+          message: `unsafe skill id: ${skillId}`,
+          details: ['Skill ids must match /^[a-zA-Z0-9._-]+$/.'],
+        };
+        logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      const paths = getWorkspacePaths(repoRoot);
+      const runDir = path.join(paths.runs, runId);
+      const manifest = readSelectedSkillsManifest(runDir);
+      if (!manifest) {
+        const err: StructuredCliError = {
+          code: 'RUN_NOT_FOUND',
+          message: `no selected-skills manifest for run ${runId}`,
+          path: path.join(runDir, 'skills', 'manifest.json'),
+          details: [],
+        };
+        logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      const entry = manifest.selected_skills.find((s) => s.id === skillId);
+      if (!entry) {
+        const err: StructuredCliError = {
+          code: 'SKILL_NOT_SELECTED',
+          message: `skill "${skillId}" was not selected for run ${runId}`,
+          details: [],
+        };
+        logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      const resolved = resolveSkillSourcePath(repoRoot, skillId);
+      if (!resolved || !fs.existsSync(resolved.filePath)) {
+        const err: StructuredCliError = {
+          code: 'SKILL_FILE_NOT_FOUND',
+          message: `skill file not found for "${skillId}"`,
+          path: resolved?.filePath ?? path.join(repoRoot, 'SKILLS', `${skillId}.md`),
+          details: [],
+        };
+        logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
+        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
+        process.exitCode = 1;
+        return;
+      }
+      logSkillUsage(repoRoot, runId, 'path', true, {
+        skillId,
+        sourcePath: resolved.relativePath,
+      });
+      if (options.json) {
+        console.log(
+          JSON.stringify({
+            ok: true,
+            data: {
+              run_id: runId,
+              skill_id: skillId,
+              source_path: resolved.relativePath,
+              absolute_path: resolved.filePath,
+            },
+            artifacts: [resolved.filePath],
+            warnings: [],
+          }),
+        );
+      } else {
+        console.log(resolved.filePath);
+      }
+    });
+
+  skills
+    .command('list')
+    .description('List skills (user-profile and project SKILLS/). With --run-id, list only skills selected for that run.')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--run-id <runId>', 'Limit output to skills selected for this run')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; runId?: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+
+      if (options.runId) {
+        const runId = options.runId.trim();
+        const paths = getWorkspacePaths(repoRoot);
+        const runDir = path.join(paths.runs, runId);
+        const manifest = readSelectedSkillsManifest(runDir);
+        if (!manifest) {
+          const err: StructuredCliError = {
+            code: 'RUN_NOT_FOUND',
+            message: `no selected-skills manifest for run ${runId}`,
+            path: path.join(runDir, 'skills', 'manifest.json'),
+            details: [],
+          };
+          logSkillUsage(repoRoot, runId, 'list', false, { errorCode: err.code });
+          if (options.json) emitJsonError(err); else emitTextError('skills list failed', err);
+          process.exitCode = 1;
+          return;
+        }
+        logSkillUsage(repoRoot, runId, 'list', true);
+        if (options.json) {
+          console.log(
+            JSON.stringify({
+              ok: true,
+              data: {
+                run_id: manifest.run_id,
+                skills_dir: manifest.skills_dir,
+                selected_skills: manifest.selected_skills,
+              },
+              artifacts: [],
+              warnings: [],
+            }),
+          );
+          return;
+        }
+        if (manifest.selected_skills.length === 0) {
+          console.log('No skills selected for this run.');
+        } else {
+          for (const skill of manifest.selected_skills) {
+            console.log(`${skill.id}\t${skill.title}`);
+          }
+        }
+        return;
+      }
+
       const catalog = buildSkillsCatalog({ repoRoot });
       if (options.json) {
         console.log(

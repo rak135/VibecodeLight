@@ -22,7 +22,7 @@ function runCli(args: string[], cwd: string) {
 }
 
 describe('prompt render integration', () => {
-  test('fixture repo with no selected skills: full mock pipeline produces final_prompt.md with no-skills note', () => {
+  test('fixture repo with no selected skills: full mock pipeline omits the Selected Skills section from final_prompt.md', () => {
     const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-prompt-render-noskills-'));
     fs.writeFileSync(path.join(tmpRepo, 'README.md'), 'no skills fixture\n', 'utf8');
 
@@ -42,7 +42,8 @@ describe('prompt render integration', () => {
 
       const runDir = built.data.runDir;
       const finalPrompt = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
-      expect(finalPrompt).toMatch(/no selected skills/i);
+      expect(finalPrompt).not.toMatch(/no selected skills/i);
+      expect(finalPrompt).not.toMatch(/^# Selected Skills$/m);
     } finally {
       fs.rmSync(tmpRepo, { recursive: true, force: true });
     }

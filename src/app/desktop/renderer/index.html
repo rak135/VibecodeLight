@@ -172,6 +172,15 @@
                     </div>
                   </div>
 
+                  <!-- 01b skills: manual selection of repo-local skills before Build Context -->
+                  <div class="ov-section" id="ov-skills-section">
+                    <div class="ov-label"><span class="num">01b</span> skills</div>
+                    <div class="glass" style="padding:8px 10px;">
+                      <div id="composer-skills-empty" style="opacity:0.7;">No skills found under SKILLS/.</div>
+                      <div id="composer-skills-list" style="display:flex;flex-direction:column;gap:4px;"></div>
+                    </div>
+                  </div>
+
                   <!-- 01 pipeline progress: first-class artifact view; stays visible after completion/warning/failure -->
                   <div class="ov-section ov-step-panel active" id="ov-progress-section" data-step="pipeline-progress">
                     <div class="ov-label ov-step-button" role="button" tabindex="0" data-step-target="pipeline-progress" aria-pressed="true">
@@ -329,6 +338,55 @@
       const cancelComposerBtn = $('cancel-composer');
       const taskInput = $('composer-task');
       const generateButton = $('generate-preview');
+      const skillsListEl = $('composer-skills-list');
+      const skillsEmptyEl = $('composer-skills-empty');
+      const composerSelectedSkillIds = new Set();
+
+      function getSelectedSkillIds() {
+        return Array.from(composerSelectedSkillIds);
+      }
+
+      async function loadAvailableSkills() {
+        if (!window.vibecodeAPI || !window.vibecodeAPI.skills) return;
+        try {
+          const result = await window.vibecodeAPI.skills.listAvailable();
+          if (!result || result.ok !== true) return;
+          const skills = Array.isArray(result.skills) ? result.skills : [];
+          if (skillsListEl) skillsListEl.innerHTML = '';
+          if (skillsEmptyEl) skillsEmptyEl.hidden = skills.length !== 0;
+          for (const skill of skills) {
+            const label = document.createElement('label');
+            label.style.display = 'flex';
+            label.style.gap = '6px';
+            label.style.alignItems = 'flex-start';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = skill.id;
+            cb.checked = composerSelectedSkillIds.has(skill.id);
+            cb.addEventListener('change', () => {
+              if (cb.checked) composerSelectedSkillIds.add(skill.id);
+              else composerSelectedSkillIds.delete(skill.id);
+            });
+            const text = document.createElement('span');
+            const title = document.createElement('div');
+            title.textContent = skill.title || skill.id;
+            title.style.fontWeight = '600';
+            const summary = document.createElement('div');
+            summary.textContent = skill.summary || '';
+            summary.style.opacity = '0.75';
+            summary.style.fontSize = '0.85em';
+            text.appendChild(title);
+            if (skill.summary) text.appendChild(summary);
+            label.appendChild(cb);
+            label.appendChild(text);
+            if (skillsListEl) skillsListEl.appendChild(label);
+          }
+        } catch (_error) {
+          // best-effort: skill loading must not block composer
+        }
+      }
+      // Load on overlay init.
+      setTimeout(() => { void loadAvailableSkills(); }, 0);
       const sendButton = $('send-to-terminal');
       const sendStatus = $('send-status');
       const previewElement = $('composer-preview');
@@ -1601,6 +1659,7 @@
             codegraphMode: getCodeGraphMode(),
             codegraphTransport: getCodeGraphTransport(),
             taskNormalizerEnabled: taskNormalizerEnabled(),
+            selectedSkillIds: getSelectedSkillIds(),
           });
           if (outcome.blocked) {
             renderErrorSummary(outcome.diagnostic);

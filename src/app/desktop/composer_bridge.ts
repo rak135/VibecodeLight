@@ -102,6 +102,7 @@ export interface ComposerBridgeOptions {
     codegraphMode?: CodeGraphContextMode;
     codegraphTransport?: CodeGraphTransport;
     taskNormalizerEnabled?: boolean;
+    selectedSkillIds?: readonly string[];
     onProgress?: (event: PipelineProgressEvent) => void;
   }) => Promise<PromptPreviewResult>;
   sendService?: (request: {
@@ -139,6 +140,9 @@ export function registerDesktopComposerIpcHandlers(
     const codegraphMode: CodeGraphContextMode = args[4] === 'use-existing' ? 'use-existing' : 'detect-only';
     const taskNormalizerEnabled = args[5] === true;
     const codegraphTransport: CodeGraphTransport = normalizeCodeGraphTransport(args[6]);
+    const selectedSkillIds: string[] = Array.isArray(args[7])
+      ? (args[7] as unknown[]).filter((id): id is string => typeof id === 'string')
+      : [];
     const repoRoot = options.getRepoPath();
     const sender = (event as IpcEventWithSender | undefined)?.sender;
     return invokePreview({
@@ -150,6 +154,7 @@ export function registerDesktopComposerIpcHandlers(
       codegraphMode,
       codegraphTransport,
       taskNormalizerEnabled,
+      selectedSkillIds,
       onProgress: (pipelineEvent) => {
         sender?.send('composer:progress', toSafePipelineProgressEvent(pipelineEvent));
       },

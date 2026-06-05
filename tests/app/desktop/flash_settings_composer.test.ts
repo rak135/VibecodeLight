@@ -94,7 +94,7 @@ describe('composer preview routing — mock mode', () => {
     });
 
     expect(composer.generatePreview).toHaveBeenCalledTimes(1);
-    expect(composer.generatePreview).toHaveBeenCalledWith('do the thing', 'detect-only', false, 'cli');
+    expect(composer.generatePreview).toHaveBeenCalledWith('do the thing', 'detect-only', false, 'cli', []);
     expect(composer.generatePreviewLive).not.toHaveBeenCalled();
     expect(outcome.flashMode).toBe('mock');
     expect(outcome.blocked).toBe(false);
@@ -113,7 +113,7 @@ describe('composer preview routing — mock mode', () => {
       codegraphMode: 'use-existing',
     });
 
-    expect(composer.generatePreview).toHaveBeenCalledWith('do the thing', 'use-existing', false, 'cli');
+    expect(composer.generatePreview).toHaveBeenCalledWith('do the thing', 'use-existing', false, 'cli', []);
     expect(composer.generatePreviewLive).not.toHaveBeenCalled();
     expect(outcome.codegraphMode).toBe('use-existing');
   });
@@ -139,6 +139,7 @@ describe('composer preview routing — live mode', () => {
       'detect-only',
       false,
       'cli',
+      [],
     );
     expect(composer.generatePreview).not.toHaveBeenCalled();
     expect(outcome.flashMode).toBe('live');
@@ -164,6 +165,7 @@ describe('composer preview routing — live mode', () => {
       'use-existing',
       false,
       'cli',
+      [],
     );
     expect(composer.generatePreview).not.toHaveBeenCalled();
     expect(outcome.codegraphMode).toBe('use-existing');

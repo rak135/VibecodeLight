@@ -22,7 +22,7 @@ function collectTypeScriptFiles(dir: string): string[] {
 // prompt_preview_service.ts is the single documented gateway between the
 // desktop main process and the core prompt pipeline. It is intentionally
 // allowed to import from core/prompting; the renderer never imports it.
-const GATEWAY_FILES = new Set(['prompt_preview_service.ts']);
+const GATEWAY_FILES = new Set(['prompt_preview_service.ts', 'skills_bridge.ts']);
 
 describe('desktop import boundaries', () => {
   test('desktop modules do not import scanner/context/prompting/skills internals directly', () => {

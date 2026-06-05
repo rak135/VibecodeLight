@@ -313,10 +313,13 @@ export interface VibecodePreloadApi {
     }>;
   };
   composer: {
-    generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc): Promise<ComposerPreviewIpcResult>;
-    generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc): Promise<ComposerPreviewIpcResult>;
+    generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc, selectedSkillIds?: readonly string[]): Promise<ComposerPreviewIpcResult>;
+    generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc, selectedSkillIds?: readonly string[]): Promise<ComposerPreviewIpcResult>;
     sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean): Promise<ComposerSendIpcResult>;
     onProgress(callback: (event: PipelineProgressEvent) => void): () => void;
+  };
+  skills: {
+    listAvailable(): Promise<{ ok: boolean; skills?: Array<{ id: string; title: string; summary: string; source_path: string }>; error?: { code: string; message: string } }>;
   };
   runs: {
     list(): Promise<RunsListIpc>;
@@ -393,7 +396,7 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
     },
     composer: {
-      generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc) {
+      generatePreview(task: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc, selectedSkillIds?: readonly string[]) {
         return ipcRenderer.invoke(
           'composer:generatePreview',
           task,
@@ -403,9 +406,10 @@ export function createVibecodeApi(): VibecodePreloadApi {
           codegraphMode,
           taskNormalizerEnabled === true,
           codegraphTransport,
+          Array.isArray(selectedSkillIds) ? [...selectedSkillIds] : [],
         ) as Promise<ComposerPreviewIpcResult>;
       },
-      generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc) {
+      generatePreviewLive(task: string, flashProvider?: string, flashModel?: string, codegraphMode?: CodeGraphContextModeIpc, taskNormalizerEnabled?: boolean, codegraphTransport?: CodeGraphTransportIpc, selectedSkillIds?: readonly string[]) {
         return ipcRenderer.invoke(
           'composer:generatePreview',
           task,
@@ -415,6 +419,7 @@ export function createVibecodeApi(): VibecodePreloadApi {
           codegraphMode,
           taskNormalizerEnabled === true,
           codegraphTransport,
+          Array.isArray(selectedSkillIds) ? [...selectedSkillIds] : [],
         ) as Promise<ComposerPreviewIpcResult>;
       },
       sendPreview(runId: string, targetSessionId?: string, autoApprove?: boolean) {
@@ -432,6 +437,15 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       show(runId: string) {
         return ipcRenderer.invoke('runs:show', runId) as Promise<RunsShowIpc>;
+      },
+    },
+    skills: {
+      listAvailable() {
+        return ipcRenderer.invoke('skills:listAvailable') as Promise<{
+          ok: boolean;
+          skills?: Array<{ id: string; title: string; summary: string; source_path: string }>;
+          error?: { code: string; message: string };
+        }>;
       },
     },
     config: {

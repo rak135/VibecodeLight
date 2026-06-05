@@ -63,6 +63,6 @@ describe('desktop renderer task normalizer switch', () => {
       taskNormalizerEnabled: true,
     });
 
-    expect(composer.generatePreview).toHaveBeenCalledWith('normalize in desktop', 'detect-only', true, 'cli');
+    expect(composer.generatePreview).toHaveBeenCalledWith('normalize in desktop', 'detect-only', true, 'cli', []);
   });
 });

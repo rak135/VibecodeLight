@@ -88,6 +88,8 @@ export interface PromptCommandPhaseOptions {
   autoApprove?: boolean;
   /** Test seam: provide the send target instead of spawning a real PTY. */
   sendTerminal?: PromptSendTerminal;
+  /** UI-selected repo-local skill ids; threaded into the run manifest. */
+  selectedSkillIds?: readonly string[];
 }
 
 function createDefaultPromptSendTerminal(repoRoot: string): PromptSendTerminal {
@@ -119,6 +121,7 @@ export async function performPromptCommandPhase(options: PromptCommandPhaseOptio
     ...(options.codegraphMcpRunner ? { codegraphMcpRunner: options.codegraphMcpRunner } : {}),
     taskNormalizerEnabled: options.taskNormalizerEnabled === true,
     adapter: options.adapter,
+    selectedSkillIds: options.selectedSkillIds,
     onProgress: options.json ? undefined : (event) => writePromptProgressEvent(event, stderr),
   });
 

@@ -212,6 +212,8 @@ export async function runContextBuild(opts: {
   codegraphCommand?: string;
   /** Test seam for the MCP transport; CLI never sets this. */
   codegraphMcpRunner?: CodeGraphMcpContextRunner;
+  /** UI-selected repo-local skill ids; written to skills/manifest.json. */
+  selectedSkillIds?: readonly string[];
 }): Promise<ContextBuildResult> {
   return performContextBuildPhase({
     task: opts.task,
@@ -223,6 +225,7 @@ export async function runContextBuild(opts: {
     codegraphReadinessProvider: opts.codegraphReadinessProvider,
     codegraphCommand: opts.codegraphCommand,
     codegraphMcpRunner: opts.codegraphMcpRunner,
+    selectedSkillIds: opts.selectedSkillIds,
   });
 }
 
@@ -259,6 +262,7 @@ export async function runFlash(opts: {
 export async function runContextFinalize(opts: {
   runSelector: string;
   repoRoot: string;
+  selectedSkillIds?: readonly string[];
 }): Promise<ContextFinalizeCliResult> {
   let resolvedRun: { runId: string; runDir: string };
   try {
@@ -277,6 +281,8 @@ export async function runContextFinalize(opts: {
   return performContextFinalizePhase({
     runId: resolvedRun.runId,
     runDir: resolvedRun.runDir,
+    repoRoot: opts.repoRoot,
+    selectedSkillIds: opts.selectedSkillIds,
   });
 }
 
@@ -479,10 +485,11 @@ export function createCli(): Command {
     .command('finalize <runId>')
     .description('Finalize context pack and selected skill artifacts for a flash output')
     .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--skill <id>', 'Include a UI-selected skill id (repeatable)', (value: string, prev: string[] = []) => prev.concat([value]), [] as string[])
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (runId: string, options: { repo: string; json?: boolean }) => {
+    .action(async (runId: string, options: { repo: string; skill?: string[]; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
-      const result = await runContextFinalize({ runSelector: runId, repoRoot });
+      const result = await runContextFinalize({ runSelector: runId, repoRoot, selectedSkillIds: options.skill ?? [] });
 
       if (result.status === 'error') {
         const error = result.error ?? {
@@ -542,8 +549,9 @@ export function createCli(): Command {
     .option('--codegraph-mode <mode>', 'CodeGraph context mode: detect-only | use-existing')
     .option('--task-normalizer', 'Enable Task Normalizer')
     .option('--no-task-normalizer', 'Disable Task Normalizer (default)', false)
+    .option('--skill <id>', 'Include a UI-selected skill id (repeatable)', (value: string, prev: string[] = []) => prev.concat([value]), [] as string[])
     .option('--json', 'output canonical JSON envelope')
-    .action(async (task: string, options: { repo?: string; codegraphMode?: string; taskNormalizer?: boolean; json?: boolean }) => {
+    .action(async (task: string, options: { repo?: string; codegraphMode?: string; taskNormalizer?: boolean; skill?: string[]; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo ?? process.cwd());
       const parsedMode = parseCodeGraphModeOption(options.codegraphMode);
       if (parsedMode.ok === false) {
@@ -556,6 +564,7 @@ export function createCli(): Command {
         jsonOutput: options.json,
         codegraphMode: parsedMode.mode,
         taskNormalizerEnabled: options.taskNormalizer === true,
+        selectedSkillIds: options.skill ?? [],
       });
 
       if (result.status === 'error') {
@@ -722,8 +731,9 @@ export function createCli(): Command {
     .option('--task-normalizer', 'Enable Task Normalizer (translate/expand task into English hints before context selection)')
     .option('--no-task-normalizer', 'Disable Task Normalizer (default)', false)
     .option('--auto-approve', 'Send the rendered final_prompt.md into a terminal without a separate approval step')
+    .option('--skill <id>', 'Include a UI-selected skill id (repeatable)', (value: string, prev: string[] = []) => prev.concat([value]), [] as string[])
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; codegraph?: boolean; codegraphMode?: string; taskNormalizer?: boolean; autoApprove?: boolean; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; codegraph?: boolean; codegraphMode?: string; taskNormalizer?: boolean; autoApprove?: boolean; skill?: string[]; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -756,6 +766,7 @@ export function createCli(): Command {
         codegraphMode: resolvedCodegraph.mode,
         taskNormalizerEnabled: options.taskNormalizer === true,
         autoApprove: options.autoApprove === true,
+        selectedSkillIds: options.skill ?? [],
         json: options.json,
       });
       if (result.ok === false) process.exitCode = 1;
