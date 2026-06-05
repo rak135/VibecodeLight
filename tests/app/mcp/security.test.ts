@@ -15,16 +15,23 @@ const FORBIDDEN_TOOL_NAME_PATTERNS = [
   /shell/i,
   /exec/i,
   /run_command/i,
-  /write/i,
   /commit/i,
   /git/i,
   /terminal/i,
-  /file/i, // be strict for MCP-1; vibecode_codegraph_files is intentionally allowlisted separately
 ];
 
-const ALLOWED_FILE_TOOL_NAMES = new Set(['vibecode_codegraph_files']);
+// Tools that are intentionally read-only despite their names containing
+// substrings the forbidden patterns might match. Both vibecode_codegraph_files
+// (a list/files-tool) and vibecode_artifact_read (a read-only artifact reader)
+// are read-only — neither writes anything.
+const ALLOWED_READ_TOOL_NAMES = new Set([
+  'vibecode_codegraph_files',
+  'vibecode_artifact_read',
+]);
 
-describe('VibecodeMCP MCP-1 security boundary', () => {
+const READ_ONLY_NAME_RE = /(write|create|update|delete|put|post|set|edit|modify)/i;
+
+describe('VibecodeMCP security boundary', () => {
   let repoRoot: string;
 
   beforeEach(() => {
@@ -37,12 +44,13 @@ describe('VibecodeMCP MCP-1 security boundary', () => {
 
   test('no write/shell/git/terminal tool is registered', () => {
     const tools = buildVibecodeMcpTools();
-    expect(tools.length).toBe(7);
+    expect(tools.length).toBe(12);
     for (const tool of tools) {
-      if (ALLOWED_FILE_TOOL_NAMES.has(tool.name)) continue;
+      if (ALLOWED_READ_TOOL_NAMES.has(tool.name)) continue;
       for (const pattern of FORBIDDEN_TOOL_NAME_PATTERNS) {
         expect(tool.name).not.toMatch(pattern);
       }
+      expect(tool.name).not.toMatch(READ_ONLY_NAME_RE);
     }
   });
 

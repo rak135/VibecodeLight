@@ -34,7 +34,7 @@ export function buildCodeGraphFilesTool(deps: CodeGraphFilesToolDeps = {}): McpT
   return {
     name: TOOL_NAME,
     title: 'CodeGraph files',
-    description: 'List the indexed project file structure from the existing CodeGraph index. Read-only.',
+    description: 'List the indexed project file structure from the existing CodeGraph index. Prefer this over walking the filesystem by hand. Read-only.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();

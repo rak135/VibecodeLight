@@ -166,6 +166,37 @@ export interface FormatErrorArgs {
   error: McpStructuredError;
 }
 
+/**
+ * Build a success envelope for a plain Vibecode core call (no upstream codegraph
+ * subprocess). Used by run/artifact tools to wrap structured data in the same
+ * shape as the CodeGraph tools' output.
+ */
+export function formatSimpleSuccess(args: {
+  tool: string;
+  repoRoot: string;
+  text: string;
+  data: unknown;
+  durationMs: number;
+  warnings?: string[];
+}): McpToolFormattedResult {
+  const warnings = [...(args.warnings ?? [])];
+  const bounded = boundUtf8(args.text);
+  if (bounded.truncated) warnings.push('OUTPUT_TRUNCATED: text content exceeded bounded MCP limit');
+  return {
+    content: [{ type: 'text', text: bounded.text }],
+    structuredContent: {
+      ok: true,
+      tool: args.tool,
+      repo_root: args.repoRoot,
+      warnings,
+      truncated: bounded.truncated,
+      duration_ms: args.durationMs,
+      data: args.data,
+    },
+    isError: false,
+  };
+}
+
 /** Build an MCP tool error envelope. Never throws; logging is the caller's job. */
 export function formatError(args: FormatErrorArgs): McpToolFormattedResult {
   const lines: string[] = [];

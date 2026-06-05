@@ -113,4 +113,52 @@ describe('mcp_tool_usage.jsonl logging', () => {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }
   });
+
+  test('MCP-2 run/artifact tool calls log without leaking artifact content', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-mcp2-log-'));
+    try {
+      // Build a deterministic run with sensitive-looking content.
+      const runId = 'r1';
+      const runDir = path.join(repoRoot, '.vibecode', 'runs', runId);
+      fs.mkdirSync(path.join(runDir, 'output'), { recursive: true });
+      fs.writeFileSync(
+        path.join(runDir, 'run_manifest.json'),
+        JSON.stringify({ run_id: runId, created_at: '2026-06-05T00:00:00Z', task: 't' }),
+        'utf8',
+      );
+      const secretContent = 'SUPER-SECRET-ARTIFACT-CONTENT-MUST-NOT-LEAK';
+      fs.writeFileSync(path.join(runDir, 'output', 'final_prompt.md'), secretContent, 'utf8');
+
+      const handle = createVibecodeMcpServer({ context: { repoRoot }, logLevel: 'silent' });
+      const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+      await handle.connect(serverT);
+      const client = new Client({ name: 't', version: '0' }, { capabilities: {} });
+      await client.connect(clientT);
+      try {
+        await client.callTool({ name: 'vibecode_runs_list', arguments: {} });
+        await client.callTool({
+          name: 'vibecode_artifact_read',
+          arguments: { run_id: runId, artifact: 'final_prompt' },
+        });
+      } finally {
+        await client.close();
+        await handle.close();
+      }
+
+      const logText = fs.readFileSync(resolveMcpToolUsageLogPath(repoRoot), 'utf8');
+      expect(logText).not.toContain(secretContent);
+      const rows = logText.trim().split('\n').map((l) => JSON.parse(l));
+      // Both MCP-2 calls landed and stayed read-only (ok=true).
+      const tools = rows.map((r) => r.tool);
+      expect(tools).toContain('vibecode_runs_list');
+      expect(tools).toContain('vibecode_artifact_read');
+      for (const row of rows) {
+        expect(row).not.toHaveProperty('content');
+        expect(row).not.toHaveProperty('stdout');
+        expect(row.ok).toBe(true);
+      }
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
 });

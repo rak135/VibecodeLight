@@ -35,7 +35,7 @@ export function buildCodeGraphContextTool(deps: CodeGraphContextToolDeps = {}): 
   return {
     name: TOOL_NAME,
     title: 'CodeGraph context',
-    description: 'Build bounded markdown context for a task from the existing CodeGraph index. Read-only.',
+    description: 'Build bounded markdown subsystem context for a task from the existing CodeGraph index. Prefer this over broad grep/read when orienting in unfamiliar parts of the bound repo. Read-only.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();

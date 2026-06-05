@@ -26,7 +26,13 @@ export type McpErrorCode =
   | 'INVALID_ARGUMENT'
   | 'MCP_TOOL_TIMEOUT'
   | 'OUTPUT_TRUNCATED'
-  | 'UNSUPPORTED_TOOL';
+  | 'UNSUPPORTED_TOOL'
+  // Phase MCP-2: run / artifact tools.
+  | 'RUN_NOT_FOUND'
+  | 'RUN_MANIFEST_INVALID'
+  | 'ARTIFACT_NOT_ALLOWED'
+  | 'ARTIFACT_NOT_FOUND'
+  | 'VIBECODE_ARTIFACT_READ_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -80,6 +86,31 @@ const ERROR_DEFAULTS: Record<
   UNSUPPORTED_TOOL: {
     retryable: false,
     suggestion: 'Call tools/list to discover the tools this server exposes.',
+  },
+  RUN_NOT_FOUND: {
+    retryable: false,
+    suggestion:
+      'Call vibecode_runs_list to enumerate available run ids, or use the "latest"/"current" alias.',
+  },
+  RUN_MANIFEST_INVALID: {
+    retryable: false,
+    suggestion:
+      'The .vibecode/current/run_manifest.json pointer or the run’s own run_manifest.json is malformed. Re-run the pipeline or restore the manifest.',
+  },
+  ARTIFACT_NOT_ALLOWED: {
+    retryable: false,
+    suggestion:
+      'Pass an allowlisted artifact name (for example final_prompt, context_pack, flash_output, codegraph). The full allowlist is returned in error.details.',
+  },
+  ARTIFACT_NOT_FOUND: {
+    retryable: false,
+    suggestion:
+      'The artifact name is allowlisted but the file does not exist for this run yet. Inspect vibecode_run_get to see which artifacts the run produced.',
+  },
+  VIBECODE_ARTIFACT_READ_FAILED: {
+    retryable: true,
+    suggestion:
+      'Verify the run directory has not been modified or removed, then retry. If the run is partial, look at vibecode_run_get first.',
   },
 };
 

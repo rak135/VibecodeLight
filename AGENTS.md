@@ -341,10 +341,17 @@ vibecode mcp doctor --agent claude --repo <path>
 ```
 
 `vibecode mcp serve` starts a repo-bound stdio MCP server exposing the
-Phase MCP-1 read-only CodeGraph tools. Agents with MCP support call those
-tools; agents without MCP support use the equivalent CLI commands
-(`vibecode codegraph status|search|context|files|callers|callees|impact`).
-Both call the same Vibecode core services.
+Phase MCP-1 read-only CodeGraph tools and the Phase MCP-2 read-only run /
+artifact tools (`vibecode_runs_list`, `vibecode_current_run`,
+`vibecode_run_get`, `vibecode_artifact_read`, `vibecode_codegraph_usage`).
+MCP-capable agents should prefer these tools over grep/find for repo
+navigation and over opening `.vibecode/runs/...` files by hand. Agents
+without MCP support use the equivalent CLI commands
+(`vibecode codegraph status|search|context|files|callers|callees|impact`
+and `vibecode runs list` / `vibecode runs show latest --artifact <name>`).
+Both call the same Vibecode core services. Approvals / permission settings
+remain controlled by the MCP client/agent (Codex `/mcp`, Claude managed
+approvals UI) — Vibecode does not manage Claude or Codex approvals.
 
 `vibecode mcp config|install|doctor --agent codex` manages only Codex
 `[mcp_servers.vibecode]` configuration. It preserves unrelated Codex settings,

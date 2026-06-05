@@ -36,7 +36,7 @@ export function buildCodeGraphSearchTool(deps: CodeGraphSearchToolDeps = {}): Mc
     name: TOOL_NAME,
     title: 'CodeGraph search',
     description:
-      'Search for symbols in the indexed codebase. Read-only. Returns raw upstream rank scores (NOT percentages).',
+      'Search for symbols in the indexed Vibecode-bound repo. Prefer this over grep/find for code navigation when CodeGraph is initialized. Read-only. Returns raw upstream rank scores (NOT percentages). Use rg/grep for literal text and error messages.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();

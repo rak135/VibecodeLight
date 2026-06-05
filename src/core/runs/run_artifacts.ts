@@ -26,8 +26,23 @@ import path from 'path';
  * sends a literal selector cannot suddenly resolve into a different artifact.
  */
 export const RUN_ARTIFACT_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+  // CLI-historical aliases — preserved verbatim.
   codegraph: 'scan/codegraph_usage.json',
   'task-intent': 'task_intent.json',
+  // MCP-2 agent-friendly aliases. Each one maps to an already-allowlisted
+  // canonical path so the agent does not have to know subdirectory layouts.
+  final_prompt: 'output/final_prompt.md',
+  context_pack: 'output/context_pack.md',
+  flash_input: 'flash/flash_input.md',
+  flash_output: 'flash/flash_output.md',
+  task_intent: 'task_intent.json',
+  selected_skills: 'skills/selected_skills.json',
+  send_metadata: 'terminal/send_metadata.json',
+  codegraph_usage: 'scan/codegraph_usage.json',
+  codegraph_context: 'scan/codegraph_context.md',
+  codegraph_repo_atlas: 'scan/codegraph_repo_atlas.md',
+  user_prompt: 'user_prompt.md',
+  run_manifest: 'run_manifest.json',
 });
 
 /**

@@ -31,7 +31,7 @@ export function buildCodeGraphStatusTool(deps: CodeGraphStatusToolDeps = {}): Mc
     name: TOOL_NAME,
     title: 'CodeGraph status',
     description:
-      'Detect whether upstream CodeGraph is installed and whether the repo has an initialized index. Read-only.',
+      'Detect whether upstream CodeGraph is installed and whether the repo has an initialized index. Call this first to know whether the other vibecode_codegraph_* tools will work. Read-only.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();

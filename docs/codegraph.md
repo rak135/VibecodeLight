@@ -520,6 +520,8 @@ VibecodeLight now ships its own native MCP server, `vibecode mcp serve --repo <p
 
 Phase MCP-1 is read-only and stdio-only. The server is bound to one repository at startup and tools do not accept a `repo` argument. Tool handlers call the same in-process core services as the CLI (`getCodeGraphStatus`, `runCodeGraphSearch`, `runCodeGraphContextQuery`, `runCodeGraphFiles`, `runCodeGraphCallers`, `runCodeGraphCallees`, `runCodeGraphImpact`) — no shell-out, no CLI text parsing, provider-agnostic by construction.
 
+MCP-capable agents should prefer these tools over shelling out to grep/find for repo navigation. Agents should not call upstream CodeGraph (`codegraph serve --mcp`) directly when VibecodeMCP is available — VibecodeMCP is the Vibecode-native interface and applies the Vibecode core services consistently. Agents without MCP support should fall back to the equivalent `vibecode codegraph ...` CLI commands. Approval / permission behavior belongs to the MCP client/agent (Codex `/mcp`, Claude managed approvals UI) — Vibecode does not manage Claude or Codex approval settings.
+
 Exposed tools:
 
 ```text
@@ -531,6 +533,28 @@ vibecode_codegraph_callers
 vibecode_codegraph_callees
 vibecode_codegraph_impact
 ```
+
+## VibecodeMCP run / artifact tools (Phase MCP-2)
+
+The same `vibecode mcp serve` process additionally exposes five read-only run / artifact tools so MCP-capable agents can inspect Vibecode runs without opening `.vibecode/runs/...` files by hand:
+
+```text
+vibecode_runs_list
+vibecode_current_run
+vibecode_run_get
+vibecode_artifact_read
+vibecode_codegraph_usage
+```
+
+- `vibecode_runs_list` — list recent runs, newest first; supports `limit`.
+- `vibecode_current_run` — return the latest run pointer (`.vibecode/current/run_manifest.json`) and which run artifacts are present.
+- `vibecode_run_get` — show one run by id; accepts the aliases `latest` / `current`.
+- `vibecode_artifact_read` — read one allowlisted artifact (`final_prompt`, `context_pack`, `flash_output`, `task-intent` / `task_intent`, `codegraph` / `codegraph_usage`, `codegraph_context`, `codegraph_repo_atlas`, `selected_skills`, `send_metadata`, `user_prompt`, `run_manifest`). `run_id` accepts `latest` / `current`; `max_bytes` bounds the returned content.
+- `vibecode_codegraph_usage` — return structured `scan/codegraph_usage.json` fields (`mode`, `transport_requested`, `transport_used`, `fallback_used`, `context_artifact`, `warnings`) for a run; defaults to latest.
+
+MCP-capable agents should use these tools before manually opening `.vibecode` files. Agents without MCP support should use the equivalent CLI commands (`vibecode runs list`, `vibecode runs show latest`, `vibecode runs show latest --artifact <name>`). Both paths call the same Vibecode core services (`listRuns`, `getRunInfo`, `resolveRunDir`, `readRunArtifactText`).
+
+MCP-2 is read-only. It adds no terminal write, no shell exec, no file write, no git commit, no arbitrary file read, no agent-lane coordination, and no approval mutation. The artifact reader uses the shared MCP-0 allowlist + path-escape guard, so arbitrary repo files (including the root `README.md`) cannot be exfiltrated through `vibecode_artifact_read`.
 
 Per-call usage is recorded as bounded, secret-free JSONL at `<repo>/.vibecode/logs/mcp_tool_usage.jsonl`. stdout is reserved exclusively for the MCP JSON-RPC stream; diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`).
 
@@ -551,9 +575,8 @@ The following are not part of the current implementation:
 - a VibecodeLight-owned CodeGraph MCP server that proxies upstream CodeGraph
   (Phase 1A integrates with the upstream `codegraph serve --mcp` server as
   a client; VibecodeMCP exposes its own Vibecode-native tools instead)
-- HTTP transport for VibecodeMCP (Phase MCP-1 is stdio only)
-- run/artifact MCP tools (Phase MCP-2)
-- non-Codex agent config installation helpers
+- HTTP transport for VibecodeMCP (Phase MCP-1 / MCP-2 are stdio only)
+- non-Codex / non-Claude agent config installation helpers
 - background watch/serve/index orchestration during prompt build
 - automatic CodeGraph installation or updates
 - automatic writes to external agent configs without explicit `--yes`

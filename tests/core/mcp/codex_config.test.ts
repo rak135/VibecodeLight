@@ -54,15 +54,16 @@ describe('Codex MCP config generation', () => {
     expect(result.toml_snippet).toContain('default_tools_approval_mode = "auto"');
   });
 
-  test('includes exactly the 7 read-only VibecodeMCP tools and no write/shell/git/terminal tools', () => {
+  test('includes exactly the 12 read-only VibecodeMCP tools (MCP-1 CodeGraph + MCP-2 run/artifact) and no write/shell/git/terminal tools', () => {
     const result = buildCodexMcpConfig({
       repoRoot,
       scope: 'user',
       vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
     });
 
-    expect(result.enabled_tools).toHaveLength(7);
+    expect(result.enabled_tools).toHaveLength(12);
     expect(result.enabled_tools).toEqual([
+      // Phase MCP-1
       'vibecode_codegraph_status',
       'vibecode_codegraph_search',
       'vibecode_codegraph_context',
@@ -70,12 +71,20 @@ describe('Codex MCP config generation', () => {
       'vibecode_codegraph_callers',
       'vibecode_codegraph_callees',
       'vibecode_codegraph_impact',
+      // Phase MCP-2 (read-only run / artifact tools)
+      'vibecode_runs_list',
+      'vibecode_current_run',
+      'vibecode_run_get',
+      'vibecode_artifact_read',
+      'vibecode_codegraph_usage',
     ]);
     const joined = result.toml_snippet.toLowerCase();
-    expect(joined).not.toContain('write');
-    expect(joined).not.toContain('shell');
-    expect(joined).not.toContain('git_commit');
-    expect(joined).not.toContain('terminal');
+    // Tool names referencing destructive verbs must not appear.
+    expect(joined).not.toMatch(/\bshell\b/);
+    expect(joined).not.toMatch(/\bexec\b/);
+    expect(joined).not.toMatch(/\bgit_commit\b/);
+    expect(joined).not.toMatch(/\bterminal\b/);
+    expect(joined).not.toMatch(/(write|create|update|delete|put|post|set|edit|modify)/);
   });
 
   test('escapes Windows paths as TOML-safe forward-slash strings', () => {

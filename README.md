@@ -988,14 +988,20 @@ pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --log-level silent
 
 `--repo` is required and the resolved path is bound to the server for its lifetime. Tools never accept a `repo` argument. stdout is reserved for the MCP JSON-RPC stream; human/diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`) and per-call usage rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` as bounded, secret-free JSONL.
 
-Phase MCP-1 scope:
+Phase MCP-1 + MCP-2 scope:
 
 - transport: **stdio only**;
 - mode: **read-only**;
 - bound to a **single repo** at startup;
 - tools call existing core services in-process (no shell-out, no CLI text parsing).
 
-Tools exposed:
+MCP-capable agents should prefer these VibecodeMCP tools over shelling out to
+grep/find for repo navigation or opening `.vibecode/runs/...` files by hand.
+Agents without MCP support should fall back to the equivalent
+`vibecode codegraph ...` / `vibecode runs ...` CLI commands instead of calling
+upstream CodeGraph directly.
+
+CodeGraph tools (Phase MCP-1):
 
 ```text
 vibecode_codegraph_status
@@ -1006,6 +1012,29 @@ vibecode_codegraph_callers
 vibecode_codegraph_callees
 vibecode_codegraph_impact
 ```
+
+Run / artifact tools (Phase MCP-2 — read-only):
+
+```text
+vibecode_runs_list
+vibecode_current_run
+vibecode_run_get
+vibecode_artifact_read
+vibecode_codegraph_usage
+```
+
+`vibecode_artifact_read` accepts an allowlisted artifact name (`final_prompt`,
+`context_pack`, `flash_input`, `flash_output`, `task_intent` / `task-intent`,
+`codegraph` / `codegraph_usage`, `codegraph_context`, `codegraph_repo_atlas`,
+`selected_skills`, `send_metadata`, `user_prompt`, `run_manifest`) and supports
+`run_id: "latest"` / `"current"`. Reading arbitrary repo source files or paths
+outside the run directory is rejected with `ARTIFACT_NOT_ALLOWED`.
+
+Approval / permission settings remain controlled by the MCP client / agent
+(Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
+not add a permission profile, an allow/deny list, or any approval mutation. MCP-2
+adds no terminal write, no shell exec, no file write, no git commit, no
+arbitrary file read, and no agent-lane coordination tools.
 
 List them without starting the server:
 

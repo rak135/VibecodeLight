@@ -134,7 +134,7 @@ export function buildCodeGraphCallersTool(deps: CodeGraphSymbolToolDeps = {}): M
   return buildSymbolTool({
     name: 'vibecode_codegraph_callers',
     title: 'CodeGraph callers',
-    description: 'Return callers of an indexed symbol. Read-only. Symbol must be exactly as indexed.',
+    description: 'Return callers of an indexed symbol. Prefer this over grepping when tracing call graphs. Symbol must be exactly as indexed — use vibecode_codegraph_context or vibecode_codegraph_search first to find the canonical name. Read-only.',
     schema: SYMBOL_INPUT_SCHEMA,
     symbolKey: 'symbol',
     invoke: runCodeGraphCallers,
@@ -146,7 +146,7 @@ export function buildCodeGraphCalleesTool(deps: CodeGraphSymbolToolDeps = {}): M
   return buildSymbolTool({
     name: 'vibecode_codegraph_callees',
     title: 'CodeGraph callees',
-    description: 'Return callees of an indexed symbol. Read-only. Symbol must be exactly as indexed.',
+    description: 'Return callees of an indexed symbol. Prefer this over grepping when tracing call graphs. Symbol must be exactly as indexed — find it via vibecode_codegraph_context or vibecode_codegraph_search first. Read-only.',
     schema: SYMBOL_INPUT_SCHEMA,
     symbolKey: 'symbol',
     invoke: runCodeGraphCallees,
@@ -158,7 +158,7 @@ export function buildCodeGraphImpactTool(deps: CodeGraphSymbolToolDeps = {}): Mc
   return buildSymbolTool({
     name: 'vibecode_codegraph_impact',
     title: 'CodeGraph impact',
-    description: 'Traverse impact for a symbol or path. Read-only. `limit` maps to upstream --depth.',
+    description: 'Traverse change-impact for a symbol or path against the existing CodeGraph index. Prefer this over manual reasoning when estimating blast radius. `limit` maps to upstream --depth. Read-only.',
     schema: IMPACT_INPUT_SCHEMA,
     symbolKey: 'input',
     invoke: runCodeGraphImpact,

@@ -19,6 +19,7 @@ export const CLAUDE_FORBIDDEN_CONFIG_KEYS = [
 ] as const;
 
 export const CLAUDE_MCP_EXPECTED_TOOLS = [
+  // Phase MCP-1: read-only CodeGraph tools.
   'vibecode_codegraph_status',
   'vibecode_codegraph_search',
   'vibecode_codegraph_context',
@@ -26,6 +27,12 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_codegraph_callers',
   'vibecode_codegraph_callees',
   'vibecode_codegraph_impact',
+  // Phase MCP-2: read-only run / artifact tools.
+  'vibecode_runs_list',
+  'vibecode_current_run',
+  'vibecode_run_get',
+  'vibecode_artifact_read',
+  'vibecode_codegraph_usage',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

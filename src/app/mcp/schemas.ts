@@ -89,6 +89,55 @@ export const IMPACT_INPUT_SCHEMA: JsonSchema = {
   required: ['input'],
 };
 
+// ---------------------------------------------------------------------------
+// Phase MCP-2: run / artifact input schemas
+// ---------------------------------------------------------------------------
+
+export const RUNS_LIST_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    limit: { ...POSITIVE_INT, description: 'Cap on number of runs to return (newest first).' },
+  },
+};
+
+export const CURRENT_RUN_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {},
+};
+
+export const RUN_GET_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    run_id: { type: 'string', description: 'Run id, or one of the aliases "latest"/"current".' },
+  },
+  required: ['run_id'],
+};
+
+export const ARTIFACT_READ_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    run_id: { type: 'string', description: 'Run id, or one of the aliases "latest"/"current".' },
+    artifact: {
+      type: 'string',
+      description: 'Allowlisted artifact name (e.g. final_prompt, context_pack, flash_output, codegraph, task-intent).',
+    },
+    max_bytes: { ...POSITIVE_INT, description: 'Cap on bytes of UTF-8 content returned.' },
+  },
+  required: ['run_id', 'artifact'],
+};
+
+export const CODEGRAPH_USAGE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    run_id: { type: 'string', description: 'Run id, or one of the aliases "latest"/"current". Defaults to latest.' },
+  },
+};
+
 /** Helper for tool handlers: verify a positive integer or return undefined. */
 export function validatePositiveInteger(
   value: unknown,

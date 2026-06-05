@@ -40,13 +40,19 @@ describe('VibecodeMCP stdio server smoke (over in-memory transport)', () => {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  test('server connects, initialize completes, and tools/list returns the canonical 7 tools', async () => {
+  test('server connects, initialize completes, and tools/list returns the canonical 12 tools', async () => {
     const { handle, client } = await connectClient(repoRoot);
     try {
       const listed = await client.listTools();
       const names = (listed.tools ?? []).map((t) => t.name);
       expect(names.sort()).toEqual([...VIBECODE_MCP_TOOL_NAMES].sort());
-      expect(names.length).toBe(7);
+      expect(names.length).toBe(12);
+      // Phase MCP-2 additions visible alongside Phase MCP-1.
+      expect(names).toContain('vibecode_runs_list');
+      expect(names).toContain('vibecode_current_run');
+      expect(names).toContain('vibecode_run_get');
+      expect(names).toContain('vibecode_artifact_read');
+      expect(names).toContain('vibecode_codegraph_usage');
     } finally {
       await client.close();
       await handle.close();
@@ -58,7 +64,7 @@ describe('VibecodeMCP stdio server smoke (over in-memory transport)', () => {
     try {
       const listed = await client.listTools();
       const tools = listed.tools ?? [];
-      expect(tools.length).toBe(7);
+      expect(tools.length).toBe(12);
       for (const tool of tools) {
         const schema = tool.inputSchema as { type?: string; additionalProperties?: boolean };
         expect(schema.type).toBe('object');

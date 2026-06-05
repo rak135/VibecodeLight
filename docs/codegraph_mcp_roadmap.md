@@ -6,7 +6,30 @@ Current implemented behavior lives in `docs/codegraph.md`.
 
 Everything below is roadmap / not implemented yet unless `docs/codegraph.md` says otherwise.
 
-## Current MCP status (Phase 1A + 1B + MCP-1 — implemented)
+## Current MCP status (Phase 1A + 1B + MCP-1 + MCP-2 — implemented)
+
+Phase MCP-2 (Vibecode-owned read-only run / artifact tools) is now implemented
+on top of MCP-1:
+
+- Five additional tools are exposed by the same `vibecode mcp serve` process:
+  `vibecode_runs_list`, `vibecode_current_run`, `vibecode_run_get`,
+  `vibecode_artifact_read`, `vibecode_codegraph_usage`.
+- Handlers call the existing in-process services from MCP-0
+  (`listRuns`, `getRunInfo`, `resolveRunDir`, `readRunArtifactText`); no
+  shell-out, no CLI text parsing.
+- `vibecode_artifact_read` reuses the shared MCP-0 allowlist and applies the
+  CLI-style aliases (`final_prompt`, `context_pack`, `flash_input`,
+  `flash_output`, `task_intent` / `task-intent`, `codegraph` / `codegraph_usage`,
+  `codegraph_context`, `codegraph_repo_atlas`, `selected_skills`,
+  `send_metadata`, `user_prompt`, `run_manifest`). Path traversal and source
+  repo file reads are rejected with `ARTIFACT_NOT_ALLOWED`.
+- Run-id arguments accept the aliases `latest` and `current` and are routed
+  through `resolveRunDir` for path-safety.
+- No write tools. No shell exec. No terminal write. No git mutation. No
+  arbitrary file reads. No agent-lane coordination.
+- Approvals / permission settings remain owned by the MCP client / agent
+  (Codex `/mcp`, Claude managed approvals UI). Vibecode does not install a
+  permission profile, allow/deny list, or any approval mutation.
 
 Phase MCP-1 (Vibecode-owned stdio MCP server) is now implemented as well:
 
