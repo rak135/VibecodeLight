@@ -537,7 +537,7 @@ Per-call usage is recorded as bounded, secret-free JSONL at `<repo>/.vibecode/lo
 Anti-scope for MCP-1:
 
 - HTTP transport, multi-repo workspaces (future phase);
-- non-Codex agent config installers (Codex is managed by `vibecode mcp config|install|doctor --agent codex`);
+- broad auto-write to external agent configs;
 - terminal write / shell exec / file write / git commit tools;
 - arbitrary file or repo path arguments on tools;
 - upstream CodeGraph maintenance (`init`/`sync`/`index`/`watch`) — explicit CLI/Desktop actions only.
@@ -564,6 +564,12 @@ The following are not part of the current implementation:
 Codex is the first managed MCP client. `vibecode mcp config --agent codex --repo <path> --print` prints the TOML block for `[mcp_servers.vibecode]`; `--json` returns the same data in a stable envelope. `vibecode mcp install --agent codex --repo <path> --dry-run` previews the change without writing, and `--yes` creates or updates only `[mcp_servers.vibecode]` in Codex `config.toml`, preserving unrelated settings and backing up existing config first. `vibecode mcp doctor --agent codex --repo <path>` checks the installed block and the expected read-only tool list.
 
 Default scope is user config (`$CODEX_HOME/config.toml`, or `~/.codex/config.toml` when `CODEX_HOME` is unset). `--scope project` targets `<repo>/.codex/config.toml` and warns that Codex must trust the project before loading project config. Codex must be restarted or reloaded after install; use `/mcp` inside the Codex TUI to verify the active server.
+
+### Claude Code MCP install
+
+Claude Code is a managed MCP client for VibecodeMCP. `vibecode mcp config --agent claude --repo <path> --print` prints the JSON stdio server config and the equivalent `claude mcp add-json vibecode <server-json> --scope <scope>` command. `--json` returns a stable envelope with `server_config`, `claude_command`, `claude_args`, and warnings. `vibecode mcp install --agent claude --repo <path> --dry-run` previews the command without calling Claude, and `--yes` runs the Claude CLI from the repo root using argv execution, not shell string concatenation. `vibecode mcp doctor --agent claude --repo <path>` checks `claude --version`, `claude mcp list`, `claude mcp get vibecode`, and the expected read-only VibecodeMCP tool list.
+
+Claude support uses Claude Code MCP config through `claude mcp add-json`. Default scope is `local`, which is private to the user/project. `--scope user` is global across projects while still binding the server to the provided repo path. `--scope project` writes project-shared MCP config and may trigger Claude project-server approval/trust behavior for `.mcp.json`. Vibecode does not manage Claude MCP approvals or approval/permission settings; Claude Code and user settings own that behavior. The installer does not mutate `.claude/settings.json`, allowedTools/deniedTools, hooks, or permission profiles, and it adds no write/shell/git/terminal tools.
 
 If you see those ideas elsewhere, treat them as roadmap material, not current supported behavior.
 

@@ -112,7 +112,7 @@ describe('vibecode mcp config/install/doctor for Codex', () => {
   });
 
   test('invalid agent and invalid scope fail cleanly', async () => {
-    const badAgent = await runCli(['mcp', 'config', '--agent', 'claude', '--repo', repoRoot, '--json']);
+    const badAgent = await runCli(['mcp', 'config', '--agent', 'cursor', '--repo', repoRoot, '--json']);
     expect(JSON.parse(badAgent.logs[0]).error.code).toBe('INVALID_AGENT');
     expect(badAgent.exitCode).toBe(1);
 

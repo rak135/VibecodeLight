@@ -333,6 +333,11 @@ vibecode mcp config --agent codex --repo <path> --json
 vibecode mcp install --agent codex --repo <path> --dry-run
 vibecode mcp install --agent codex --repo <path> --yes
 vibecode mcp doctor --agent codex --repo <path>
+vibecode mcp config --agent claude --repo <path> --print
+vibecode mcp config --agent claude --repo <path> --json
+vibecode mcp install --agent claude --repo <path> --dry-run
+vibecode mcp install --agent claude --repo <path> --yes
+vibecode mcp doctor --agent claude --repo <path>
 ```
 
 `vibecode mcp serve` starts a repo-bound stdio MCP server exposing the
@@ -345,6 +350,12 @@ Both call the same Vibecode core services.
 `[mcp_servers.vibecode]` configuration. It preserves unrelated Codex settings,
 does not write secrets, backs up existing config before writes, and reports
 that Codex must be restarted or reloaded after installation.
+
+`vibecode mcp config|install|doctor --agent claude` uses the Claude Code CLI
+(`claude mcp add-json`) to register only the repo-bound VibecodeMCP stdio
+server. Default Claude scope is `local`; `--scope user|project` is explicit.
+Vibecode does not manage Claude approvals or permissions and does not mutate
+Claude settings, allowedTools/deniedTools, hooks, or permission profiles.
 
 ## Debug/internal CLI
 

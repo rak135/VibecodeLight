@@ -1034,13 +1034,35 @@ updates only `[mcp_servers.vibecode]`, creates a backup before writing an
 existing config, and never writes secrets. Restart or reload Codex after
 install; inside the Codex TUI, use `/mcp` to inspect the active server.
 
+Install VibecodeMCP for Claude Code without manually editing Claude config:
+
+```powershell
+pnpm vibecode mcp config --agent claude --repo C:\DATA\PROJECTS\YourRepo --print
+pnpm vibecode mcp config --agent claude --repo C:\DATA\PROJECTS\YourRepo --json
+pnpm vibecode mcp install --agent claude --repo C:\DATA\PROJECTS\YourRepo --dry-run --json
+pnpm vibecode mcp install --agent claude --repo C:\DATA\PROJECTS\YourRepo --yes --scope local --json
+pnpm vibecode mcp doctor --agent claude --repo C:\DATA\PROJECTS\YourRepo --json
+```
+
+Claude support uses Claude Code MCP config through `claude mcp add-json`.
+The default scope is local, which keeps the repo-bound VibecodeMCP server
+private to this user/project. `--scope user` makes the same repo-bound server
+available across projects; `--scope project` writes project-shared MCP config
+and may trigger Claude project-server approval/trust behavior for `.mcp.json`.
+Vibecode does not manage Claude MCP approvals. Claude Code applies its own
+approval/permission settings, and the installer does not edit
+`.claude/settings.json`, allowedTools/deniedTools, hooks, or Claude permission
+profiles.
+
 Anti-scope for MCP-1 (intentionally **not** exposed):
 
 - HTTP transport, multi-repo workspace registry;
-- non-Codex agent config installers or broad auto-write;
+- broad auto-write to external agent configs;
 - terminal write / shell exec / file write / git commit tools;
 - arbitrary file read; arbitrary repo path arguments on tools;
 - upstream CodeGraph maintenance (`init`/`sync`/`index`/`watch`) — those remain explicit CLI/Desktop actions.
+
+The installer adds no write/shell/git/terminal tools.
 
 Agents with MCP support use VibecodeMCP tools. Agents without MCP support use the equivalent `vibecode codegraph ...` CLI commands above. Both paths call the same Vibecode core/adapters.
 
