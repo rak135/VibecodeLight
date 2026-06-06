@@ -67,6 +67,10 @@ const WORKSPACE_ORIENTATION_TOOL_NAMES = Object.freeze([
 
 const COORDINATION_TOOL_NAMES = Object.freeze([
   'vibecode_coordination_status',
+  'vibecode_agent_register',
+  'vibecode_agent_heartbeat',
+  'vibecode_agents_list',
+  'vibecode_agent_status',
 ]);
 
 export interface WorkspaceInfoToolDeps {

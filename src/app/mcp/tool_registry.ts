@@ -1,3 +1,9 @@
+import {
+  buildAgentRegisterTool,
+  buildAgentHeartbeatTool,
+  buildAgentsListTool,
+  buildAgentStatusTool,
+} from './tools/agents.js';
 import { buildArtifactReadTool } from './tools/artifact_read.js';
 import { buildArtifactsListTool } from './tools/artifacts_list.js';
 import { buildCodeGraphContextTool } from './tools/codegraph_context.js';
@@ -98,6 +104,11 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildArtifactsListTool(),
     // Phase Coordination-1: read-only multi-agent coordination status.
     buildCoordinationStatusTool(),
+    // Phase Coordination-2: persistent agent session registry + heartbeat.
+    buildAgentRegisterTool(),
+    buildAgentHeartbeatTool(),
+    buildAgentsListTool(),
+    buildAgentStatusTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -130,4 +141,9 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_artifacts_list',
   // Phase Coordination-1
   'vibecode_coordination_status',
+  // Phase Coordination-2
+  'vibecode_agent_register',
+  'vibecode_agent_heartbeat',
+  'vibecode_agents_list',
+  'vibecode_agent_status',
 ]);

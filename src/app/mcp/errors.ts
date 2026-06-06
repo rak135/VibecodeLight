@@ -39,7 +39,13 @@ export type McpErrorCode =
   | 'PROJECT_INSTRUCTIONS_NOT_FOUND'
   | 'PROJECT_INSTRUCTIONS_READ_FAILED'
   // Phase Coordination-1: read-only coordination status tool.
-  | 'COORDINATION_STATUS_FAILED';
+  | 'COORDINATION_STATUS_FAILED'
+  // Phase Coordination-2: agent session tools.
+  | 'AGENT_NOT_FOUND'
+  | 'AGENT_REGISTER_FAILED'
+  | 'AGENT_HEARTBEAT_FAILED'
+  | 'AGENTS_LIST_FAILED'
+  | 'AGENT_STATUS_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -143,6 +149,28 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'Coordination status is read-only and degrades to an empty state on a missing file. Retry only if the failure is transient (e.g. a filesystem error).',
+  },
+  AGENT_NOT_FOUND: {
+    retryable: false,
+    suggestion:
+      'Call vibecode_agents_list to enumerate registered agent ids, or register the agent first with vibecode_agent_register.',
+  },
+  AGENT_REGISTER_FAILED: {
+    retryable: true,
+    suggestion:
+      'Verify the name and type arguments, then retry. type must be one of claude|codex|hermes|opencode|custom.',
+  },
+  AGENT_HEARTBEAT_FAILED: {
+    retryable: true,
+    suggestion: 'Verify the agent_id exists (vibecode_agents_list) and retry if the failure is transient.',
+  },
+  AGENTS_LIST_FAILED: {
+    retryable: true,
+    suggestion: 'Listing is read-only and degrades to an empty list on a missing file. Retry only if transient.',
+  },
+  AGENT_STATUS_FAILED: {
+    retryable: true,
+    suggestion: 'Verify the agent_id exists (vibecode_agents_list) and retry if the failure is transient.',
   },
 };
 

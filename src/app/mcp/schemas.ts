@@ -15,6 +15,8 @@
  *   - numeric bound options are positive integers only.
  */
 
+import { AGENT_TYPES } from '../../core/coordination/types.js';
+
 export interface JsonSchema {
   type?: string;
   properties?: Record<string, JsonSchema>;
@@ -22,6 +24,7 @@ export interface JsonSchema {
   additionalProperties?: boolean;
   minimum?: number;
   description?: string;
+  enum?: readonly string[];
 }
 
 const POSITIVE_INT: JsonSchema = {
@@ -191,6 +194,50 @@ export const ARTIFACTS_LIST_INPUT_SCHEMA: JsonSchema = {
       description: 'Run id, or one of the aliases "latest"/"current". Defaults to latest.',
     },
   },
+};
+
+// ---------------------------------------------------------------------------
+// Phase Coordination-2: agent session input schemas
+// ---------------------------------------------------------------------------
+
+export const AGENT_REGISTER_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string', description: 'Human-friendly agent name (duplicates allowed).' },
+    type: {
+      type: 'string',
+      enum: [...AGENT_TYPES],
+      description: 'Agent type: claude | codex | hermes | opencode | custom.',
+    },
+    terminal_session_id: { type: 'string', description: 'Owning terminal session id, if any.' },
+    pid: { ...POSITIVE_INT, description: 'OS process id, if known (positive integer).' },
+  },
+  required: ['name', 'type'],
+};
+
+export const AGENT_HEARTBEAT_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Id of an already-registered agent.' },
+  },
+  required: ['agent_id'],
+};
+
+export const AGENTS_LIST_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {},
+};
+
+export const AGENT_STATUS_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Id of an already-registered agent.' },
+  },
+  required: ['agent_id'],
 };
 
 /** Helper for tool handlers: verify a positive integer or return undefined. */

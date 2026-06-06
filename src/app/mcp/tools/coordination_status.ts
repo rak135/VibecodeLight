@@ -24,6 +24,9 @@ function renderText(result: CoordinationStatusResult): string {
   lines.push(
     `agents=${result.summary.agents} claims=${result.summary.claims} conflicts=${result.summary.conflicts} handoffs=${result.summary.handoffs}`,
   );
+  for (const agent of result.agents) {
+    lines.push(`  - ${agent.agent_id} ${agent.agent_name} (${agent.agent_type}) status=${agent.status}`);
+  }
   lines.push('');
   lines.push('Advisory coordination model — no source files are locked.');
   return lines.join('\n');
@@ -81,6 +84,7 @@ export function buildCoordinationStatusTool(): McpToolDefinition {
         version: result.version,
         last_updated: result.last_updated,
         summary: result.summary,
+        agents: result.agents,
       };
 
       return formatSimpleSuccess({

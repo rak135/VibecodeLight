@@ -1,5 +1,6 @@
 import { getCoordinationPaths, loadCoordinationState } from './state.js';
-import type { WorkspaceCoordinationState } from './types.js';
+import { HEARTBEAT_TTL_MS, computeAgentStatus } from './heartbeat.js';
+import type { AgentSession, WorkspaceCoordinationState } from './types.js';
 import fs from 'fs';
 
 /**
@@ -33,7 +34,9 @@ export interface CoordinationStatusResult {
   last_updated: string;
   /** Per-collection counts. */
   summary: CoordinationStatusSummary;
-  /** The full (Phase 1: empty) coordination state. */
+  /** Registered agents, each with its computed (stale-aware) status. */
+  agents: AgentSession[];
+  /** The full coordination state (stored statuses, not stale-overlaid). */
   state: WorkspaceCoordinationState;
 }
 
@@ -45,9 +48,15 @@ export function getCoordinationStatus(
   repoRoot: string,
   options: { now?: string } = {},
 ): CoordinationStatusResult {
+  const now = options.now ?? new Date().toISOString();
   const { stateFile } = getCoordinationPaths(repoRoot);
   const stateFileExists = fs.existsSync(stateFile);
-  const state = loadCoordinationState(repoRoot, options);
+  const state = loadCoordinationState(repoRoot, { now });
+  const nowMs = Date.parse(now);
+  const agents = state.agents.map((agent) => ({
+    ...agent,
+    status: computeAgentStatus(agent, nowMs, HEARTBEAT_TTL_MS),
+  }));
   return {
     workspace_root: repoRoot,
     state_file: stateFile,
@@ -60,6 +69,7 @@ export function getCoordinationStatus(
       conflicts: state.conflicts.length,
       handoffs: state.handoffs.length,
     },
+    agents,
     state,
   };
 }

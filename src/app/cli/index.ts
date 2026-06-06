@@ -46,6 +46,7 @@ import type { PromptPipelineResult } from '../../core/prompting/index.js';
 import { runTerminalDemo } from '../../core/terminal/index.js';
 import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
 import { registerAgentGuidanceCommands } from './commands/agent_guidance.js';
+import { registerAgentsCommands } from './commands/agents.js';
 import { registerCodeGraphCommands } from './commands/codegraph.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerCoordinationCommands } from './commands/coordination.js';
@@ -282,6 +283,7 @@ export function createCli(): Command {
 
   registerConfigCommands(program);
   registerCoordinationCommands(program, { makeCliStructuredError, emitCliStructuredError });
+  registerAgentsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentGuidanceCommands(program, { makeCliStructuredError, emitCliStructuredError });
 
   program

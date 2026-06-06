@@ -91,7 +91,7 @@ describe('VibecodeMCP tool registry guidance metadata', () => {
     try {
       writeGuidance(f.env, 'schema_version: 1\ndefault_guidance: "short"\n');
       const tools = buildVibecodeMcpTools({ agentGuidanceEnv: f.env });
-      expect(tools).toHaveLength(18);
+      expect(tools).toHaveLength(22);
       for (const tool of tools) {
         expect(tool.inputSchema.type).toBe('object');
         expect(tool.inputSchema.additionalProperties).toBe(false);
@@ -104,6 +104,6 @@ describe('VibecodeMCP tool registry guidance metadata', () => {
   test('Settings MCP inventory stays in parity with the canonical registry', () => {
     const settingsNames = buildAgentGuidanceMcpTools().map((tool) => tool.name).sort();
     expect(settingsNames).toEqual([...VIBECODE_MCP_TOOL_NAMES].sort());
-    expect(settingsNames).toHaveLength(18);
+    expect(settingsNames).toHaveLength(22);
   });
 });

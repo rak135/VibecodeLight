@@ -59,6 +59,7 @@ export function registerCoordinationCommands(
         version: result.version,
         last_updated: result.last_updated,
         summary: result.summary,
+        agents: result.agents,
       };
 
       if (options.json) {

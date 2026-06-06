@@ -1081,8 +1081,33 @@ yet, and counts of agents/claims/conflicts/handoffs. Coordination is
 lives under `.vibecode/coordination/state.json` (git-ignored, never scanned as
 source). It is read-only and never writes state. The equivalent CLI command is
 `vibecode coordination status --repo <path> --json`; both call the same shared
-core service. Later phases add agent sessions, claims, a file watcher, a
-finalize guard, a commit guard, and the desktop UI panel.
+core service. `vibecode_coordination_status` now also lists the registered
+agent sessions (see Coordination-2 below). Later phases add claims, a file
+watcher, a finalize guard, a commit guard, and the desktop UI panel.
+
+Agent session tools (Phase Coordination-2 — persistent agent registry +
+heartbeat):
+
+```text
+vibecode_agent_register
+vibecode_agent_heartbeat
+vibecode_agents_list
+vibecode_agent_status
+```
+
+These manage a persistent agent session registry for the bound repo.
+`vibecode_agent_register` creates an `active` session; `vibecode_agent_heartbeat`
+refreshes a session's heartbeat (reviving a stale/idle session to active);
+`vibecode_agents_list` and `vibecode_agent_status` are read-only and report each
+session with its computed status. A session is marked `stale` (computed-only at
+read time) once its heartbeat is older than the 5-minute TTL. register and
+heartbeat write **only** the advisory generated state at
+`.vibecode/coordination/state.json` — never source files, the shell, git, or the
+terminal — and no source files are hard-locked. The equivalent CLI commands are
+`vibecode agents register|list|heartbeat|status|terminate --repo <path> --json`;
+both surfaces call the same shared core service. Coordination-2 does **not**
+implement claims, conflict detection, a file watcher, or any commit/finalize
+guard.
 
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does

@@ -43,6 +43,13 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_artifacts_list',
   // Phase Coordination-1: read-only multi-agent coordination status.
   'vibecode_coordination_status',
+  // Phase Coordination-2: persistent agent session registry + heartbeat.
+  // These write ONLY advisory generated state (.vibecode/coordination/state.json);
+  // they never touch source files, the shell, git, or the terminal.
+  'vibecode_agent_register',
+  'vibecode_agent_heartbeat',
+  'vibecode_agents_list',
+  'vibecode_agent_status',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

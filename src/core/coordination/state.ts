@@ -4,6 +4,7 @@ import path from 'path';
 import { getWorkspacePaths } from '../workspace/paths.js';
 import {
   COORDINATION_STATE_VERSION,
+  type AgentSession,
   type WorkspaceCoordinationState,
 } from './types.js';
 
@@ -64,7 +65,9 @@ function normalize(
     version: typeof raw.version === 'number' ? raw.version : COORDINATION_STATE_VERSION,
     workspace_root: typeof raw.workspace_root === 'string' ? raw.workspace_root : workspaceRoot,
     last_updated: typeof raw.last_updated === 'string' ? raw.last_updated : fallbackNow,
-    agents: asArray(raw.agents),
+    // Generated state is trusted: agents are preserved verbatim (no element
+    // schema is enforced here) so existing sessions survive a round-trip.
+    agents: asArray(raw.agents) as readonly AgentSession[],
     claims: asArray(raw.claims),
     conflicts: asArray(raw.conflicts),
     handoffs: asArray(raw.handoffs),
@@ -124,4 +127,21 @@ export function initializeCoordinationState(
   fs.mkdirSync(paths.dir, { recursive: true });
   fs.writeFileSync(paths.stateFile, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
   return { stateFile: paths.stateFile, created: true, state };
+}
+
+/**
+ * Persist a full coordination state document. This is the ONLY mutation seam
+ * used by the Phase 2 agent services: it writes the single `state.json` under
+ * `.vibecode/coordination/` and nothing else. No source files, no lock files,
+ * and never `.vibecode/coordination/config.json`. Callers are responsible for
+ * bumping `last_updated` before writing.
+ */
+export function writeCoordinationState(
+  repoRoot: string,
+  state: WorkspaceCoordinationState,
+): string {
+  const paths = getCoordinationPaths(repoRoot);
+  fs.mkdirSync(paths.dir, { recursive: true });
+  fs.writeFileSync(paths.stateFile, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  return paths.stateFile;
 }

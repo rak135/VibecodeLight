@@ -34,6 +34,10 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
   ]),
   coordination: Object.freeze([
     'vibecode_coordination_status',
+    'vibecode_agent_register',
+    'vibecode_agent_heartbeat',
+    'vibecode_agents_list',
+    'vibecode_agent_status',
   ]),
 });
 
@@ -56,6 +60,10 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_artifact_read: 'Read one allowlisted Vibecode run artifact (final_prompt, context_pack, …).',
   vibecode_codegraph_usage: 'Return structured CodeGraph usage for a Vibecode run.',
   vibecode_coordination_status: 'Read-only multi-agent coordination status (advisory; no source-file locks).',
+  vibecode_agent_register: 'Register a persistent agent session (advisory; writes only generated coordination state).',
+  vibecode_agent_heartbeat: 'Record a heartbeat for a registered agent, reviving a stale/idle session to active.',
+  vibecode_agents_list: 'List registered agent sessions with their computed (stale-aware) status.',
+  vibecode_agent_status: 'Return one registered agent session by id with its computed status.',
 });
 
 /**
