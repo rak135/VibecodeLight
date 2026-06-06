@@ -1,0 +1,84 @@
+import fs from 'fs';
+import path from 'path';
+
+import { describe, expect, test } from 'vitest';
+
+const repoRoot = path.resolve(__dirname, '../..');
+const coordinationRoot = path.join(repoRoot, 'src', 'core', 'coordination');
+const claimsAdapters = [
+  path.join(repoRoot, 'src', 'app', 'cli', 'commands', 'claims.ts'),
+  path.join(repoRoot, 'src', 'app', 'mcp', 'tools', 'claims.ts'),
+];
+
+function collectFiles(dir: string, extension = '.ts'): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...collectFiles(fullPath, extension));
+    else if (entry.isFile() && fullPath.endsWith(extension)) files.push(fullPath);
+  }
+  return files;
+}
+
+function read(filePath: string): string {
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function repoPath(filePath: string): string {
+  return path.relative(repoRoot, filePath).replace(/\\/g, '/');
+}
+
+describe('Coordination Phase 3A scope boundary', () => {
+  test('coordination core does not introduce watchers, guards, hard locks, or source-file permission controls', () => {
+    const files = collectFiles(coordinationRoot);
+    expect(files.length).toBeGreaterThan(0);
+
+    const forbidden: Array<{ label: string; regex: RegExp }> = [
+      { label: 'fs.watch', regex: /\bfs\.watch\s*\(/ },
+      { label: 'watchFile', regex: /\bwatchFile\s*\(/ },
+      { label: 'chokidar', regex: /\bchokidar\b/ },
+      { label: 'commit guard', regex: /\bcommit[A-Za-z]*Guard\b|\bguard[A-Za-z]*Commit\b/ },
+      { label: 'finalize guard', regex: /\bfinalize[A-Za-z]*Guard\b|\bguard[A-Za-z]*Finalize\b/ },
+      { label: 'chmod', regex: /\bchmod(?:Sync)?\s*\(/ },
+      { label: 'ACL tooling', regex: /\bicacls\b|\btakeown\b/ },
+      { label: 'lock-file write', regex: /writeFileSync\([^)]*\.lock|`[^`]*\.lock`/ },
+      { label: 'coordination config write', regex: /writeFileSync\([^)]*coordination[^)]*config\.json/ },
+    ];
+
+    const violations: string[] = [];
+    for (const file of files) {
+      const source = read(file);
+      for (const rule of forbidden) {
+        if (rule.regex.test(source)) violations.push(`${repoPath(file)} :: ${rule.label}`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  test('Phase 3A claim adapters do not shell out or implement conflict/handoff workflows', () => {
+    const forbidden: Array<{ label: string; regex: RegExp }> = [
+      { label: "import 'child_process'", regex: /['"]node:child_process['"]|['"]child_process['"]/ },
+      { label: 'spawn/exec', regex: /\bspawn\s*\(|\bspawnSync\s*\(|\bexec\s*\(|\bexecFile\s*\(|\bexecSync\s*\(|\bexeca\s*\(/ },
+      { label: 'conflict record persistence', regex: /\bConflictRecord\b|conflicts:\s*\[[^\]]+claim/i },
+      { label: 'handoff workflow', regex: /\bHandoff\b|\bhandoff[A-Z_]/ },
+    ];
+
+    const violations: string[] = [];
+    for (const file of claimsAdapters) {
+      const source = read(file);
+      for (const rule of forbidden) {
+        if (rule.regex.test(source)) violations.push(`${repoPath(file)} :: ${rule.label}`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  test('Phase 3A does not add a desktop coordination or claims panel', () => {
+    const desktopFiles = collectFiles(path.join(repoRoot, 'src', 'app', 'desktop'));
+    const offenders = desktopFiles
+      .filter((file) => /\bcoordination\b|\bclaim(s)?\b/i.test(read(file)))
+      .map(repoPath);
+    expect(offenders).toEqual([]);
+  });
+});

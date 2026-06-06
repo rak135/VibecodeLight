@@ -9,7 +9,12 @@
 export type CoordinationErrorCode =
   | 'AGENT_NOT_FOUND'
   | 'INVALID_AGENT_TYPE'
-  | 'INVALID_AGENT_NAME';
+  | 'INVALID_AGENT_NAME'
+  | 'AGENT_NOT_ACTIVE'
+  | 'INVALID_CLAIM_PATH'
+  | 'INVALID_CLAIM_MODE'
+  | 'CLAIM_DENIED'
+  | 'CLAIM_NOT_FOUND';
 
 /** A structured, code-carrying error raised by coordination core services. */
 export class CoordinationError extends Error {

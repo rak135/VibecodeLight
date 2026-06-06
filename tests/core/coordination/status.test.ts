@@ -4,6 +4,8 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { registerAgent } from '../../../src/core/coordination/agents.js';
+import { addFileClaim } from '../../../src/core/coordination/claims.js';
 import { initializeCoordinationState, getCoordinationPaths } from '../../../src/core/coordination/state.js';
 import { getCoordinationStatus } from '../../../src/core/coordination/status.js';
 
@@ -40,5 +42,16 @@ describe('getCoordinationStatus (shared core service)', () => {
     expect(result.state_file_exists).toBe(true);
     expect(result.last_updated).toBe('2026-06-06T00:00:00.000Z');
     expect(result.summary).toEqual({ agents: 0, claims: 0, conflicts: 0, handoffs: 0 });
+  });
+
+  test('reports persisted advisory claim counts without mutating state', () => {
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'exclusive' });
+
+    const before = fs.readFileSync(getCoordinationPaths(repo.repoRoot).stateFile, 'utf8');
+    const result = getCoordinationStatus(repo.repoRoot);
+
+    expect(result.summary).toEqual({ agents: 1, claims: 1, conflicts: 0, handoffs: 0 });
+    expect(fs.readFileSync(getCoordinationPaths(repo.repoRoot).stateFile, 'utf8')).toBe(before);
   });
 });

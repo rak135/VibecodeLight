@@ -828,6 +828,9 @@ vibecode skills list
 vibecode skills project-list
 vibecode skills copy <skill-id>
 vibecode skills copy --all
+vibecode coordination status --repo <path> --json
+vibecode agents register|list|heartbeat|status|terminate --repo <path> --json
+vibecode claims add|list|status|release --repo <path> --json
 ```
 
 `skills list` and `skills project-list` accept `--json`. `skills copy` accepts `--force` to overwrite an existing destination and `--repo <path>` to target a specific repository.
@@ -1082,8 +1085,8 @@ lives under `.vibecode/coordination/state.json` (git-ignored, never scanned as
 source). It is read-only and never writes state. The equivalent CLI command is
 `vibecode coordination status --repo <path> --json`; both call the same shared
 core service. `vibecode_coordination_status` now also lists the registered
-agent sessions (see Coordination-2 below). Later phases add claims, a file
-watcher, a finalize guard, a commit guard, and the desktop UI panel.
+agent sessions (see Coordination-2 below). Later phases add a file watcher, a
+finalize guard, a commit guard, and the desktop UI panel.
 
 Agent session tools (Phase Coordination-2 — persistent agent registry +
 heartbeat):
@@ -1106,8 +1109,29 @@ heartbeat write **only** the advisory generated state at
 terminal — and no source files are hard-locked. The equivalent CLI commands are
 `vibecode agents register|list|heartbeat|status|terminate --repo <path> --json`;
 both surfaces call the same shared core service. Coordination-2 does **not**
-implement claims, conflict detection, a file watcher, or any commit/finalize
-guard.
+implement conflict detection, a file watcher, or any commit/finalize guard.
+
+Advisory file claim tools (Phase Coordination-3A):
+
+```text
+vibecode_claim_add
+vibecode_claims_list
+vibecode_claim_status
+vibecode_claim_release
+```
+
+These manage advisory file claims over one shared working tree. Claims persist
+only in `.vibecode/coordination/state.json`, normalize paths to repository-
+relative POSIX paths, and support `exclusive` and `shared` compatibility.
+`shared` claims can overlap other `shared` claims; any overlap involving an
+active `exclusive` claim is denied with a structured `CLAIM_DENIED` diagnostic.
+Missing, stale, or terminated agents cannot create claims, and claims owned by
+stale/terminated/missing agents do not create source-file locks. The equivalent
+CLI commands are `vibecode claims add|list|status|release --repo <path> --json`;
+both surfaces call the same shared TypeScript core service. Coordination-3A
+does **not** implement a file watcher, automatic conflict workflow, finalize or
+commit guard, handoff protocol, UI panel, prompt injection, or source-file hard
+locks.
 
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
@@ -1170,7 +1194,9 @@ Anti-scope for MCP-1 (intentionally **not** exposed):
 - arbitrary file read; arbitrary repo path arguments on tools;
 - upstream CodeGraph maintenance (`init`/`sync`/`index`/`watch`) — those remain explicit CLI/Desktop actions.
 
-The installer adds no write/shell/git/terminal tools.
+The installer adds no write/shell/git/terminal tools for source files or
+terminal/git mutation; Coordination-3A claim tools only mutate generated
+advisory state under `.vibecode/coordination/state.json`.
 
 Agents with MCP support use VibecodeMCP tools. Agents without MCP support use the equivalent `vibecode codegraph ...` CLI commands above. Both paths call the same Vibecode core/adapters.
 

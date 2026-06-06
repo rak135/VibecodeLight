@@ -15,8 +15,8 @@ import { isAgentType, type AgentSession, type AgentType } from './types.js';
  *     a missing state file yields an empty list.
  *   - `stale` is computed-only: persisted status is one of
  *     active/idle/terminated; `stale` is overlaid at read time.
- *   - `claims` stays an empty array — claim behavior is not implemented yet.
- *   - Mutations preserve the existing claims/conflicts/handoffs arrays.
+ *   - Mutations preserve existing claim/conflict/handoff state outside the
+ *     single agent session being changed.
  */
 
 /** Caller-supplied fields for a new agent session. */

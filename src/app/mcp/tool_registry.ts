@@ -4,6 +4,12 @@ import {
   buildAgentsListTool,
   buildAgentStatusTool,
 } from './tools/agents.js';
+import {
+  buildClaimAddTool,
+  buildClaimsListTool,
+  buildClaimStatusTool,
+  buildClaimReleaseTool,
+} from './tools/claims.js';
 import { buildArtifactReadTool } from './tools/artifact_read.js';
 import { buildArtifactsListTool } from './tools/artifacts_list.js';
 import { buildCodeGraphContextTool } from './tools/codegraph_context.js';
@@ -109,6 +115,11 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildAgentHeartbeatTool(),
     buildAgentsListTool(),
     buildAgentStatusTool(),
+    // Phase Coordination-3A: advisory file claims.
+    buildClaimAddTool(),
+    buildClaimsListTool(),
+    buildClaimStatusTool(),
+    buildClaimReleaseTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -146,4 +157,9 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_agent_heartbeat',
   'vibecode_agents_list',
   'vibecode_agent_status',
+  // Phase Coordination-3A
+  'vibecode_claim_add',
+  'vibecode_claims_list',
+  'vibecode_claim_status',
+  'vibecode_claim_release',
 ]);

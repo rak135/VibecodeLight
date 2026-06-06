@@ -94,11 +94,11 @@ describe('vibecode_workspace_info', () => {
       expect(data.repo_root).toBe(repoRoot);
       expect(data.mcp_server.name).toBe('vibecode-mcp');
       expect(typeof data.mcp_server.version).toBe('string');
-      expect(data.tools.total).toBe(22);
+      expect(data.tools.total).toBe(26);
       expect(data.tools.groups.codegraph.length).toBe(7);
       expect(data.tools.groups.runs_artifacts.length).toBe(5);
       expect(data.tools.groups.workspace_orientation.length).toBe(5);
-      expect(data.tools.groups.coordination.length).toBe(5);
+      expect(data.tools.groups.coordination.length).toBe(9);
       expect(data.codegraph.available).toBe(true);
       expect(data.codegraph.initialized).toBe(true);
       expect(data.codegraph.version).toBe('0.9.4');

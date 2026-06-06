@@ -7,11 +7,8 @@
  *   - the user (and later guards) remain the final authority.
  *
  * Phase 2 adds the {@link AgentSession} shape (persistent agent registry +
- * heartbeat). The remaining element shapes for claims, conflicts, and handoffs
- * (FileClaim, ConflictRecord, HandoffRequest — see
- * docs/MULTI_AGENT_CONFLICT_DESIGN.md) arrive in later phases; those arrays stay
- * empty and are typed as read-only `unknown[]` to avoid prematurely freezing
- * element schemas that future phases will define.
+ * heartbeat). Phase 3A adds {@link FileClaim}: advisory file claims persisted in
+ * the same generated state document. Conflicts/handoffs remain future phases.
  */
 
 /** Schema version for the generated coordination state document. */
@@ -33,10 +30,20 @@ export type AgentType = (typeof AGENT_TYPES)[number];
  */
 export type AgentStatus = 'active' | 'idle' | 'stale' | 'terminated' | 'unknown';
 
+/** Advisory claim compatibility mode. */
+export type ClaimMode = 'exclusive' | 'shared';
+
+/**
+ * Lifecycle status of an advisory file claim.
+ * `stale` and `unknown` are computed for read responses; persisted claims are
+ * normally `active` or `released`.
+ */
+export type ClaimStatus = 'active' | 'released' | 'stale' | 'unknown';
+
 /**
  * A persistent agent session, stored in the `agents` array of the workspace
- * coordination state. `claims` stays an empty array in Phase 2 — claim behavior
- * is intentionally not implemented yet.
+ * coordination state. `claims` stores active advisory claim ids owned by this
+ * agent.
  */
 export interface AgentSession {
   /** Stable, unique, filesystem/JSON-safe identifier. */
@@ -55,8 +62,28 @@ export interface AgentSession {
   status: AgentStatus;
   /** OS process id, when known. */
   pid: number | null;
-  /** Advisory file claims (Phase 2: always empty). */
+  /** Active advisory file claim ids owned by this agent. */
   claims: string[];
+  /** Free-form, caller-provided metadata. */
+  metadata: Record<string, unknown>;
+}
+
+/** Advisory claim over a repository-relative path. No source-file lock exists. */
+export interface FileClaim {
+  /** Stable, unique, filesystem/JSON-safe identifier. */
+  claim_id: string;
+  /** Owning registered agent id. */
+  agent_id: string;
+  /** Normalized repository-relative POSIX path. */
+  path: string;
+  /** Compatibility mode. */
+  mode: ClaimMode;
+  /** Stored or computed claim status. */
+  status: ClaimStatus;
+  /** ISO-8601 timestamp of claim creation. */
+  created_at: string;
+  /** ISO-8601 timestamp of release, when explicitly released. */
+  released_at: string | null;
   /** Free-form, caller-provided metadata. */
   metadata: Record<string, unknown>;
 }
@@ -66,9 +93,14 @@ export function isAgentType(value: unknown): value is AgentType {
   return typeof value === 'string' && (AGENT_TYPES as readonly string[]).includes(value);
 }
 
+/** Type guard: is `value` one of the recognized {@link ClaimMode}s? */
+export function isClaimMode(value: unknown): value is ClaimMode {
+  return value === 'exclusive' || value === 'shared';
+}
+
 /**
  * The whole-workspace coordination state, persisted as generated state at
- * `.vibecode/coordination/state.json`. Phase 1 keeps every collection empty.
+ * `.vibecode/coordination/state.json`.
  */
 export interface WorkspaceCoordinationState {
   /** Document schema version. */
@@ -79,8 +111,8 @@ export interface WorkspaceCoordinationState {
   last_updated: string;
   /** Registered agent sessions. */
   agents: readonly AgentSession[];
-  /** Advisory file claims (Phase 1: always empty). */
-  claims: readonly unknown[];
+  /** Advisory file claims. */
+  claims: readonly FileClaim[];
   /** Detected conflicts (Phase 1: always empty). */
   conflicts: readonly unknown[];
   /** Handoff requests (Phase 1: always empty). */

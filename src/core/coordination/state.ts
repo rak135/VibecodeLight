@@ -5,6 +5,7 @@ import { getWorkspacePaths } from '../workspace/paths.js';
 import {
   COORDINATION_STATE_VERSION,
   type AgentSession,
+  type FileClaim,
   type WorkspaceCoordinationState,
 } from './types.js';
 
@@ -68,7 +69,7 @@ function normalize(
     // Generated state is trusted: agents are preserved verbatim (no element
     // schema is enforced here) so existing sessions survive a round-trip.
     agents: asArray(raw.agents) as readonly AgentSession[],
-    claims: asArray(raw.claims),
+    claims: asArray(raw.claims) as readonly FileClaim[],
     conflicts: asArray(raw.conflicts),
     handoffs: asArray(raw.handoffs),
   };

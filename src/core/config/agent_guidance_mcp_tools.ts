@@ -38,6 +38,10 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_agent_heartbeat',
     'vibecode_agents_list',
     'vibecode_agent_status',
+    'vibecode_claim_add',
+    'vibecode_claims_list',
+    'vibecode_claim_status',
+    'vibecode_claim_release',
   ]),
 });
 
@@ -64,6 +68,10 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_agent_heartbeat: 'Record a heartbeat for a registered agent, reviving a stale/idle session to active.',
   vibecode_agents_list: 'List registered agent sessions with their computed (stale-aware) status.',
   vibecode_agent_status: 'Return one registered agent session by id with its computed status.',
+  vibecode_claim_add: 'Create an advisory file claim for an active registered agent.',
+  vibecode_claims_list: 'List advisory file claims with computed stale-aware status.',
+  vibecode_claim_status: 'Return advisory claim status for one repository-relative path.',
+  vibecode_claim_release: 'Release an advisory file claim.',
 });
 
 /**

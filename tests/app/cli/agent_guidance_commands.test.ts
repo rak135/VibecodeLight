@@ -82,7 +82,7 @@ describe('vibecode agent-guidance CLI commands', () => {
     expect(payload.agent).toBe('codex');
     expect(payload.guidance.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(payload.guidance.config_path).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
-    expect(payload.mcp.expected_tool_count).toBe(22);
+    expect(payload.mcp.expected_tool_count).toBe(26);
     expect(JSON.stringify(payload)).not.toMatch(/allowedTools|deniedTools|hooks|permission profile/i);
   });
 

@@ -88,14 +88,14 @@ describe('Codex MCP config generation', () => {
     }
   });
 
-  test('includes exactly the 22 VibecodeMCP tools (MCP-1 CodeGraph + MCP-2 run/artifact + MCP-3 workspace orientation + Coordination-1 status + Coordination-2 agent sessions) and no write/shell/git/terminal tools', () => {
+  test('includes exactly the 26 VibecodeMCP tools (MCP-1 CodeGraph + MCP-2 run/artifact + MCP-3 workspace orientation + Coordination tools) and no shell/git/terminal tools', () => {
     const result = buildCodexMcpConfig({
       repoRoot,
       scope: 'user',
       vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
     });
 
-    expect(result.enabled_tools).toHaveLength(22);
+    expect(result.enabled_tools).toHaveLength(26);
     expect(result.enabled_tools).toEqual([
       // Phase MCP-1
       'vibecode_codegraph_status',
@@ -124,6 +124,11 @@ describe('Codex MCP config generation', () => {
       'vibecode_agent_heartbeat',
       'vibecode_agents_list',
       'vibecode_agent_status',
+      // Phase Coordination-3A (advisory claims; generated-state writes only)
+      'vibecode_claim_add',
+      'vibecode_claims_list',
+      'vibecode_claim_status',
+      'vibecode_claim_release',
     ]);
     const joined = result.toml_snippet.toLowerCase();
     // Tool names referencing destructive verbs must not appear.
@@ -131,7 +136,7 @@ describe('Codex MCP config generation', () => {
     expect(joined).not.toMatch(/\bexec\b/);
     expect(joined).not.toMatch(/\bgit_commit\b/);
     expect(joined).not.toMatch(/\bterminal\b/);
-    expect(joined).not.toMatch(/(write|create|update|delete|put|post|set|edit|modify)/);
+    expect(joined).not.toMatch(/\b(write|create|update|delete|put|post|set|edit|modify)\b/);
   });
 
   test('escapes Windows paths as TOML-safe forward-slash strings', () => {

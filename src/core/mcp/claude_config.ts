@@ -50,6 +50,13 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_agent_heartbeat',
   'vibecode_agents_list',
   'vibecode_agent_status',
+  // Phase Coordination-3A: advisory file claims.
+  // These write ONLY advisory generated state (.vibecode/coordination/state.json);
+  // they never touch source files, the shell, git, or the terminal.
+  'vibecode_claim_add',
+  'vibecode_claims_list',
+  'vibecode_claim_status',
+  'vibecode_claim_release',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

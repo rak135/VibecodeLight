@@ -240,6 +240,52 @@ export const AGENT_STATUS_INPUT_SCHEMA: JsonSchema = {
   required: ['agent_id'],
 };
 
+// ---------------------------------------------------------------------------
+// Phase Coordination-3A: advisory file claim input schemas
+// ---------------------------------------------------------------------------
+
+export const CLAIM_ADD_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Id of an active registered agent.' },
+    path: { type: 'string', description: 'Repository-relative path to claim.' },
+    mode: {
+      type: 'string',
+      enum: ['exclusive', 'shared'],
+      description: 'Claim compatibility mode: exclusive | shared.',
+    },
+  },
+  required: ['agent_id', 'path'],
+};
+
+export const CLAIMS_LIST_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Optional agent id filter.' },
+    include_released: { type: 'boolean', description: 'Include explicitly released claims.' },
+  },
+};
+
+export const CLAIM_STATUS_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string', description: 'Repository-relative path to inspect.' },
+  },
+  required: ['path'],
+};
+
+export const CLAIM_RELEASE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    claim_id: { type: 'string', description: 'Id of an existing advisory claim.' },
+  },
+  required: ['claim_id'],
+};
+
 /** Helper for tool handlers: verify a positive integer or return undefined. */
 export function validatePositiveInteger(
   value: unknown,

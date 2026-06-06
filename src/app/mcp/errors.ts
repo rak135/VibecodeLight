@@ -45,7 +45,15 @@ export type McpErrorCode =
   | 'AGENT_REGISTER_FAILED'
   | 'AGENT_HEARTBEAT_FAILED'
   | 'AGENTS_LIST_FAILED'
-  | 'AGENT_STATUS_FAILED';
+  | 'AGENT_STATUS_FAILED'
+  // Phase Coordination-3A: advisory file claim tools.
+  | 'AGENT_NOT_ACTIVE'
+  | 'CLAIM_DENIED'
+  | 'CLAIM_NOT_FOUND'
+  | 'CLAIM_ADD_FAILED'
+  | 'CLAIMS_LIST_FAILED'
+  | 'CLAIM_STATUS_FAILED'
+  | 'CLAIM_RELEASE_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -171,6 +179,34 @@ const ERROR_DEFAULTS: Record<
   AGENT_STATUS_FAILED: {
     retryable: true,
     suggestion: 'Verify the agent_id exists (vibecode_agents_list) and retry if the failure is transient.',
+  },
+  AGENT_NOT_ACTIVE: {
+    retryable: false,
+    suggestion: 'Heartbeat or register an active agent before creating a claim.',
+  },
+  CLAIM_DENIED: {
+    retryable: false,
+    suggestion: 'Inspect overlapping claims, release an existing claim if appropriate, or retry with a shared claim when compatible.',
+  },
+  CLAIM_NOT_FOUND: {
+    retryable: false,
+    suggestion: 'Call vibecode_claims_list to enumerate active claim ids.',
+  },
+  CLAIM_ADD_FAILED: {
+    retryable: true,
+    suggestion: 'Verify agent_id, path, and mode, then retry if the failure is transient.',
+  },
+  CLAIMS_LIST_FAILED: {
+    retryable: true,
+    suggestion: 'Listing is read-only and degrades to an empty list on a missing file. Retry only if transient.',
+  },
+  CLAIM_STATUS_FAILED: {
+    retryable: true,
+    suggestion: 'Verify the path argument is repository-relative and retry if the failure is transient.',
+  },
+  CLAIM_RELEASE_FAILED: {
+    retryable: true,
+    suggestion: 'Verify the claim_id exists and retry if the failure is transient.',
   },
 };
 
