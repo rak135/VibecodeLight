@@ -1,12 +1,17 @@
 import { buildArtifactReadTool } from './tools/artifact_read.js';
+import { buildArtifactsListTool } from './tools/artifacts_list.js';
 import { buildCodeGraphContextTool } from './tools/codegraph_context.js';
 import { buildCodeGraphFilesTool } from './tools/codegraph_files.js';
 import { buildCodeGraphSearchTool } from './tools/codegraph_search.js';
 import { buildCodeGraphStatusTool } from './tools/codegraph_status.js';
 import { buildCodeGraphUsageTool } from './tools/codegraph_usage.js';
 import { buildCurrentRunTool } from './tools/current_run.js';
+import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
+import { buildProjectInstructionsTool } from './tools/project_instructions.js';
 import { buildRunGetTool } from './tools/run_get.js';
 import { buildRunsListTool } from './tools/runs_list.js';
+import { buildWorkspaceInfoTool } from './tools/workspace_info.js';
+import { buildWorkspaceStatusTool } from './tools/workspace_status.js';
 import {
   buildCodeGraphCallersTool,
   buildCodeGraphCalleesTool,
@@ -45,9 +50,10 @@ export interface McpToolDefinition {
 }
 
 /**
- * Build the canonical tool set: seven read-only CodeGraph tools (Phase MCP-1)
- * plus five read-only run/artifact tools (Phase MCP-2). The order here is the
- * order returned in `tools/list`.
+ * Build the canonical tool set: seven read-only CodeGraph tools (Phase MCP-1),
+ * five read-only run/artifact tools (Phase MCP-2), and five read-only
+ * workspace orientation tools (Phase MCP-3). The order here is the order
+ * returned in `tools/list`.
  *
  * MCP-capable agents should prefer these VibecodeMCP tools over shelling out
  * to grep/find or opening .vibecode files by hand. Agents without MCP support
@@ -69,10 +75,16 @@ export function buildVibecodeMcpTools(): McpToolDefinition[] {
     buildRunGetTool(),
     buildArtifactReadTool(),
     buildCodeGraphUsageTool(),
+    // Phase MCP-3: read-only workspace orientation.
+    buildWorkspaceInfoTool(),
+    buildWorkspaceStatusTool(),
+    buildMcpGuidanceTool(),
+    buildProjectInstructionsTool(),
+    buildArtifactsListTool(),
   ];
 }
 
-/** Canonical list of tool names exposed by the server (MCP-1 + MCP-2). */
+/** Canonical list of tool names exposed by the server (MCP-1 + MCP-2 + MCP-3). */
 export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   // Phase MCP-1
   'vibecode_codegraph_status',
@@ -88,4 +100,10 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_run_get',
   'vibecode_artifact_read',
   'vibecode_codegraph_usage',
+  // Phase MCP-3
+  'vibecode_workspace_info',
+  'vibecode_workspace_status',
+  'vibecode_mcp_guidance',
+  'vibecode_project_instructions',
+  'vibecode_artifacts_list',
 ]);

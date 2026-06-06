@@ -6,7 +6,34 @@ Current implemented behavior lives in `docs/codegraph.md`.
 
 Everything below is roadmap / not implemented yet unless `docs/codegraph.md` says otherwise.
 
-## Current MCP status (Phase 1A + 1B + MCP-1 + MCP-2 — implemented)
+## Current MCP status (Phase 1A + 1B + MCP-1 + MCP-2 + MCP-3 — implemented)
+
+Phase MCP-3 (Vibecode-owned read-only workspace orientation tools) is now
+implemented on top of MCP-2:
+
+- Five additional tools are exposed by the same `vibecode mcp serve` process:
+  `vibecode_workspace_info`, `vibecode_workspace_status`,
+  `vibecode_mcp_guidance`, `vibecode_project_instructions`,
+  `vibecode_artifacts_list`.
+- Handlers call shared core helpers (`getCodeGraphStatus`,
+  `getReadOnlyGitStatus`, `buildProjectInstructions`, `listRunArtifacts`,
+  `resolveRunDir`); no shell-out, no CLI text parsing.
+- `vibecode_workspace_info` and `vibecode_workspace_status` are designed
+  as the **first calls an MCP-capable agent makes when entering a repo**.
+- `vibecode_workspace_status` performs read-only git inspection only
+  (`git rev-parse`, `git status --porcelain=v1`); never mutates git.
+- `vibecode_project_instructions` reads only the strict allowlist of
+  instruction files (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`,
+  `docs/codegraph.md`, plus architecture docs when `include_docs=true`)
+  and prefers the latest run's `scan/repo_instructions.json` artifact.
+  Source files and arbitrary paths are never read.
+- `vibecode_artifacts_list` reuses the same `RUN_SHOW_ARTIFACTS` allowlist
+  as `vibecode_artifact_read` and never returns artifact content.
+- No write tools. No shell exec. No terminal write. No git mutation. No
+  arbitrary file reads. No agent-lane coordination.
+- Approvals / permission settings remain owned by the MCP client / agent
+  (Codex `/mcp`, Claude managed approvals UI). Vibecode does not install
+  a permission profile, allow/deny list, or any approval mutation.
 
 Phase MCP-2 (Vibecode-owned read-only run / artifact tools) is now implemented
 on top of MCP-1:

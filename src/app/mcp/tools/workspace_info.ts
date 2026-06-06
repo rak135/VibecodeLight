@@ -1,0 +1,206 @@
+import fs from 'fs';
+
+import {
+  getCodeGraphStatus,
+  type CodeGraphActionRunner,
+  type CodeGraphStatusResult,
+} from '../../../adapters/codegraph/codegraph_actions.js';
+import {
+  resolveCodeGraphBinary,
+  type CodeGraphBinaryResolution,
+} from '../../../adapters/codegraph/codegraph_binary_resolver.js';
+import { LlmAdapterError } from '../../../adapters/llm/errors.js';
+import { resolveRunDir } from '../../../core/runs/run_resolver.js';
+import { buildMcpError } from '../errors.js';
+import { formatError, formatSimpleSuccess, type McpToolFormattedResult } from '../format.js';
+import {
+  rejectUnknownKeys,
+  WORKSPACE_INFO_INPUT_SCHEMA,
+  type JsonSchema,
+} from '../schemas.js';
+import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
+
+const TOOL_NAME = 'vibecode_workspace_info';
+const ALLOWED_KEYS = new Set<string>();
+
+/** MCP server identity exported so workspace_info reports a stable name/version. */
+export const WORKSPACE_INFO_SERVER_NAME = 'vibecode-mcp';
+export const WORKSPACE_INFO_SERVER_VERSION = '0.1.0';
+
+const AGENT_GUIDANCE = Object.freeze([
+  'Use VibecodeMCP first for repo navigation and Vibecode run artifacts.',
+  'Fall back to the Vibecode CLI (`vibecode codegraph …`, `vibecode runs …`) only when MCP is unavailable.',
+  'Use rg/grep for exact literal text, logs, and raw error messages.',
+  'Do not call upstream CodeGraph (`codegraph serve --mcp`) directly — go through these Vibecode tools.',
+  'Vibecode does not manage approvals; the MCP client/agent owns permission/trust decisions.',
+]);
+
+const CODEGRAPH_TOOL_NAMES = Object.freeze([
+  'vibecode_codegraph_status',
+  'vibecode_codegraph_search',
+  'vibecode_codegraph_context',
+  'vibecode_codegraph_files',
+  'vibecode_codegraph_callers',
+  'vibecode_codegraph_callees',
+  'vibecode_codegraph_impact',
+]);
+
+const RUNS_ARTIFACTS_TOOL_NAMES = Object.freeze([
+  'vibecode_runs_list',
+  'vibecode_current_run',
+  'vibecode_run_get',
+  'vibecode_artifact_read',
+  'vibecode_codegraph_usage',
+]);
+
+const WORKSPACE_ORIENTATION_TOOL_NAMES = Object.freeze([
+  'vibecode_workspace_info',
+  'vibecode_workspace_status',
+  'vibecode_mcp_guidance',
+  'vibecode_project_instructions',
+  'vibecode_artifacts_list',
+]);
+
+export interface WorkspaceInfoToolDeps {
+  /** Test seam: override CodeGraph status resolution entirely. */
+  codegraphStatus?: (repoRoot: string) => Promise<CodeGraphStatusResult>;
+  /** Test seam: override the upstream-call runner used by the default status path. */
+  runner?: CodeGraphActionRunner;
+  /** Test seam: override the binary resolution result. */
+  binary?: CodeGraphBinaryResolution;
+}
+
+function safeCurrentRunSummary(repoRoot: string): { run_id: string; run_dir: string } | null {
+  try {
+    const { runId, runDir } = resolveRunDir(repoRoot, 'latest');
+    if (!fs.existsSync(runDir)) return null;
+    return { run_id: runId, run_dir: runDir };
+  } catch (err) {
+    // Non-fatal: no current run pointer is a normal state for a fresh repo.
+    if (err instanceof LlmAdapterError) return null;
+    return null;
+  }
+}
+
+function renderText(data: {
+  repo_root: string;
+  mcp_server: { name: string; version: string };
+  tools: { total: number; groups: Record<string, string[]> };
+  codegraph: { available: boolean; initialized: boolean; version?: string | null };
+  current_run: { run_id: string } | null;
+  agent_guidance: readonly string[];
+}): string {
+  const lines: string[] = ['# Vibecode workspace info', ''];
+  lines.push(`repo_root: ${data.repo_root}`);
+  lines.push(`mcp_server: ${data.mcp_server.name} ${data.mcp_server.version}`);
+  lines.push(`tools_total: ${data.tools.total}`);
+  for (const [group, names] of Object.entries(data.tools.groups)) {
+    lines.push(`  ${group}: ${names.length}`);
+  }
+  lines.push('');
+  lines.push(
+    `codegraph: available=${data.codegraph.available ? 'yes' : 'no'} initialized=${
+      data.codegraph.initialized ? 'yes' : 'no'
+    }${data.codegraph.version ? ` version=${data.codegraph.version}` : ''}`,
+  );
+  if (data.current_run) {
+    lines.push(`current_run: ${data.current_run.run_id}`);
+  } else {
+    lines.push('current_run: (none — call vibecode prompt or vibecode context-build first)');
+  }
+  lines.push('');
+  lines.push('agent_guidance:');
+  for (const line of data.agent_guidance) lines.push(`  - ${line}`);
+  return lines.join('\n');
+}
+
+export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToolDefinition {
+  const inputSchema: JsonSchema = WORKSPACE_INFO_INPUT_SCHEMA;
+  return {
+    name: TOOL_NAME,
+    title: 'Vibecode workspace info',
+    description:
+      'Workspace identity and MCP capability summary. Start here when entering a repo to learn the bound repo path, available VibecodeMCP tools, CodeGraph status, and the current run. Read-only.',
+    inputSchema,
+    handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
+      const started = Date.now();
+      const unknown = rejectUnknownKeys(input.arguments, ALLOWED_KEYS);
+      if (!unknown.ok) {
+        return formatError({
+          tool: TOOL_NAME,
+          repoRoot: input.context.repoRoot,
+          warnings: [],
+          durationMs: Date.now() - started,
+          error: buildMcpError('INVALID_ARGUMENT', unknown.message),
+        });
+      }
+
+      // CodeGraph status is non-fatal — failures become warnings, not errors.
+      const warnings: string[] = [];
+      let status: CodeGraphStatusResult;
+      try {
+        if (deps.codegraphStatus) {
+          status = await deps.codegraphStatus(input.context.repoRoot);
+        } else {
+          const binary =
+            deps.binary ??
+            resolveCodeGraphBinary({ cliOption: input.context.codegraphBinary ?? null, env: process.env });
+          status = await getCodeGraphStatus(input.context.repoRoot, {
+            command: binary.command,
+            binary,
+            ...(deps.runner ? { runner: deps.runner } : {}),
+          });
+        }
+      } catch (err) {
+        status = {
+          ok: false,
+          available: false,
+          initialized: false,
+          warnings: [err instanceof Error ? err.message : String(err)],
+        };
+      }
+      if (!status.available) {
+        warnings.push('CODEGRAPH_UNAVAILABLE: upstream CodeGraph binary is not detected; CodeGraph navigation tools will return CODEGRAPH_NOT_INSTALLED.');
+      } else if (!status.initialized) {
+        warnings.push('CODEGRAPH_NOT_INITIALIZED: run `vibecode codegraph init --repo <path>` once to initialize the index.');
+      }
+      for (const w of status.warnings) warnings.push(w);
+
+      const currentRun = safeCurrentRunSummary(input.context.repoRoot);
+      const total =
+        CODEGRAPH_TOOL_NAMES.length +
+        RUNS_ARTIFACTS_TOOL_NAMES.length +
+        WORKSPACE_ORIENTATION_TOOL_NAMES.length;
+
+      const data = {
+        repo_root: input.context.repoRoot,
+        mcp_server: { name: WORKSPACE_INFO_SERVER_NAME, version: WORKSPACE_INFO_SERVER_VERSION },
+        tools: {
+          total,
+          groups: {
+            codegraph: [...CODEGRAPH_TOOL_NAMES],
+            runs_artifacts: [...RUNS_ARTIFACTS_TOOL_NAMES],
+            workspace_orientation: [...WORKSPACE_ORIENTATION_TOOL_NAMES],
+          },
+        },
+        codegraph: {
+          available: status.available,
+          initialized: status.initialized,
+          version: status.version ?? null,
+          binary_source: status.binary?.source ?? null,
+        },
+        current_run: currentRun,
+        agent_guidance: [...AGENT_GUIDANCE],
+      };
+
+      return formatSimpleSuccess({
+        tool: TOOL_NAME,
+        repoRoot: input.context.repoRoot,
+        text: renderText(data),
+        data,
+        warnings,
+        durationMs: Date.now() - started,
+      });
+    },
+  };
+}

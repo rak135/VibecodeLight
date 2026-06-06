@@ -100,3 +100,42 @@ describe('VibecodeMCP MCP-1 docs contract', () => {
     expect(text).toMatch(/Claude installer.*implemented/i);
   });
 });
+
+describe('VibecodeMCP MCP-3 docs contract', () => {
+  test('README documents the five MCP-3 workspace orientation tools', () => {
+    const text = read('README.md');
+    expect(text).toMatch(/Phase MCP-3/i);
+    for (const name of [
+      'vibecode_workspace_info',
+      'vibecode_workspace_status',
+      'vibecode_mcp_guidance',
+      'vibecode_project_instructions',
+      'vibecode_artifacts_list',
+    ]) {
+      expect(text).toContain(name);
+    }
+    // MCP-3 stays read-only and Vibecode does not own approvals.
+    expect(text).toMatch(/MCP-3.*read-only/i);
+    expect(text).toMatch(/Vibecode does not manage.*approval/i);
+  });
+
+  test('AGENTS.md tells MCP-capable agents to start with workspace_info/status', () => {
+    const text = read('AGENTS.md');
+    expect(text).toMatch(/vibecode_workspace_info/);
+    expect(text).toMatch(/vibecode_workspace_status/);
+    expect(text).toMatch(/start.*workspace_(info|status)/i);
+  });
+
+  test('docs/codegraph.md documents the MCP-first workflow with the new orientation tools', () => {
+    const text = read('docs/codegraph.md');
+    expect(text).toMatch(/vibecode_workspace_info/);
+    expect(text).toMatch(/vibecode_mcp_guidance/);
+    expect(text).toMatch(/Phase MCP-3/i);
+  });
+
+  test('docs/codegraph_mcp_roadmap.md reflects MCP-3 as implemented', () => {
+    const text = read('docs/codegraph_mcp_roadmap.md');
+    expect(text).toMatch(/MCP-3.*implemented/i);
+    expect(text).toMatch(/workspace.orientation|workspace_info/i);
+  });
+});

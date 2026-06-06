@@ -2,7 +2,7 @@
 // Manual smoke for `vibecode mcp serve --repo <path>`. Spawns the real CLI
 // over stdio via the official MCP SDK client and verifies:
 //   1. initialize completes
-//   2. tools/list returns the canonical 12 names (7 MCP-1 + 5 MCP-2)
+//   2. tools/list returns the canonical 17 names (7 MCP-1 + 5 MCP-2 + 5 MCP-3)
 //   3. vibecode_codegraph_status returns a structured envelope
 //   4. vibecode_codegraph_context with a tiny query returns a structured
 //      result (CODEGRAPH_NOT_INITIALIZED on a fresh repo is expected and
@@ -11,6 +11,12 @@
 //   6. vibecode_current_run returns either ok=true or RUN_NOT_FOUND
 //   7. vibecode_codegraph_usage default-to-latest returns either ok or a
 //      structured RUN_NOT_FOUND / ARTIFACT_NOT_FOUND
+//   8. vibecode_workspace_info returns ok=true with tool group summary
+//   9. vibecode_workspace_status returns ok=true (or non-fatal warnings)
+//  10. vibecode_mcp_guidance returns ok=true with sections
+//  11. vibecode_project_instructions returns ok=true OR
+//      PROJECT_INSTRUCTIONS_NOT_FOUND
+//  12. vibecode_artifacts_list returns ok=true OR RUN_NOT_FOUND
 //
 // This script is NOT a test; it is a manual end-to-end check.
 
@@ -37,6 +43,11 @@ const EXPECTED_TOOLS = [
   'vibecode_run_get',
   'vibecode_artifact_read',
   'vibecode_codegraph_usage',
+  'vibecode_workspace_info',
+  'vibecode_workspace_status',
+  'vibecode_mcp_guidance',
+  'vibecode_project_instructions',
+  'vibecode_artifacts_list',
 ].sort();
 
 async function main() {
@@ -106,6 +117,39 @@ async function main() {
                   'truncated:', art.structuredContent.data?.truncated);
     }
   }
+
+  // --- MCP-3 read-only workspace orientation round-trip ---
+  const info = await client.callTool({ name: 'vibecode_workspace_info', arguments: {} });
+  console.log(
+    '[smoke] workspace_info.isError:', info.isError === true ? 'true' : 'false',
+    'tools_total:', info.structuredContent?.data?.tools?.total,
+  );
+
+  const wsStatus = await client.callTool({ name: 'vibecode_workspace_status', arguments: {} });
+  console.log(
+    '[smoke] workspace_status.isError:', wsStatus.isError === true ? 'true' : 'false',
+    'branch:', wsStatus.structuredContent?.data?.git?.branch ?? '(none)',
+  );
+
+  const guidance = await client.callTool({ name: 'vibecode_mcp_guidance', arguments: {} });
+  console.log(
+    '[smoke] mcp_guidance.isError:', guidance.isError === true ? 'true' : 'false',
+    'sections:', guidance.structuredContent?.data?.sections?.length ?? 0,
+  );
+
+  const instructions = await client.callTool({ name: 'vibecode_project_instructions', arguments: {} });
+  console.log(
+    '[smoke] project_instructions.isError:', instructions.isError === true ? 'true' : 'false',
+    'error.code:', instructions.structuredContent?.error?.code ?? '(none)',
+    'source:', instructions.structuredContent?.data?.source ?? '(none)',
+  );
+
+  const artifactsList = await client.callTool({ name: 'vibecode_artifacts_list', arguments: {} });
+  console.log(
+    '[smoke] artifacts_list.isError:', artifactsList.isError === true ? 'true' : 'false',
+    'error.code:', artifactsList.structuredContent?.error?.code ?? '(none)',
+    'artifacts:', artifactsList.structuredContent?.data?.artifacts?.length ?? 0,
+  );
 
   await client.close();
   console.log('[smoke] OK');

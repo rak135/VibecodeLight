@@ -54,14 +54,14 @@ describe('Codex MCP config generation', () => {
     expect(result.toml_snippet).toContain('default_tools_approval_mode = "auto"');
   });
 
-  test('includes exactly the 12 read-only VibecodeMCP tools (MCP-1 CodeGraph + MCP-2 run/artifact) and no write/shell/git/terminal tools', () => {
+  test('includes exactly the 17 read-only VibecodeMCP tools (MCP-1 CodeGraph + MCP-2 run/artifact + MCP-3 workspace orientation) and no write/shell/git/terminal tools', () => {
     const result = buildCodexMcpConfig({
       repoRoot,
       scope: 'user',
       vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
     });
 
-    expect(result.enabled_tools).toHaveLength(12);
+    expect(result.enabled_tools).toHaveLength(17);
     expect(result.enabled_tools).toEqual([
       // Phase MCP-1
       'vibecode_codegraph_status',
@@ -77,6 +77,12 @@ describe('Codex MCP config generation', () => {
       'vibecode_run_get',
       'vibecode_artifact_read',
       'vibecode_codegraph_usage',
+      // Phase MCP-3 (read-only workspace orientation tools)
+      'vibecode_workspace_info',
+      'vibecode_workspace_status',
+      'vibecode_mcp_guidance',
+      'vibecode_project_instructions',
+      'vibecode_artifacts_list',
     ]);
     const joined = result.toml_snippet.toLowerCase();
     // Tool names referencing destructive verbs must not appear.

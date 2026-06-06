@@ -988,7 +988,7 @@ pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --log-level silent
 
 `--repo` is required and the resolved path is bound to the server for its lifetime. Tools never accept a `repo` argument. stdout is reserved for the MCP JSON-RPC stream; human/diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`) and per-call usage rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` as bounded, secret-free JSONL.
 
-Phase MCP-1 + MCP-2 scope:
+Phase MCP-1 + MCP-2 + MCP-3 scope:
 
 - transport: **stdio only**;
 - mode: **read-only**;
@@ -1029,6 +1029,36 @@ vibecode_codegraph_usage
 `selected_skills`, `send_metadata`, `user_prompt`, `run_manifest`) and supports
 `run_id: "latest"` / `"current"`. Reading arbitrary repo source files or paths
 outside the run directory is rejected with `ARTIFACT_NOT_ALLOWED`.
+
+Workspace orientation tools (Phase MCP-3 — read-only):
+
+```text
+vibecode_workspace_info
+vibecode_workspace_status
+vibecode_mcp_guidance
+vibecode_project_instructions
+vibecode_artifacts_list
+```
+
+These are the first calls an MCP-capable agent should make when it enters a
+repo. `vibecode_workspace_info` returns the bound repo path, the available
+VibecodeMCP tool groups, the CodeGraph status summary, the current run id (if
+any), and short agent guidance. `vibecode_workspace_status` adds read-only
+git inspection (branch, head, dirty flag, bounded changed-file summary — no
+diff, never mutates git) and the current run/artifact availability summary.
+`vibecode_mcp_guidance` is a compact static cheat sheet describing when to
+prefer VibecodeMCP, when to fall back to the Vibecode CLI, and when to use
+`rg`/`grep`. `vibecode_project_instructions` returns bounded excerpts of the
+allowlisted instruction set (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`,
+`docs/codegraph.md`); with `include_docs: true` it also returns architecture
+docs (`docs/ARCHITECTURE.md`, `docs/ARCHITECTURE_DECISIONS.md`,
+`docs/IMPLEMENTATION_MAP.md`). `vibecode_artifacts_list` enumerates which
+allowlisted artifacts exist for a run (with size and recommendation flags) so
+agents do not have to guess names before calling `vibecode_artifact_read`.
+
+Phase MCP-3 is **read-only**, adds no terminal write, no shell exec, no file
+write, no git commit, no run creation, and no arbitrary file read. Vibecode
+does not manage approvals/permissions: the MCP client/agent owns those.
 
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does

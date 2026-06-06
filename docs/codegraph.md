@@ -558,6 +558,28 @@ MCP-2 is read-only. It adds no terminal write, no shell exec, no file write, no 
 
 Per-call usage is recorded as bounded, secret-free JSONL at `<repo>/.vibecode/logs/mcp_tool_usage.jsonl`. stdout is reserved exclusively for the MCP JSON-RPC stream; diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`).
 
+## VibecodeMCP workspace orientation tools (Phase MCP-3)
+
+Phase MCP-3 makes VibecodeMCP the first read-only orientation point an MCP-capable agent should call when entering a repo. Five additional read-only tools live next to MCP-1 and MCP-2 in the same `vibecode mcp serve` process:
+
+- `vibecode_workspace_info` — bound repo path, MCP server identity, the available VibecodeMCP tool groups (`codegraph`, `runs_artifacts`, `workspace_orientation`), CodeGraph status summary, current run id (if any), and short agent guidance pointing to the right path (MCP first, CLI fallback, `rg`/`grep` for exact text);
+- `vibecode_workspace_status` — read-only git inspection (branch, head, dirty flag, bounded changed-file summary with `modified` / `staged` / `untracked` counts and at most 10 first paths; no diff, never mutates git), the current run/artifact availability summary, and the CodeGraph status summary;
+- `vibecode_mcp_guidance` — compact static cheat sheet: when to use VibecodeMCP, when to call the CLI, when to use `rg`/`grep`, and the reminder that Vibecode does not manage approvals;
+- `vibecode_project_instructions` — bounded excerpts of the allowlisted instruction set (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `docs/codegraph.md`); when `include_docs: true`, also bounded architecture docs (`docs/ARCHITECTURE.md`, `docs/ARCHITECTURE_DECISIONS.md`, `docs/IMPLEMENTATION_MAP.md`, `docs/codegraph.md`); prefers the current run's `scan/repo_instructions.json` artifact when present, otherwise reads directly from the strict repo allowlist; never reads source files or arbitrary paths;
+- `vibecode_artifacts_list` — enumerates which allowlisted run artifacts exist (with `exists`, `size_bytes`, `group`, `recommended_for_agent`, short description), backed by the same allowlist `vibecode_artifact_read` uses; defaults to `latest`/`current`; returns no artifact content.
+
+Recommended MCP-first workflow when an MCP-capable agent enters a repo:
+
+1. Call `vibecode_workspace_info` to learn the bound repo, tool groups, and CodeGraph status.
+2. Call `vibecode_workspace_status` to see git state and the current run.
+3. For code navigation use the `vibecode_codegraph_*` tools (MCP-1) before `rg`/`grep`.
+4. For Vibecode history use `vibecode_runs_list` / `vibecode_current_run` / `vibecode_artifacts_list` and then `vibecode_artifact_read` (MCP-2).
+5. Before implementation or review, call `vibecode_project_instructions`.
+6. Use `rg`/`grep` only for exact literal text, logs, and raw error messages.
+7. Use the Vibecode CLI only when MCP is unavailable. Never call upstream CodeGraph (`codegraph serve --mcp`) directly.
+
+MCP-3 is read-only. It adds no write/shell/git/terminal tool, no arbitrary file reader, no run creation, no CodeGraph init/sync/reindex, and no approval/permission layer. Vibecode does not manage approvals; the MCP client/agent (Codex `/mcp`, Claude managed approvals UI) owns permission and trust.
+
 Anti-scope for MCP-1:
 
 - HTTP transport, multi-repo workspaces (future phase);

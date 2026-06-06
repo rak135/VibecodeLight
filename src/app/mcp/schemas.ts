@@ -138,6 +138,51 @@ export const CODEGRAPH_USAGE_INPUT_SCHEMA: JsonSchema = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Phase MCP-3: workspace orientation input schemas
+// ---------------------------------------------------------------------------
+
+export const WORKSPACE_INFO_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {},
+};
+
+export const WORKSPACE_STATUS_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {},
+};
+
+export const MCP_GUIDANCE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {},
+};
+
+export const PROJECT_INSTRUCTIONS_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    include_docs: {
+      type: 'boolean',
+      description:
+        'When true, also return bounded excerpts of architecture/codegraph docs from the strict allowlist.',
+    },
+  },
+};
+
+export const ARTIFACTS_LIST_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    run_id: {
+      type: 'string',
+      description: 'Run id, or one of the aliases "latest"/"current". Defaults to latest.',
+    },
+  },
+};
+
 /** Helper for tool handlers: verify a positive integer or return undefined. */
 export function validatePositiveInteger(
   value: unknown,
@@ -146,6 +191,18 @@ export function validatePositiveInteger(
   if (value === undefined || value === null) return { ok: true };
   if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
     return { ok: false, message: `invalid ${field}: expected a positive integer, got ${JSON.stringify(value)}` };
+  }
+  return { ok: true, value };
+}
+
+/** Helper for tool handlers: verify a boolean or return undefined. */
+export function validateBoolean(
+  value: unknown,
+  field: string,
+): { ok: true; value?: boolean } | { ok: false; message: string } {
+  if (value === undefined || value === null) return { ok: true };
+  if (typeof value !== 'boolean') {
+    return { ok: false, message: `invalid ${field}: expected a boolean, got ${JSON.stringify(value)}` };
   }
   return { ok: true, value };
 }

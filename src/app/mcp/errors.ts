@@ -32,7 +32,12 @@ export type McpErrorCode =
   | 'RUN_MANIFEST_INVALID'
   | 'ARTIFACT_NOT_ALLOWED'
   | 'ARTIFACT_NOT_FOUND'
-  | 'VIBECODE_ARTIFACT_READ_FAILED';
+  | 'VIBECODE_ARTIFACT_READ_FAILED'
+  // Phase MCP-3: read-only workspace orientation tools.
+  | 'WORKSPACE_INFO_FAILED'
+  | 'WORKSPACE_STATUS_FAILED'
+  | 'PROJECT_INSTRUCTIONS_NOT_FOUND'
+  | 'PROJECT_INSTRUCTIONS_READ_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -111,6 +116,26 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'Verify the run directory has not been modified or removed, then retry. If the run is partial, look at vibecode_run_get first.',
+  },
+  WORKSPACE_INFO_FAILED: {
+    retryable: true,
+    suggestion:
+      'Inspect the warnings — workspace_info reports a CodeGraph-status warning rather than failing the call. Retry only if the failure is transient.',
+  },
+  WORKSPACE_STATUS_FAILED: {
+    retryable: true,
+    suggestion:
+      'Inspect the warnings — workspace_status reports non-git repos as warnings rather than errors. Retry only if the failure is transient.',
+  },
+  PROJECT_INSTRUCTIONS_NOT_FOUND: {
+    retryable: false,
+    suggestion:
+      'No allowlisted project instructions (AGENTS.md / CONTRIBUTING.md / README.md / docs/codegraph.md) and no current-run scan/repo_instructions.json artifact were found.',
+  },
+  PROJECT_INSTRUCTIONS_READ_FAILED: {
+    retryable: true,
+    suggestion:
+      'Inspect the warning detail; the scan artifact or fallback file may have been deleted or replaced mid-call.',
   },
 };
 
