@@ -62,6 +62,12 @@ export interface McpStructuredError {
   retryable: boolean;
   /** Short, actionable next step a human/agent can follow. */
   suggestion?: string;
+  /**
+   * Optional structured payload passed through from a core service (for example
+   * the blocking/conflicting claims on a CLAIM_DENIED). Keeps MCP at parity with
+   * the CLI without forcing clients to parse the human message string.
+   */
+  details?: Record<string, unknown>;
 }
 
 const ERROR_DEFAULTS: Record<
@@ -214,13 +220,15 @@ const ERROR_DEFAULTS: Record<
 export function buildMcpError(
   code: McpErrorCode,
   message: string,
-  overrides: Partial<Pick<McpStructuredError, 'retryable' | 'suggestion'>> = {},
+  overrides: Partial<Pick<McpStructuredError, 'retryable' | 'suggestion' | 'details'>> = {},
 ): McpStructuredError {
   const defaults = ERROR_DEFAULTS[code];
-  return {
+  const error: McpStructuredError = {
     code,
     message,
     retryable: overrides.retryable ?? defaults.retryable,
     suggestion: overrides.suggestion ?? defaults.suggestion,
   };
+  if (overrides.details !== undefined) error.details = overrides.details;
+  return error;
 }

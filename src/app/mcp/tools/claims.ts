@@ -101,7 +101,21 @@ export function buildClaimAddTool(): McpToolDefinition {
           mode,
         });
         if (result.denied) {
-          return fail(result.error?.code ?? 'CLAIM_DENIED', result.error?.message ?? 'claim denied');
+          // Pass the core's structured denial details (requested path/mode,
+          // full conflicting/blocking claims incl. their agent ids, and
+          // suggested actions) straight through so MCP clients get the same
+          // information the CLI exposes — without parsing the message string.
+          return formatError({
+            tool: TOOL_NAME,
+            repoRoot: input.context.repoRoot,
+            warnings: [],
+            durationMs: Date.now() - started,
+            error: buildMcpError(
+              result.error?.code ?? 'CLAIM_DENIED',
+              result.error?.message ?? 'claim denied',
+              { details: result.error?.details },
+            ),
+          });
         }
         const claim = result.claim as FileClaim;
         return formatSimpleSuccess({

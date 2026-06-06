@@ -52,7 +52,7 @@ Coordination state is **generated working state**, not source:
   global user config and `.vibecode/config.yaml`). There is **no**
   `.vibecode/coordination/config.json`.
 
-### State shape (Phase 1)
+### State shape
 
 ```json
 {
@@ -66,17 +66,18 @@ Coordination state is **generated working state**, not source:
 }
 ```
 
-The collections are intentionally empty in Phase 1. Reading is **read-only**: a
-missing state file yields a stable empty status and writes nothing. Generated
-state is only created by the explicit, idempotent
-`initializeCoordinationState`, which writes that single `state.json` and touches
-no source files.
+`agents` is populated by Phase 2 (agent sessions) and `claims` by Phase 3A
+(advisory claims). `conflicts` and `handoffs` remain empty — they belong to
+later, not-yet-implemented phases. Reading status is **read-only**: a missing
+state file yields a stable empty status and writes nothing. Mutating services
+(register/heartbeat, claim add/release) write only this single `state.json` and
+touch no source files.
 
 ---
 
-## First slice: status only
+## Phase 1: read-only status
 
-Phase 1 ships read-only coordination **status** and nothing else.
+Phase 1 ships read-only coordination **status**.
 
 CLI:
 
@@ -98,19 +99,109 @@ repo argument) and never shells out to the CLI.
 
 ---
 
-## Later phases (not yet implemented)
+## Phase 2: agent sessions and heartbeats
+
+Phase 2 adds persistent agent sessions with heartbeat-based liveness. Agents
+register, heartbeat, and are listed with a computed, stale-aware status. The
+core services live in `src/core/coordination/agents.ts` and
+`src/core/coordination/heartbeat.ts`.
+
+- **Registration** records an agent session (id, name, type) in the generated
+  state.
+- **Heartbeat** refreshes the agent's last-seen timestamp.
+- **Status computation** derives `active` / `idle` / `stale` / `terminated`
+  from the heartbeat age against a fixed TTL; status is computed on read and is
+  never persisted as a frozen value.
+
+CLI:
+
+```powershell
+vibecode agents register --repo <path> --name <name> --type <type> --json
+vibecode agents heartbeat --repo <path> --agent <agent_id> --json
+vibecode agents list --repo <path> --json
+vibecode agents status --repo <path> --agent <agent_id> --json
+```
+
+MCP tools:
 
 ```text
-agent sessions / registration
-heartbeats
-claims add / release (advisory)
+vibecode_agent_register
+vibecode_agent_heartbeat
+vibecode_agents_list
+vibecode_agent_status
+```
+
+CLI and MCP are thin adapters over the same core services. The MCP tools are
+repo-bound and never shell out to the CLI.
+
+---
+
+## Phase 3A: advisory file claims
+
+Phase 3A adds **advisory** file claims. The core service is
+`src/core/coordination/claims.ts`. Claims are plain generated state — they are
+**not** locks: the core never touches source files and never creates per-file
+lock artifacts.
+
+- **`add`** creates a claim for an *active* agent on a repository-relative path.
+  Modes are `exclusive` and `shared`. Exclusive claims conflict with any
+  overlapping claim; shared claims are compatible with other shared claims and
+  conflict only with exclusive ones. Overlap is path-prefix aware (claiming a
+  directory overlaps files beneath it).
+- **`list`** returns claims with a computed, stale-aware status (a claim owned
+  by a stale/terminated agent stops blocking).
+- **`status`** reports, for a path, the matching claims and whether a shared or
+  exclusive claim is currently possible.
+- **`release`** marks a claim released.
+- **Path validation** rejects empty/absolute/escaping paths and refuses to claim
+  generated `.vibecode/` state or `.git` internals.
+- **Stale or terminated agents cannot create claims**; only `active`/`idle`
+  agents may claim.
+
+When `add` is denied, both adapters surface the same structured details
+(requested path/mode, the blocking/conflicting claims including their owning
+agent ids, and suggested actions). The CLI flattens these into its error
+envelope's `details`; the MCP `CLAIM_DENIED` error carries them as structured
+`error.details`. Neither adapter requires the client to parse the message
+string.
+
+CLI:
+
+```powershell
+vibecode claims add --repo <path> --agent <agent_id> --path <rel-path> --mode <exclusive|shared> --json
+vibecode claims list --repo <path> [--agent <agent_id>] [--include-released] --json
+vibecode claims status --repo <path> --path <rel-path> --json
+vibecode claims release --repo <path> --claim <claim_id> --json
+```
+
+MCP tools:
+
+```text
+vibecode_claim_add
+vibecode_claims_list
+vibecode_claim_status
+vibecode_claim_release
+```
+
+CLI and MCP are thin adapters over the same core service. The MCP tools are
+repo-bound (they never accept a repo argument) and never shell out to the CLI.
+
+---
+
+## Not yet implemented
+
+The following are specified in `docs/MULTI_AGENT_CONFLICT_DESIGN.md` and
+`docs/MULTI_AGENT_UI_DESIGN.md` but are **not** built yet:
+
+```text
 file watcher (unauthorized-edit evidence)
 finalize guard
 commit guard
 handoffs
+conflict persistence / event log
 desktop coordination UI panel
 prompt protocol injection
 ```
 
-These are specified in `docs/MULTI_AGENT_CONFLICT_DESIGN.md` and
-`docs/MULTI_AGENT_UI_DESIGN.md`. None of them introduce hard source-file locks.
+Claims remain **advisory only**: there are no hard source-file locks. None of
+the future phases above introduce hard source-file locks either.

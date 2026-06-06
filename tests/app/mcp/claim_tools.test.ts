@@ -124,6 +124,53 @@ describe('VibecodeMCP advisory claim tools', () => {
     expect(invalid.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
   });
 
+  test('claim denial payload includes structured blocking-claim details', async () => {
+    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
+    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' });
+    const existing = addFileClaim(repo.repoRoot, { agent_id: a.agent_id, path: 'src/app.ts', mode: 'exclusive' });
+
+    const denied = await buildClaimAddTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: b.agent_id, path: 'src', mode: 'exclusive' },
+      requestId: null,
+    });
+
+    expect(denied.isError).toBe(true);
+    const error = denied.structuredContent.error;
+    expect(error?.code).toBe('CLAIM_DENIED');
+    const details = error?.details as
+      | {
+          requested: { agent_id: string; path: string; mode: string };
+          conflicting_claims: Array<{ claim_id: string; agent_id: string; path: string; mode: string }>;
+          suggestions: string[];
+        }
+      | undefined;
+    expect(details).toBeDefined();
+    expect(details?.requested).toMatchObject({ agent_id: b.agent_id, path: 'src', mode: 'exclusive' });
+    expect(details?.conflicting_claims).toHaveLength(1);
+    expect(details?.conflicting_claims[0]).toMatchObject({
+      claim_id: existing.claim?.claim_id,
+      agent_id: a.agent_id,
+      path: 'src/app.ts',
+      mode: 'exclusive',
+    });
+    expect(details?.suggestions).toContain('release_existing_claim');
+    // The blocking agent id is recoverable from the conflicting claim itself.
+    expect(details?.conflicting_claims[0].agent_id).toBe(a.agent_id);
+  });
+
+  test('non-denial claim errors still return without a details payload', async () => {
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
+    const invalid = await buildClaimAddTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: agent.agent_id, path: '../outside.ts', mode: 'exclusive' },
+      requestId: null,
+    });
+    expect(invalid.isError).toBe(true);
+    expect(invalid.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+    expect(invalid.structuredContent.error?.details).toBeUndefined();
+  });
+
   test('claim tools do not accept a repo path argument', async () => {
     for (const tool of [buildClaimAddTool(), buildClaimsListTool(), buildClaimStatusTool(), buildClaimReleaseTool()]) {
       expect(tool.inputSchema.type).toBe('object');
