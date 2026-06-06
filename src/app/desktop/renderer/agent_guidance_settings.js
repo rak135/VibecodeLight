@@ -219,6 +219,9 @@
         var state = resp.up_to_date ? 'up to date' : resp.configured ? 'configured, update available' : 'not configured';
         var hash = guidance.guidance_hash || '';
         var tools = mcp.expected_tool_count || 0;
+        var mcpSource = mcp.source
+          ? ' MCP config source=' + mcp.source + (mcp.source_path ? ' (' + mcp.source_path + ')' : '') + '.'
+          : '';
         view.setIntegrationStatus(agent, {
           kind: resp.up_to_date ? 'ok' : 'info',
           text:
@@ -227,9 +230,12 @@
             (guidance.enabled === false ? 'disabled' : 'enabled') +
             ', source=' +
             (guidance.source || 'unknown') +
-            '. Changes apply to new agent/MCP sessions. Restart/reconnect the agent if already running.',
+            '.' +
+            mcpSource +
+            ' Changes apply to new agent/MCP sessions. Restart/reconnect the agent if already running.',
           hash: hash,
           expectedToolCount: tools,
+          mcpSource: mcp.source || undefined,
         });
       }
 

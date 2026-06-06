@@ -31,6 +31,13 @@ implemented on top of MCP-2:
   use the repo-bound VibecodeMCP server. `apply --dry-run` previews and
   `apply --yes` writes only the MCP server config path already used by the
   agent installers. Existing MCP sessions may need restart/reconnect.
+- Claude status detection recognizes more than one safe config source: the
+  project-scoped `<repo>/.mcp.json`, the local-scope per-project `mcpServers`
+  map in `~/.claude.json` (what `claude mcp add-json --scope local` writes), and
+  the user-scope top-level `mcpServers` map in `~/.claude.json`. Status reports
+  the effective `mcp.source`/`mcp.source_path`, lists all recognized sources,
+  and is `up_to_date`/`stale`/`unknown` instead of always `unknown`. Detection
+  is read-only and never touches approvals/permissions.
 - Terminal Agent Preflight runs when opening new Vibecode terminals and checks
   that supported agents have VibecodeMCP configured according to the dedicated
   Agent Guidance settings. In `auto_repair` mode it may update only the same

@@ -391,6 +391,45 @@ describe('agent guidance settings — controller', () => {
     );
   });
 
+  test('Claude integration row displays the detected project-scoped MCP config source', async () => {
+    const view = makeView();
+    const { api } = makeApi({
+      getAgentGuidanceIntegrationStatus: vi.fn(async (agent: 'claude' | 'codex') => ({
+        ok: true,
+        agent,
+        configured: true,
+        up_to_date: true,
+        guidance: {
+          config_valid: true,
+          enabled: true,
+          source: 'defaults',
+          guidance_hash: 'a'.repeat(64),
+          config_path: 'C:/AppData/vibecodelight/agent-guidance-config.yaml',
+          warnings: [],
+        },
+        mcp: {
+          expected_tool_count: 17,
+          configured: true,
+          up_to_date: true,
+          status: 'up_to_date',
+          source: agent === 'claude' ? 'local' : undefined,
+          source_path: agent === 'claude' ? 'C:/Users/dev/.claude.json' : undefined,
+        },
+        restart_required: true,
+        warnings: [],
+      })),
+    });
+    const controller = AgentGuidanceSettings.createController({ api, view });
+    await controller.refresh();
+    expect(view.setIntegrationStatus).toHaveBeenCalledWith(
+      'claude',
+      expect.objectContaining({
+        text: expect.stringMatching(/MCP config source=local/),
+        mcpSource: 'local',
+      }),
+    );
+  });
+
   test('dry-run apply displays planned action and apply requires confirmation', async () => {
     const view = makeView();
     const { api } = makeApi();

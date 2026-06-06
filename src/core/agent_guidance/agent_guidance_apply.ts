@@ -11,6 +11,11 @@ import {
   buildClaudeMcpInstallCommand,
   type ClaudeMcpInstallOptions,
 } from '../mcp/claude_config.js';
+import {
+  detectClaudeMcpConfig,
+  type ClaudeMcpDetectedScope,
+  type ClaudeMcpDetectedSource,
+} from '../mcp/claude_mcp_detect.js';
 import { buildAgentGuidanceMcpTools } from '../config/agent_guidance_mcp_tools.js';
 import { buildAgentGuidanceRuntime } from './agent_guidance_runtime.js';
 
@@ -44,6 +49,14 @@ export interface AgentGuidanceIntegrationStatus {
     status: 'up_to_date' | 'stale' | 'not_configured' | 'unknown';
     command?: string;
     args?: string[];
+    /** Claude only: the effective config scope that provides the server, when detected. */
+    source?: ClaudeMcpDetectedScope;
+    /** Claude only: the config file path of the effective source, when detected. */
+    source_path?: string;
+    /** Claude only: the repo path the detected server is bound to, when detectable. */
+    repo_binding?: string;
+    /** Claude only: every recognized config source (local/project/user) found. */
+    sources?: ClaudeMcpDetectedSource[];
   };
   approval_boundary?: string;
   restart_required?: boolean;
@@ -72,6 +85,8 @@ interface BaseOptions {
   codexHome?: string;
   vibecodeBinPath?: string;
   claudeCommand?: string;
+  /** Directory holding Claude's `.claude.json`; defaults to CLAUDE_CONFIG_DIR or the user home. */
+  claudeConfigDir?: string;
 }
 
 export interface AgentGuidanceIntegrationStatusOptions extends BaseOptions {}
@@ -168,20 +183,32 @@ export function getAgentGuidanceIntegrationStatus(
     vibecodeBinPath: options.vibecodeBinPath,
     claudeCommand: options.claudeCommand,
   });
+  const detection = detectClaudeMcpConfig({
+    repoRoot: options.repoRoot,
+    vibecodeBinPath: options.vibecodeBinPath,
+    env: options.env,
+    claudeConfigDir: options.claudeConfigDir,
+  });
+  warnings.push(...detection.warnings);
+  const effective = detection.effective;
+  const upToDate = detection.status === 'up_to_date';
   return {
     ok: true,
     agent: 'claude',
     repo_root: options.repoRoot,
-    configured: false,
-    up_to_date: false,
+    configured: detection.configured,
+    up_to_date: upToDate,
     guidance,
     mcp: {
       expected_tool_count: EXPECTED_TOOL_COUNT,
-      configured: false,
-      up_to_date: false,
-      status: 'unknown',
-      command: command.command,
-      args: command.args,
+      configured: detection.configured,
+      up_to_date: upToDate,
+      status: detection.status,
+      command: effective?.command ?? command.command,
+      args: effective?.args ?? command.args,
+      ...(effective ? { source: effective.scope, source_path: effective.config_path } : {}),
+      ...(effective?.repo_binding ? { repo_binding: effective.repo_binding } : {}),
+      sources: detection.sources,
     },
     approval_boundary: APPROVAL_BOUNDARY,
     restart_required: true,

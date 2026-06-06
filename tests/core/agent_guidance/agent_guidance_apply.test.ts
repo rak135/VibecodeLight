@@ -7,6 +7,21 @@ import {
   getAgentGuidanceIntegrationStatus,
 } from '../../../src/core/agent_guidance/agent_guidance_apply.js';
 import { getAgentGuidanceConfigPath } from '../../../src/core/config/agent_guidance_config.js';
+import { buildClaudeMcpInstallCommand } from '../../../src/core/mcp/claude_config.js';
+
+function expectedClaudeServer(repoRoot: string, binPath: string): { type: string; command: string; args: string[]; env: Record<string, never> } {
+  const command = buildClaudeMcpInstallCommand({ repoRoot, vibecodeBinPath: binPath });
+  return { type: 'stdio', command: command.server_config.command, args: [...command.server_config.args], env: {} };
+}
+
+function writeClaudeLocalServer(configDir: string, repoRoot: string, server: unknown): void {
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(configDir, '.claude.json'),
+    JSON.stringify({ projects: { [repoRoot.replace(/\\/g, '/')]: { mcpServers: { vibecode: server } } } }),
+    'utf8',
+  );
+}
 
 function makeFixture(): {
   repoRoot: string;
@@ -168,6 +183,97 @@ describe('agent guidance integration status/apply', () => {
       expect(result.agent).toBe('claude');
       expect(result.planned_action).toMatch(/claude mcp add-json/i);
       expect(JSON.stringify(result)).not.toMatch(/allowedTools|deniedTools|hooks|permission profile/i);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('Claude status reports configured/up_to_date from a local-scope .claude.json server', () => {
+    const f = makeFixture();
+    try {
+      writeGuidance(f.env);
+      const binPath = path.join(f.repoRoot, 'bin', 'vibecode.js');
+      const claudeConfigDir = path.join(f.appData, 'claude-home');
+      writeClaudeLocalServer(claudeConfigDir, f.repoRoot, expectedClaudeServer(f.repoRoot, binPath));
+      const status = getAgentGuidanceIntegrationStatus({
+        agent: 'claude',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        vibecodeBinPath: binPath,
+        claudeConfigDir,
+      });
+      expect(status.ok).toBe(true);
+      expect(status.configured).toBe(true);
+      expect(status.up_to_date).toBe(true);
+      expect(status.mcp?.status).toBe('up_to_date');
+      expect(status.mcp?.source).toBe('local');
+      expect(status.mcp?.source_path).toBe(path.join(claudeConfigDir, '.claude.json'));
+      expect(status.mcp?.repo_binding).toBeTruthy();
+      expect(JSON.stringify(status)).not.toMatch(/allowedTools|deniedTools|hooks|permission profile/i);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('Claude status reports stale when the detected repo binding differs', () => {
+    const f = makeFixture();
+    try {
+      const binPath = path.join(f.repoRoot, 'bin', 'vibecode.js');
+      const claudeConfigDir = path.join(f.appData, 'claude-home');
+      const server = expectedClaudeServer(f.repoRoot, binPath);
+      server.args[server.args.indexOf('--repo') + 1] = 'C:/some/other/repo';
+      writeClaudeLocalServer(claudeConfigDir, f.repoRoot, server);
+      const status = getAgentGuidanceIntegrationStatus({
+        agent: 'claude',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        vibecodeBinPath: binPath,
+        claudeConfigDir,
+      });
+      expect(status.configured).toBe(true);
+      expect(status.up_to_date).toBe(false);
+      expect(status.mcp?.status).toBe('stale');
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('Claude status reports unknown only when no recognized config exists', () => {
+    const f = makeFixture();
+    try {
+      const claudeConfigDir = path.join(f.appData, 'claude-home-empty');
+      const status = getAgentGuidanceIntegrationStatus({
+        agent: 'claude',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        claudeConfigDir,
+      });
+      expect(status.configured).toBe(false);
+      expect(status.mcp?.status).toBe('unknown');
+      expect(status.mcp?.source).toBeUndefined();
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('Claude status does not mutate Claude config and surfaces malformed config as a warning', () => {
+    const f = makeFixture();
+    try {
+      const claudeConfigDir = path.join(f.appData, 'claude-home-bad');
+      fs.mkdirSync(claudeConfigDir, { recursive: true });
+      const claudeJson = path.join(claudeConfigDir, '.claude.json');
+      fs.writeFileSync(claudeJson, '{ not valid json', 'utf8');
+      const before = fs.readFileSync(claudeJson, 'utf8');
+      const status = getAgentGuidanceIntegrationStatus({
+        agent: 'claude',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        claudeConfigDir,
+      });
+      expect(status.ok).toBe(true);
+      expect(status.mcp?.status).toBe('unknown');
+      expect(status.warnings.join('\n')).toMatch(/CLAUDE_MCP_CONFIG_PARSE_WARNING/);
+      expect(fs.readFileSync(claudeJson, 'utf8')).toBe(before);
     } finally {
       f.cleanup();
     }
