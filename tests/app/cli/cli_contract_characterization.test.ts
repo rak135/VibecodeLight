@@ -129,6 +129,38 @@ describe('CLI contract characterization (current behavior, pre-cleanup)', () => 
     expect(hasJsonOption(showCommand as Command)).toBe(true);
   });
 
+  test('current fallback behavior: `vibecode init --json` returns a canonical data envelope', async () => {
+    const { createCli } = await import('../../../src/app/cli/index.js');
+    const program = createCli();
+    const initCommand = findCommand(program, ['init']);
+    expect(initCommand).toBeDefined();
+    expect(hasJsonOption(initCommand as Command)).toBe(true);
+
+    const { repoRoot, cleanup } = makeRepo('vibecode-cli-init-json-');
+    try {
+      const cli = await runCli(['init', '--repo', repoRoot, '--json']);
+
+      expect(cli.exitCode).toBe(0);
+      expect(cli.stdout).toBe('');
+      expect(cli.errors).toEqual([]);
+      expect(cli.logs).toHaveLength(1);
+      const payload = JSON.parse(cli.logs[0]) as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        ok: true,
+        data: {
+          created: expect.any(Array),
+          existing: expect.any(Array),
+        },
+        artifacts: expect.any(Array),
+        warnings: [],
+      });
+      expect(payload).not.toHaveProperty('created');
+      expect(payload).not.toHaveProperty('existing');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('current behavior: `runs show --artifact --json` streams RAW artifact content (no JSON envelope) on success', async () => {
     const { repoRoot, cleanup } = makeRepo('vibecode-cli-artifact-json-');
     try {
