@@ -4,6 +4,11 @@ import path from 'path';
 import { Command } from 'commander';
 
 import {
+  emitCliStructuredError,
+  makeCliStructuredError,
+  type CliStructuredError,
+} from '../structured_output.js';
+import {
   buildSkillsCatalog,
   discoverProjectSkills,
 } from '../../../core/skills/catalog.js';
@@ -15,23 +20,6 @@ import {
 } from '../../../core/skills/selected_manifest.js';
 import { appendSkillUsage, type SkillUsageCommand } from '../../../core/skills/skill_usage_log.js';
 import { getWorkspacePaths } from '../../../core/workspace/paths.js';
-
-interface StructuredCliError {
-  code: string;
-  message: string;
-  path?: string;
-  details: string[];
-}
-
-function emitJsonError(error: StructuredCliError): void {
-  console.log(JSON.stringify({ ok: false, error }));
-}
-
-function emitTextError(prefix: string, error: StructuredCliError): void {
-  console.error(`${prefix}: ${error.code}: ${error.message}`);
-  if (error.path) console.error(`path: ${error.path}`);
-  for (const detail of error.details) console.error(`detail: ${detail}`);
-}
 
 function logSkillUsage(
   repoRoot: string,
@@ -62,6 +50,10 @@ function logSkillUsage(
   }
 }
 
+function emitSkillsError(prefix: string, error: CliStructuredError, json?: boolean): void {
+  emitCliStructuredError(error, { json, prefix });
+}
+
 export function registerSkillsCommands(program: Command): void {
   const skills = program.command('skills').description('Manage VibecodeLight skills');
 
@@ -75,64 +67,58 @@ export function registerSkillsCommands(program: Command): void {
       const repoRoot = path.resolve(options.repo);
       const runId = (options.runId ?? '').trim();
       if (!runId) {
-        const err: StructuredCliError = {
-          code: 'RUN_ID_REQUIRED',
-          message: '--run-id is required',
-          details: ['Pass --run-id <runId> identifying which run\'s selected skills to query.'],
-        };
-        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
-        process.exitCode = 1;
+        const err = makeCliStructuredError(
+          'RUN_ID_REQUIRED',
+          '--run-id is required',
+          '',
+          ['Pass --run-id <runId> identifying which run\'s selected skills to query.'],
+        );
+        emitSkillsError('skills show failed', err, options.json);
         return;
       }
       if (!isSafeSkillId(skillId)) {
-        const err: StructuredCliError = {
-          code: 'UNSAFE_SKILL_ID',
-          message: `unsafe skill id: ${skillId}`,
-          details: ['Skill ids must match /^[a-zA-Z0-9._-]+$/.'],
-        };
+        const err = makeCliStructuredError(
+          'UNSAFE_SKILL_ID',
+          `unsafe skill id: ${skillId}`,
+          '',
+          ['Skill ids must match /^[a-zA-Z0-9._-]+$/.'],
+        );
         logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills show failed', err, options.json);
         return;
       }
       const paths = getWorkspacePaths(repoRoot);
       const runDir = path.join(paths.runs, runId);
       const manifest = readSelectedSkillsManifest(runDir);
       if (!manifest) {
-        const err: StructuredCliError = {
-          code: 'RUN_NOT_FOUND',
-          message: `no selected-skills manifest for run ${runId}`,
-          path: path.join(runDir, 'skills', 'manifest.json'),
-          details: [],
-        };
+        const err = makeCliStructuredError(
+          'RUN_NOT_FOUND',
+          `no selected-skills manifest for run ${runId}`,
+          path.join(runDir, 'skills', 'manifest.json'),
+        );
         logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills show failed', err, options.json);
         return;
       }
       const entry = manifest.selected_skills.find((s) => s.id === skillId);
       if (!entry) {
-        const err: StructuredCliError = {
-          code: 'SKILL_NOT_SELECTED',
-          message: `skill "${skillId}" was not selected for run ${runId}`,
-          details: [],
-        };
+        const err = makeCliStructuredError(
+          'SKILL_NOT_SELECTED',
+          `skill "${skillId}" was not selected for run ${runId}`,
+        );
         logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills show failed', err, options.json);
         return;
       }
       const resolved = resolveSkillSourcePath(repoRoot, skillId);
       if (!resolved || !fs.existsSync(resolved.filePath)) {
-        const err: StructuredCliError = {
-          code: 'SKILL_FILE_NOT_FOUND',
-          message: `skill file not found for "${skillId}"`,
-          path: resolved?.filePath ?? path.join(repoRoot, 'SKILLS', `${skillId}.md`),
-          details: [],
-        };
+        const err = makeCliStructuredError(
+          'SKILL_FILE_NOT_FOUND',
+          `skill file not found for "${skillId}"`,
+          resolved?.filePath ?? path.join(repoRoot, 'SKILLS', `${skillId}.md`),
+        );
         logSkillUsage(repoRoot, runId, 'show', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills show failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills show failed', err, options.json);
         return;
       }
       const content = fs.readFileSync(resolved.filePath, 'utf8');
@@ -170,64 +156,58 @@ export function registerSkillsCommands(program: Command): void {
       const repoRoot = path.resolve(options.repo);
       const runId = (options.runId ?? '').trim();
       if (!runId) {
-        const err: StructuredCliError = {
-          code: 'RUN_ID_REQUIRED',
-          message: '--run-id is required',
-          details: ['Pass --run-id <runId> identifying which run\'s selected skills to query.'],
-        };
-        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
-        process.exitCode = 1;
+        const err = makeCliStructuredError(
+          'RUN_ID_REQUIRED',
+          '--run-id is required',
+          '',
+          ['Pass --run-id <runId> identifying which run\'s selected skills to query.'],
+        );
+        emitSkillsError('skills path failed', err, options.json);
         return;
       }
       if (!isSafeSkillId(skillId)) {
-        const err: StructuredCliError = {
-          code: 'UNSAFE_SKILL_ID',
-          message: `unsafe skill id: ${skillId}`,
-          details: ['Skill ids must match /^[a-zA-Z0-9._-]+$/.'],
-        };
+        const err = makeCliStructuredError(
+          'UNSAFE_SKILL_ID',
+          `unsafe skill id: ${skillId}`,
+          '',
+          ['Skill ids must match /^[a-zA-Z0-9._-]+$/.'],
+        );
         logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills path failed', err, options.json);
         return;
       }
       const paths = getWorkspacePaths(repoRoot);
       const runDir = path.join(paths.runs, runId);
       const manifest = readSelectedSkillsManifest(runDir);
       if (!manifest) {
-        const err: StructuredCliError = {
-          code: 'RUN_NOT_FOUND',
-          message: `no selected-skills manifest for run ${runId}`,
-          path: path.join(runDir, 'skills', 'manifest.json'),
-          details: [],
-        };
+        const err = makeCliStructuredError(
+          'RUN_NOT_FOUND',
+          `no selected-skills manifest for run ${runId}`,
+          path.join(runDir, 'skills', 'manifest.json'),
+        );
         logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills path failed', err, options.json);
         return;
       }
       const entry = manifest.selected_skills.find((s) => s.id === skillId);
       if (!entry) {
-        const err: StructuredCliError = {
-          code: 'SKILL_NOT_SELECTED',
-          message: `skill "${skillId}" was not selected for run ${runId}`,
-          details: [],
-        };
+        const err = makeCliStructuredError(
+          'SKILL_NOT_SELECTED',
+          `skill "${skillId}" was not selected for run ${runId}`,
+        );
         logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills path failed', err, options.json);
         return;
       }
       const resolved = resolveSkillSourcePath(repoRoot, skillId);
       if (!resolved || !fs.existsSync(resolved.filePath)) {
-        const err: StructuredCliError = {
-          code: 'SKILL_FILE_NOT_FOUND',
-          message: `skill file not found for "${skillId}"`,
-          path: resolved?.filePath ?? path.join(repoRoot, 'SKILLS', `${skillId}.md`),
-          details: [],
-        };
+        const err = makeCliStructuredError(
+          'SKILL_FILE_NOT_FOUND',
+          `skill file not found for "${skillId}"`,
+          resolved?.filePath ?? path.join(repoRoot, 'SKILLS', `${skillId}.md`),
+        );
         logSkillUsage(repoRoot, runId, 'path', false, { skillId, errorCode: err.code });
-        if (options.json) emitJsonError(err); else emitTextError('skills path failed', err);
-        process.exitCode = 1;
+        emitSkillsError('skills path failed', err, options.json);
         return;
       }
       logSkillUsage(repoRoot, runId, 'path', true, {
@@ -268,15 +248,13 @@ export function registerSkillsCommands(program: Command): void {
         const runDir = path.join(paths.runs, runId);
         const manifest = readSelectedSkillsManifest(runDir);
         if (!manifest) {
-          const err: StructuredCliError = {
-            code: 'RUN_NOT_FOUND',
-            message: `no selected-skills manifest for run ${runId}`,
-            path: path.join(runDir, 'skills', 'manifest.json'),
-            details: [],
-          };
+          const err = makeCliStructuredError(
+            'RUN_NOT_FOUND',
+            `no selected-skills manifest for run ${runId}`,
+            path.join(runDir, 'skills', 'manifest.json'),
+          );
           logSkillUsage(repoRoot, runId, 'list', false, { errorCode: err.code });
-          if (options.json) emitJsonError(err); else emitTextError('skills list failed', err);
-          process.exitCode = 1;
+          emitSkillsError('skills list failed', err, options.json);
           return;
         }
         logSkillUsage(repoRoot, runId, 'list', true);
@@ -416,17 +394,8 @@ export function registerSkillsCommands(program: Command): void {
 
         if (!skillId) {
           const message = 'skill id is required when --all is not specified';
-          if (options.json) {
-            console.log(
-              JSON.stringify({
-                ok: false,
-                error: { code: 'MISSING_SKILL_ID', message, details: [] },
-              }),
-            );
-          } else {
-            console.error(message);
-          }
-          process.exitCode = 1;
+          const err = makeCliStructuredError('MISSING_SKILL_ID', message);
+          emitSkillsError('skills copy failed', err, options.json);
           return;
         }
 
@@ -436,22 +405,12 @@ export function registerSkillsCommands(program: Command): void {
           force: options.force,
         });
         if (!result.ok) {
-          if (options.json) {
-            console.log(
-              JSON.stringify({
-                ok: false,
-                error: {
-                  code: result.error?.code ?? 'UNKNOWN',
-                  message: result.error?.message ?? 'copy failed',
-                  path: result.error?.path,
-                  details: [],
-                },
-              }),
-            );
-          } else {
-            console.error(`copy failed: ${result.error?.message ?? 'unknown error'}`);
-          }
-          process.exitCode = 1;
+          const err = makeCliStructuredError(
+            result.error?.code ?? 'UNKNOWN',
+            result.error?.message ?? 'copy failed',
+            result.error?.path,
+          );
+          emitSkillsError('skills copy failed', err, options.json);
           return;
         }
         if (options.json) {

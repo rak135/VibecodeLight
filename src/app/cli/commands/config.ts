@@ -3,6 +3,10 @@ import path from 'path';
 import { Command } from 'commander';
 
 import {
+  emitCliStructuredError,
+  makeCliStructuredError,
+} from '../structured_output.js';
+import {
   ensureLocalConfig,
   getConfigPaths,
   resolveFlashConfig,
@@ -194,43 +198,33 @@ export function registerConfigCommands(program: Command): void {
       const repoRoot = path.resolve(options.repo);
 
       if (options.toGlobal) {
-        const error = {
-          code: 'CONFIG_SYNC_TO_GLOBAL_DISABLED',
-          message: 'Local-to-global config sync is disabled. Use global-to-local sync only.',
-          path: '',
-          details: [],
-        };
-        if (options.json) console.log(JSON.stringify({ ok: false, error }));
-        else console.error(`config sync failed: ${error.message}`);
-        process.exitCode = 1;
+        const error = makeCliStructuredError(
+          'CONFIG_SYNC_TO_GLOBAL_DISABLED',
+          'Local-to-global config sync is disabled. Use global-to-local sync only.',
+        );
+        emitCliStructuredError(error, { json: options.json, prefix: 'config sync failed' });
         return;
       }
 
       if (!options.fromGlobal) {
-        const error = {
-          code: 'SYNC_DIRECTION_REQUIRED',
-          message: 'config sync requires --from-global',
-          path: '',
-          details: [],
-        };
-        if (options.json) console.log(JSON.stringify({ ok: false, error }));
-        else console.error(`config sync failed: ${error.message}`);
-        process.exitCode = 1;
+        const error = makeCliStructuredError(
+          'SYNC_DIRECTION_REQUIRED',
+          'config sync requires --from-global',
+        );
+        emitCliStructuredError(error, { json: options.json, prefix: 'config sync failed' });
         return;
       }
 
       const direction = 'from-global' as const;
       const result = syncConfig({ direction, repoRoot, env: process.env });
       if (!result.ok) {
-        const error = {
-          code: result.error?.code ?? 'CONFIG_SYNC_FAILED',
-          message: result.error?.message ?? 'config sync failed',
-          path: result.sourcePath,
-          details: result.error?.details ?? [],
-        };
-        if (options.json) console.log(JSON.stringify({ ok: false, error }));
-        else console.error(`config sync failed: ${error.message}`);
-        process.exitCode = 1;
+        const error = makeCliStructuredError(
+          result.error?.code ?? 'CONFIG_SYNC_FAILED',
+          result.error?.message ?? 'config sync failed',
+          result.sourcePath,
+          result.error?.details ?? [],
+        );
+        emitCliStructuredError(error, { json: options.json, prefix: 'config sync failed' });
         return;
       }
 
