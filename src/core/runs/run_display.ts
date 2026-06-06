@@ -94,7 +94,10 @@ export function listRuns(_vibecodePath: string, runsDir: string): RunInfo[] {
     .map((entry) => path.join(runsDir, entry))
     .filter((entryPath) => {
       try {
-        return fs.statSync(entryPath).isDirectory();
+        // lstat (not stat) so a symlink/junction pointing at a directory is
+        // NOT treated as a run: a planted link under .vibecode/runs/ could
+        // otherwise surface an arbitrary external directory as a run.
+        return fs.lstatSync(entryPath).isDirectory();
       } catch {
         return false;
       }

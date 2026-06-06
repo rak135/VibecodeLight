@@ -156,6 +156,63 @@ function isInside(parent: string, child: string): boolean {
 }
 
 /**
+ * Resolve real (symlink-followed) paths for the run root and the candidate
+ * target and verify the target still lives inside the run root. This defeats
+ * symlink/junction escapes that pass the lexical containment check. Resolving
+ * the run root too keeps legitimate setups working when the run dir itself
+ * lives under a symlinked ancestor (e.g. macOS `/tmp` -> `/private/tmp`).
+ */
+function enforceRealpathContainment(
+  runRoot: string,
+  artifactPath: string,
+  selector: string,
+  relativePath: string,
+): { ok: true } | { ok: false; error: RunArtifactError } {
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(runRoot);
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: 'PATH_OUTSIDE_RUN',
+        message: `run directory could not be resolved: ${selector}`,
+        resolvedPath: artifactPath,
+      },
+    };
+  }
+
+  let realTarget: string;
+  try {
+    realTarget = fs.realpathSync(artifactPath);
+  } catch {
+    // Broken symlink or a file that vanished between existsSync and here.
+    // Surface as not-found rather than leaking the lexical path as readable.
+    return {
+      ok: false,
+      error: {
+        code: 'ARTIFACT_NOT_FOUND',
+        message: `artifact not found: ${relativePath}`,
+        resolvedPath: artifactPath,
+      },
+    };
+  }
+
+  if (!isInside(realRoot, realTarget)) {
+    return {
+      ok: false,
+      error: {
+        code: 'PATH_OUTSIDE_RUN',
+        message: `artifact path resolves outside run directory: ${selector}`,
+        resolvedPath: artifactPath,
+      },
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Resolve a run-artifact selector to an absolute path under `runDir`.
  *
  * The caller is responsible for verifying that `runDir` itself exists and is
@@ -205,6 +262,19 @@ export function resolveRunArtifactPath(
         resolvedPath: artifactPath,
       },
     };
+  }
+
+  // Symlink/junction escape guard. The lexical containment check above only
+  // validates the *string* path; `fs.readFileSync` (used by every reader) still
+  // follows symlinks and directory junctions. A symlink planted at an
+  // allowlisted path — or an allowlisted file reached through a symlinked
+  // parent directory — could otherwise point outside the run dir and leak an
+  // arbitrary file. Resolve the real run root and the real target and re-check
+  // containment. Only meaningful when the file actually exists; when
+  // requireExists is false the caller only wants the lexical path.
+  if (requireExists) {
+    const guard = enforceRealpathContainment(runRoot, artifactPath, selector, relativePath);
+    if (!guard.ok) return guard;
   }
 
   return { ok: true, value: { relativePath, absolutePath: artifactPath } };

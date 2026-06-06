@@ -20,6 +20,52 @@ function makeRunDir(prefix: string): string {
   return tmp;
 }
 
+/**
+ * Probe whether this environment can create symlinks. On Windows without
+ * Developer Mode/elevation, fs.symlinkSync throws EPERM, so the symlink-escape
+ * cases are skipped there while the normal-path regression still runs.
+ */
+function detectSymlinkSupport(): boolean {
+  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-symlink-probe-'));
+  const target = path.join(probeDir, 'target');
+  const link = path.join(probeDir, 'link');
+  try {
+    fs.writeFileSync(target, 'x', 'utf8');
+    fs.symlinkSync(target, link);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(probeDir, { recursive: true, force: true });
+  }
+}
+
+const SYMLINKS_SUPPORTED = detectSymlinkSupport();
+
+/**
+ * Probe whether this environment can create directory links. On Windows this
+ * uses junctions (which, unlike file symlinks, do not require elevation); on
+ * POSIX Node treats the 'junction' type as a normal directory symlink. This is
+ * supported on effectively every CI/dev environment, so the directory-escape
+ * regression runs everywhere rather than being skipped on Windows.
+ */
+function detectDirLinkSupport(): boolean {
+  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-dirlink-probe-'));
+  const target = path.join(probeDir, 'target');
+  const link = path.join(probeDir, 'link');
+  try {
+    fs.mkdirSync(target);
+    fs.symlinkSync(target, link, 'junction');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(probeDir, { recursive: true, force: true });
+  }
+}
+
+const DIRLINKS_SUPPORTED = detectDirLinkSupport();
+
 describe('run_artifacts selector normalization', () => {
   test('normalizeRunArtifactSelector converts backslashes to forward slashes', () => {
     expect(normalizeRunArtifactSelector('flash\\flash_output.md')).toBe('flash/flash_output.md');
@@ -236,5 +282,113 @@ describe('readRunArtifactText', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe('ARTIFACT_NOT_ALLOWED');
+  });
+});
+
+describe('run_artifacts symlink / realpath containment', () => {
+  let runDir: string;
+  let outsideDir: string;
+
+  beforeEach(() => {
+    runDir = makeRunDir('vibecode-run-artifacts-symlink-');
+    outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-outside-secret-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(runDir, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  test('a normal real file at an allowlisted path still reads (regression, runs everywhere)', () => {
+    fs.writeFileSync(path.join(runDir, 'output', 'final_prompt.md'), '# real\n', 'utf8');
+    const result = readRunArtifactText(runDir, 'output/final_prompt.md', {
+      allowlist: RUN_SHOW_ARTIFACTS,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.content).toBe('# real\n');
+  });
+
+  test.skipIf(!SYMLINKS_SUPPORTED)(
+    'rejects an allowlisted artifact that is a symlink pointing outside the run dir',
+    () => {
+      const secret = path.join(outsideDir, 'secret.txt');
+      fs.writeFileSync(secret, 'TOP SECRET CONTENTS', 'utf8');
+      const artifact = path.join(runDir, 'output', 'final_prompt.md');
+      fs.symlinkSync(secret, artifact);
+
+      // Sanity: prove fs.readFileSync WOULD have followed the link and leaked
+      // the external file. The resolver must prevent this.
+      expect(fs.readFileSync(artifact, 'utf8')).toBe('TOP SECRET CONTENTS');
+
+      const resolved = resolveRunArtifactPath(runDir, 'output/final_prompt.md', {
+        allowlist: RUN_SHOW_ARTIFACTS,
+      });
+      expect(resolved.ok).toBe(false);
+      if (resolved.ok) return;
+      expect(resolved.error.code).toBe('PATH_OUTSIDE_RUN');
+
+      const read = readRunArtifactText(runDir, 'output/final_prompt.md', {
+        allowlist: RUN_SHOW_ARTIFACTS,
+      });
+      expect(read.ok).toBe(false);
+      if (read.ok) return;
+      expect(read.error.code).toBe('PATH_OUTSIDE_RUN');
+      // The external secret must never appear in the structured error.
+      expect(JSON.stringify(read.error)).not.toContain('TOP SECRET CONTENTS');
+    },
+  );
+
+  test.skipIf(!DIRLINKS_SUPPORTED)(
+    'rejects an allowlisted artifact reached through a linked intermediate directory (runs on Windows via junction)',
+    () => {
+      const secret = path.join(outsideDir, 'final_prompt.md');
+      fs.writeFileSync(secret, 'OUTSIDE VIA DIR LINK', 'utf8');
+      // Replace the real output/ dir with a directory link to the outside dir.
+      fs.rmSync(path.join(runDir, 'output'), { recursive: true, force: true });
+      fs.symlinkSync(outsideDir, path.join(runDir, 'output'), 'junction');
+
+      // Sanity: prove fs.readFileSync WOULD have followed the link and leaked
+      // the external file. The resolver must prevent this.
+      expect(fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8')).toBe(
+        'OUTSIDE VIA DIR LINK',
+      );
+
+      const read = readRunArtifactText(runDir, 'output/final_prompt.md', {
+        allowlist: RUN_SHOW_ARTIFACTS,
+      });
+      expect(read.ok).toBe(false);
+      if (read.ok) return;
+      expect(read.error.code).toBe('PATH_OUTSIDE_RUN');
+      expect(JSON.stringify(read.error)).not.toContain('OUTSIDE VIA DIR LINK');
+    },
+  );
+
+  test.skipIf(!SYMLINKS_SUPPORTED)('handles a broken symlink cleanly as ARTIFACT_NOT_FOUND', () => {
+    const missing = path.join(outsideDir, 'does-not-exist.txt');
+    const artifact = path.join(runDir, 'output', 'final_prompt.md');
+    fs.symlinkSync(missing, artifact);
+
+    const read = readRunArtifactText(runDir, 'output/final_prompt.md', {
+      allowlist: RUN_SHOW_ARTIFACTS,
+    });
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.error.code).toBe('ARTIFACT_NOT_FOUND');
+  });
+
+  test.skipIf(!SYMLINKS_SUPPORTED)('still allows a symlink that stays inside the run dir', () => {
+    // A symlink pointing to another file *within* the run dir is not an escape.
+    const realInside = path.join(runDir, 'scan', 'codegraph_usage.json');
+    fs.writeFileSync(realInside, '{"inside":true}', 'utf8');
+    const artifact = path.join(runDir, 'output', 'final_prompt.md');
+    fs.symlinkSync(realInside, artifact);
+
+    const read = readRunArtifactText(runDir, 'output/final_prompt.md', {
+      allowlist: RUN_SHOW_ARTIFACTS,
+    });
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.value.content).toBe('{"inside":true}');
   });
 });

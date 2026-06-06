@@ -105,6 +105,46 @@ describe('run display', () => {
     expect(info.codegraph.state).toBe('unknown');
   });
 
+  test('listRuns ignores symlinked directories and lists only real run dirs', () => {
+    const runsDir = path.join(tmpRepo, '.vibecode', 'runs');
+    const realRunDir = path.join(runsDir, '2026-05-25_010');
+    fs.mkdirSync(realRunDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(realRunDir, 'run_manifest.json'),
+      `${JSON.stringify({ run_id: '2026-05-25_010', task: 'real', created_at: '2026-05-25T00:00:00.000Z' })}\n`,
+      'utf8',
+    );
+
+    // A directory outside the runs dir that an attacker tries to surface as a run.
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-run-display-outside-'));
+    fs.writeFileSync(
+      path.join(outsideDir, 'run_manifest.json'),
+      `${JSON.stringify({ run_id: 'evil', task: 'evil', created_at: '2099-01-01T00:00:00.000Z' })}\n`,
+      'utf8',
+    );
+
+    // Use a junction so this runs on Windows (no elevation) as well as POSIX,
+    // where Node treats the 'junction' type as a normal directory symlink.
+    let dirLinkSupported = true;
+    try {
+      fs.symlinkSync(outsideDir, path.join(runsDir, '2099-01-01_evil'), 'junction');
+    } catch {
+      dirLinkSupported = false;
+    }
+
+    try {
+      const paths = getWorkspacePaths(tmpRepo);
+      const runs = listRuns(paths.vibecode, paths.runs);
+      const ids = runs.map((run) => run.run_id);
+      expect(ids).toContain('2026-05-25_010');
+      if (dirLinkSupported) {
+        expect(ids).not.toContain('evil');
+      }
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   test('runs show latest --json returns canonical envelope', async () => {
     const pipeline = await runPromptPipeline({ task: 'runs show latest json', repoRoot: tmpRepo, mock: true });
     expect(pipeline.ok).toBe(true);
