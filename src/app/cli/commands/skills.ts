@@ -51,7 +51,10 @@ function logSkillUsage(
 }
 
 function emitSkillsError(prefix: string, error: CliStructuredError, json?: boolean): void {
-  emitCliStructuredError(error, { json, prefix });
+  emitCliStructuredError(error, {
+    json,
+    prefix: json ? prefix : `${prefix}: ${error.code}`,
+  });
 }
 
 export function registerSkillsCommands(program: Command): void {
