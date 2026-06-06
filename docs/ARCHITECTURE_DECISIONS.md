@@ -75,6 +75,67 @@ Python does not create commits.
 
 ---
 
+# Agent Integration Direction: MCP First, CLI Fallback
+
+This section records the near-term product investment priority. It does not
+change the architecture above; it states where new work goes first.
+
+Order of investment:
+
+1. **MCP integration** for agents that support the Model Context Protocol. MCP
+   is the primary agent-facing control surface: Vibecode exposes its read-only
+   CodeGraph, run/artifact, and workspace-orientation tools through a repo-bound
+   MCP server (see `docs/codegraph_mcp_roadmap.md`).
+2. **CLI fallback/tools** for agents that do not support MCP. Non-MCP agents are
+   served through the `vibecode` CLI surface, not through MCP — MCP is only for
+   MCP-capable clients.
+3. **Multi-agent / multi-terminal orchestration**, only after the MCP and CLI
+   primitives are stable. This does not exist today and must not be built before
+   those surfaces are reliable.
+
+The Composer/prompt pipeline — task normalization, search hints, context
+assembly, `final_prompt.md`, and Composer preview/send — remains part of the
+product as supporting infrastructure. It is no longer the primary near-term
+expansion area, but it is **not** being removed or deprecated. The existing
+invariant stands: `final_prompt.md` is the single source of truth for any prompt
+sent through the Composer/prompt pipeline (preview equals the saved file, and
+send reads that file). MCP and CLI are additional agent-facing surfaces
+alongside that pipeline, not replacements for it.
+
+---
+
+# Agent Guidance and Approval Boundary
+
+**Agent Guidance** is a dedicated integration/config layer that helps both
+MCP-capable and CLI-capable agents discover and use Vibecode tools.
+
+- Agent Guidance configuration lives outside the target project's config, in the
+  local user/app-data location already implemented by the codebase
+  (`%LOCALAPPDATA%/vibecodelight/…`), not in `<repo>/config.yaml` or
+  `<repo>/.vibecode/`.
+- MCP server instructions and tool descriptions may include bounded guidance
+  text so agents can orient quickly.
+- Guidance is read when an MCP server starts; a running MCP server may need a
+  restart/reconnect to pick up guidance-config edits.
+- Terminal Agent Preflight must not inject text into PTY sessions. It may check
+  and prepare safe MCP server config; it never types into a terminal.
+
+Approval boundary: approval and permission policy is owned by the target
+agent/tool and the user, never silently by Vibecode.
+
+- Vibecode may register MCP servers/tools for Claude and Codex (safe, repo-bound
+  server config only).
+- Vibecode must not manage Claude/Codex approval policy by default. It does not
+  write approval/permission keys — for example it does not set
+  `default_tools_approval_mode`, `allowedTools`, `deniedTools`, or `hooks`.
+- Any future approval-mode mutation must be explicit, opt-in, tested, and
+  documented. It must never be a silent default.
+
+See `docs/codegraph.md` and `docs/codegraph_mcp_roadmap.md` for the concrete MCP
+tool surface and the "what Vibecode does not do" boundary list.
+
+---
+
 # Repository Structure
 
 Canonical repository structure:
