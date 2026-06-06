@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:serial": "vitest run --fileParallelism=false",
+    "test:pty": "node scripts/test_pty.mjs",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
     "vibecode": "tsx src/app/cli/index.ts",

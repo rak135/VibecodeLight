@@ -3,20 +3,11 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 
+import { ptyIntegrationEnabled } from '../setup/pty_integration.js';
+
 const repoRoot = path.resolve(__dirname, '../..');
 
-describe('terminal demo JSON output cleanup', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-pty-json-'));
-    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# JSON clean demo fixture\n', 'utf8');
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
+describe('terminal demo JSON output cleanup (unit)', () => {
   test('runTerminalDemo excerpt uses clean text (no ANSI) via getCleanText on session excerpt', async () => {
     // This test uses the mock PTY path via the adapter.
     // We verify that TerminalDemoResult.excerpt is derived from getCleanText.
@@ -28,40 +19,22 @@ describe('terminal demo JSON output cleanup', () => {
     expect(clean).not.toMatch(/\x1b/);
   });
 
-  test('terminal demo does not create send_metadata.json', async () => {
+  test('terminal demo uses PTY adapter path (runTerminalDemo function exists and is used by CLI)', async () => {
+    // Verify the terminal demo is wired to the real PTY path and not child_process.exec
     const { runTerminalDemo } = await import('../../src/core/terminal/terminal_demo.js');
-    // Use a function that will succeed or fail quickly — we just check no forbidden files
-    try {
-      await runTerminalDemo({ repo: tmpDir });
-    } catch {
-      // tolerate failure in environments without node-pty
-    }
-    expect(fs.existsSync(path.join(tmpDir, 'terminal', 'send_metadata.json'))).toBe(false);
-    expect(fs.existsSync(path.join(tmpDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
-  });
+    expect(typeof runTerminalDemo).toBe('function');
 
-  test('terminal demo does not create after/ artifacts', async () => {
-    const { runTerminalDemo } = await import('../../src/core/terminal/terminal_demo.js');
-    try {
-      await runTerminalDemo({ repo: tmpDir });
-    } catch {
-      // tolerate failure in environments without node-pty
-    }
-    expect(fs.existsSync(path.join(tmpDir, 'after'))).toBe(false);
-    expect(fs.existsSync(path.join(tmpDir, '.vibecode', 'runs'))).toBe(false);
+    // Check that the source file imports from PTY adapter, not from child_process exec
+    const src = fs.readFileSync(path.join(repoRoot, 'src/core/terminal/terminal_demo.ts'), 'utf8');
+    expect(src).toContain("from '../../adapters/pty/index.js'");
+    expect(src).not.toContain('child_process.exec');
+    expect(src).not.toContain('execSync');
   });
 });
 
-const ptyAvailable = (() => {
-  try {
-    require('node-pty');
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-describe.skipIf(!ptyAvailable)('terminal demo --json ANSI clean (PTY integration)', () => {
+// Real ConPTY integration is opt-in (`pnpm test:pty`); see
+// tests/setup/pty_integration.ts for why it is gated.
+describe.skipIf(!ptyIntegrationEnabled)('terminal demo (PTY integration)', () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -72,6 +45,20 @@ describe.skipIf(!ptyAvailable)('terminal demo --json ANSI clean (PTY integration
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  test('terminal demo does not create send_metadata.json', async () => {
+    const { runTerminalDemo } = await import('../../src/core/terminal/terminal_demo.js');
+    await runTerminalDemo({ repo: tmpDir });
+    expect(fs.existsSync(path.join(tmpDir, 'terminal', 'send_metadata.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, 'terminal', 'terminal_excerpt_after.md'))).toBe(false);
+  }, 20000);
+
+  test('terminal demo does not create after/ artifacts', async () => {
+    const { runTerminalDemo } = await import('../../src/core/terminal/terminal_demo.js');
+    await runTerminalDemo({ repo: tmpDir });
+    expect(fs.existsSync(path.join(tmpDir, 'after'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, '.vibecode', 'runs'))).toBe(false);
+  }, 20000);
 
   test('--json excerpt contains VIBECODE_PTY_OK and has no ANSI escape sequences', () => {
     const result = spawnSync('pnpm', ['vibecode', 'terminal', 'demo', '--repo', tmpDir, '--json'], {
@@ -101,16 +88,4 @@ describe.skipIf(!ptyAvailable)('terminal demo --json ANSI clean (PTY integration
     const parsed = JSON.parse(result.stdout);
     expect(parsed.excerpt).not.toContain('AttachConsole failed');
   }, 40000);
-
-  test('terminal demo uses PTY adapter path (runTerminalDemo function exists and is used by CLI)', async () => {
-    // Verify the terminal demo is wired to the real PTY path and not child_process.exec
-    const { runTerminalDemo } = await import('../../src/core/terminal/terminal_demo.js');
-    expect(typeof runTerminalDemo).toBe('function');
-
-    // Check that the source file imports from PTY adapter, not from child_process exec
-    const src = fs.readFileSync(path.join(repoRoot, 'src/core/terminal/terminal_demo.ts'), 'utf8');
-    expect(src).toContain("from '../../adapters/pty/index.js'");
-    expect(src).not.toContain('child_process.exec');
-    expect(src).not.toContain('execSync');
-  });
 });

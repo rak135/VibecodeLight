@@ -1259,12 +1259,15 @@ Expected TypeScript commands:
 ```powershell
 pnpm test
 pnpm test:serial
+pnpm test:pty
 pnpm lint
 pnpm typecheck
 pnpm build
 ```
 
 `pnpm test` runs the full Vitest suite (parallel by default). `pnpm test:serial` runs the same suite with `--fileParallelism=false` and is available as a fallback if the parallel run shows flakiness on a given Windows ConPTY/node-pty environment.
+
+The default suite uses a mocked PTY adapter and never spawns a real terminal. The real-ConPTY smoke tests are opt-in via `pnpm test:pty` (which sets `VIBECODE_PTY_INTEGRATION=1`). They are gated out of the default run because node-pty's vendored console-list agent crashes with `AttachConsole failed` on Node >= 24 under Windows, which can otherwise destabilize the full suite.
 
 Expected Python scanner commands:
 

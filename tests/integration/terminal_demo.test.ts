@@ -3,17 +3,13 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 
-const repoRoot = path.resolve(__dirname, '../..');
-const ptyAvailable = (() => {
-  try {
-    require('node-pty');
-    return true;
-  } catch {
-    return false;
-  }
-})();
+import { ptyIntegrationEnabled } from '../setup/pty_integration.js';
 
-describe.skipIf(!ptyAvailable)('PTY integration', () => {
+const repoRoot = path.resolve(__dirname, '../..');
+
+// Real ConPTY integration is opt-in (`pnpm test:pty`); see
+// tests/setup/pty_integration.ts for why it is gated.
+describe.skipIf(!ptyIntegrationEnabled)('PTY integration', () => {
   let tmpDir: string;
 
   beforeEach(() => {
