@@ -55,6 +55,8 @@ describe('vibecode mcp config/install/doctor for Codex', () => {
     expect(output.trim().startsWith('[mcp_servers.vibecode]')).toBe(true);
     expect(output).toContain('command = "node"');
     expect(output).not.toContain('"ok"');
+    // Vibecode must not manage approval policy by default.
+    expect(output).not.toContain('default_tools_approval_mode');
     expect(result.errors).toEqual([]);
   });
 
@@ -119,7 +121,9 @@ describe('vibecode mcp config/install/doctor for Codex', () => {
     expect(payload.ok).toBe(true);
     expect(payload.backup_path).toBeTruthy();
     expect(fs.existsSync(payload.backup_path)).toBe(true);
-    expect(fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8')).toContain('[mcp_servers.vibecode]');
+    const written = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    expect(written).toContain('[mcp_servers.vibecode]');
+    expect(written).not.toContain('default_tools_approval_mode');
     expect(payload.restart_required).toBe(true);
   });
 

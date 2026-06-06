@@ -50,6 +50,32 @@ describe('Codex MCP doctor', () => {
     expect(result.suggestions.some((s) => /\/mcp/i.test(s))).toBe(true);
   });
 
+  test('passes for a config without default_tools_approval_mode (approval mode is not required)', () => {
+    const vibecodeBinPath = path.join(repoRoot, 'bin', 'vibecode.js');
+    fs.mkdirSync(path.dirname(vibecodeBinPath), { recursive: true });
+    fs.writeFileSync(vibecodeBinPath, 'console.log("stub");\n', 'utf8');
+    applyCodexMcpInstall({ repoRoot, scope: 'user', codexHome, yes: true, vibecodeBinPath });
+
+    // The freshly written config must not contain an approval-mode key.
+    const written = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    expect(written).not.toContain('default_tools_approval_mode');
+
+    const result = runCodexMcpDoctor({
+      repoRoot,
+      scope: 'user',
+      codexHome,
+      vibecodeBinPath,
+      codexExecutableChecker: () => true,
+      toolsProvider: () => ({ ok: true, tools: [...CODEX_MCP_ENABLED_TOOLS] }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.checks.configured.ok).toBe(true);
+    expect(result.checks.enabled_tools.ok).toBe(true);
+    // Absence of approval mode is not surfaced as a failure or warning.
+    expect(result.warnings.some((w) => /approval/i.test(w))).toBe(false);
+  });
+
   test('warns when configured enabled_tools differ from the expected read-only list', () => {
     const vibecodeBinPath = path.join(repoRoot, 'bin', 'vibecode.js');
     fs.mkdirSync(path.dirname(vibecodeBinPath), { recursive: true });

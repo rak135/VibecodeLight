@@ -51,7 +51,41 @@ describe('Codex MCP config generation', () => {
     expect(result.toml_snippet).toContain(`"${pathToTomlPath(repoRoot)}"`);
     expect(result.toml_snippet).toContain('startup_timeout_sec = 10');
     expect(result.toml_snippet).toContain('tool_timeout_sec = 60');
-    expect(result.toml_snippet).toContain('default_tools_approval_mode = "auto"');
+    // Vibecode registers the MCP server and tools but must NOT manage approval
+    // policy by default (see docs/codegraph.md "does not" list).
+    expect(result.toml_snippet).not.toContain('default_tools_approval_mode');
+  });
+
+  test('does not write any approval/permission keys in the managed block by default', () => {
+    const result = buildCodexMcpConfig({
+      repoRoot,
+      scope: 'user',
+      vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
+    });
+
+    for (const forbidden of [
+      'default_tools_approval_mode',
+      'approval_policy',
+      'allowedTools',
+      'deniedTools',
+      'hooks',
+    ]) {
+      expect(result.toml_snippet).not.toContain(forbidden);
+    }
+
+    // The server-registration keys that ARE part of the contract remain.
+    for (const required of [
+      '[mcp_servers.vibecode]',
+      'command = "node"',
+      'args = ',
+      'cwd = ',
+      'enabled = true',
+      'startup_timeout_sec = 10',
+      'tool_timeout_sec = 60',
+      'enabled_tools = ',
+    ]) {
+      expect(result.toml_snippet).toContain(required);
+    }
   });
 
   test('includes exactly the 17 read-only VibecodeMCP tools (MCP-1 CodeGraph + MCP-2 run/artifact + MCP-3 workspace orientation) and no write/shell/git/terminal tools', () => {

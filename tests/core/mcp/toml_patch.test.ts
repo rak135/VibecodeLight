@@ -278,6 +278,59 @@ describe('Codex MCP config write hardening', () => {
     expect(winCalls).toEqual([]);
   });
 
+  // ---- Approval-boundary cleanup ----
+
+  test('reinstall removes a stale default_tools_approval_mode from the managed block and preserves unrelated content', () => {
+    const existing = [
+      'model = "gpt-5.5"',
+      'approval_policy = "on-request"',
+      '',
+      '[mcp_servers.other]',
+      'command = "npx"',
+      'args = ["other-server"]',
+      '',
+      '[mcp_servers.vibecode]',
+      'command = "node"',
+      'args = ["old"]',
+      'default_tools_approval_mode = "auto"',
+      '',
+      '[features]',
+      'goals = true',
+      '',
+    ].join('\n');
+    fs.writeFileSync(configPath, existing, 'utf8');
+
+    const result = applyCodexMcpInstall({
+      repoRoot,
+      scope: 'user',
+      codexHome,
+      yes: true,
+      vibecodeBinPath: binPath(),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const updated = read(configPath);
+
+    // The managed block no longer carries the approval-mode key.
+    expect(updated).not.toContain('default_tools_approval_mode');
+
+    // Unrelated top-level keys and tables survive untouched.
+    expect(updated).toContain('model = "gpt-5.5"');
+    expect(updated).toContain('approval_policy = "on-request"'); // global key NOT managed by Vibecode
+    expect(updated).toContain('[features]');
+    expect(updated).toContain('goals = true');
+
+    // The unrelated MCP server table is preserved verbatim.
+    expect(updated).toContain('[mcp_servers.other]');
+    expect(updated).toContain('command = "npx"');
+    expect(updated).toContain('args = ["other-server"]');
+
+    // The managed block was refreshed (old args gone, single table remains).
+    expect(updated).not.toContain('args = ["old"]');
+    expect(updated.match(/\[mcp_servers\.vibecode\]/g)).toHaveLength(1);
+  });
+
   // ---- Problem 3: backup pruning ----
 
   test('prunes old backups to CODEX_CONFIG_BACKUP_LIMIT for the same config only', () => {

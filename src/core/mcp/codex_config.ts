@@ -224,7 +224,10 @@ export function buildCodexMcpConfig(options: CodexMcpConfigOptions): CodexMcpCon
     'startup_timeout_sec = 10',
     'tool_timeout_sec = 60',
     `enabled_tools = ${tomlArray(CODEX_MCP_ENABLED_TOOLS)}`,
-    'default_tools_approval_mode = "auto"',
+    // Vibecode registers the MCP server and its read-only tools but does NOT
+    // manage Codex approval policy. We intentionally do not write
+    // default_tools_approval_mode (or any approval/permission key); approval
+    // behavior belongs to Codex (`/mcp`). See docs/codegraph.md.
     '',
   ].join('\n');
 
