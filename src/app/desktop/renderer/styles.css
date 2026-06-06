@@ -859,6 +859,42 @@ input, textarea, select { font: inherit; color: inherit; }
 .settings-tab-panel { display: flex; flex-direction: column; gap: 10px; }
 .settings-tab-panel[hidden] { display: none; }
 .settings-note { color: var(--muted); font-size: 12px; }
+.settings-tab-panel h4 {
+  margin: 6px 0 4px; font-size: 10.5px; font-weight: 500; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); font-family: var(--font-mono);
+}
+.settings-tab-panel textarea,
+.settings-tab-panel input[type="text"] {
+  background: var(--bg-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.settings-tab-panel textarea:focus,
+.settings-tab-panel input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+.settings-tab-panel label { color: var(--text); font-size: 12px; }
+.settings-tab-panel code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent-text);
+  background: var(--bg-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.settings-tab-panel pre {
+  color: var(--text);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+}
 
 /* CodeGraph action buttons */
 .cg-action-btn {
