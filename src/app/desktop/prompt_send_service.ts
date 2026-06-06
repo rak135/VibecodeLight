@@ -113,12 +113,20 @@ export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promi
   if (!targetResolution.ok) return targetResolution.error;
   const target = targetResolution.session;
 
+  // Tracks an expected terminal closure detected mid-send (between paste
+  // chunks). The throw below is the only way to abort the core write loop; it
+  // is caught by sendFinalPrompt and never escapes this service. We use this
+  // flag to remap that contained failure to the structured ORIGIN_TERMINAL_CLOSED
+  // code rather than the generic TERMINAL_WRITE_FAILED, so Composer/CLI/agent
+  // callers can distinguish terminal closure from an internal write crash.
+  let terminalClosedMidSend = false;
   const writer = {
     sessionId: target.sessionId,
     cwd: target.cwd,
     write: (data: string) => {
       const stillAvailable = req.terminalService.getSession?.(target.sessionId);
       if (req.terminalService.getSession && !stillAvailable) {
+        terminalClosedMidSend = true;
         throw new Error(`target terminal session ${target.sessionId} is no longer available`);
       }
       req.terminalService.writeInput(target.sessionId, data);
@@ -135,6 +143,16 @@ export async function sendFinalPromptForRun(req: SendPromptForRunRequest): Promi
   });
 
   if (!result.ok) {
+    if (terminalClosedMidSend) {
+      // sendFinalPrompt writes no metadata on a failed write loop, so a partial
+      // send never leaves successful send_metadata behind.
+      return errorResult(
+        'ORIGIN_TERMINAL_CLOSED',
+        `target terminal session ${target.sessionId} is no longer available (closed during send)`,
+        undefined,
+        ['The terminal session receiving this prompt closed mid-send; no successful send was recorded.'],
+      );
+    }
     const errPath = result.error.path;
     const errOut: SendPromptIpcError['error'] = {
       code: result.error.code,

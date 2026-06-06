@@ -265,11 +265,60 @@ describe('DesktopPromptSendService', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error.code).toBe('TERMINAL_WRITE_FAILED');
+    // Terminal closure between target resolution and the write is a structured
+    // ORIGIN_TERMINAL_CLOSED, not a generic write failure or a raw throw.
+    expect(result.error.code).toBe('ORIGIN_TERMINAL_CLOSED');
     expect(result.error.message).toContain(origin.sessionId);
     expect(result.error.message).toContain('no longer available');
     expect(writes).toEqual([]);
     expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'runs', 'r-origin-race', 'terminal', 'send_metadata.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'current', 'send_metadata.json'))).toBe(false);
+  });
+
+  test('returns ORIGIN_TERMINAL_CLOSED when the terminal disappears between paste chunks and writes no successful metadata', async () => {
+    const { sendFinalPromptForRun } = await import('../../../src/app/desktop/prompt_send_service.js');
+    // Content large enough to require more than one bracketed-paste chunk
+    // (default chunk size is 2048), so the closure happens mid-stream.
+    const content = `${'A'.repeat(3000)}\n`;
+    const { runDir } = makeFinalizedRun(tmpRepo, 'r-midsend', content);
+
+    const target: ActiveSession = { sessionId: 'desktop-mid', cwd: tmpRepo, pid: 9, shell: 'pwsh' };
+    const writes: Array<{ sessionId: string; data: string }> = [];
+    const sessions = new Map<string, ActiveSession>([[target.sessionId, target]]);
+    let sessionLookups = 0;
+    const service = {
+      active: target,
+      sessions,
+      writes,
+      writeInput(sessionId: string, data: string) {
+        writes.push({ sessionId, data });
+      },
+      getActiveSessionInfo() {
+        return target;
+      },
+      getSession(sessionId: string) {
+        // Available for the first chunk's re-check, gone for every later chunk.
+        sessionLookups += 1;
+        return sessionLookups <= 1 ? sessions.get(sessionId) : undefined;
+      },
+    };
+
+    const result = await sendFinalPromptForRun({
+      runId: 'r-midsend',
+      repoRoot: tmpRepo,
+      terminalService: service as unknown as Parameters<typeof sendFinalPromptForRun>[0]['terminalService'],
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('ORIGIN_TERMINAL_CLOSED');
+    expect(result.error.message).toContain(target.sessionId);
+    expect(result.error.message.toLowerCase()).toMatch(/no longer available|closed/);
+    // Exactly the first chunk was written before closure was detected.
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.sessionId).toBe(target.sessionId);
+    // A failed mid-stream send must not look like a successful send.
+    expect(fs.existsSync(path.join(runDir, 'terminal', 'send_metadata.json'))).toBe(false);
     expect(fs.existsSync(path.join(tmpRepo, '.vibecode', 'current', 'send_metadata.json'))).toBe(false);
   });
 
