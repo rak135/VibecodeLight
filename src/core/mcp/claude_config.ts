@@ -88,6 +88,7 @@ export type ClaudeMcpErrorCode =
   | 'REPO_NOT_A_DIRECTORY'
   | 'CLAUDE_CLI_NOT_FOUND'
   | 'CLAUDE_MCP_INSTALL_FAILED'
+  | 'CLAUDE_MCP_FORBIDDEN_KEY'
   | 'CLAUDE_MCP_DOCTOR_FAILED'
   | 'VIBECODE_MCP_NOT_AVAILABLE'
   | 'MCP_CONFIG_BUILD_FAILED';
@@ -117,6 +118,8 @@ export interface ClaudeMcpInstallOptions extends ClaudeMcpConfigOptions {
   yes?: boolean;
   runner?: ClaudeProcessRunner;
   timeoutMs?: number;
+  /** Builder seam (defaults to buildClaudeMcpInstallCommand); used to exercise the forbidden-key guard. */
+  buildInstallCommand?: (options: ClaudeMcpConfigOptions) => ClaudeMcpInstallCommand;
 }
 
 export type ClaudeMcpInstallResult =
@@ -245,12 +248,65 @@ export function buildClaudeMcpInstallCommand(options: ClaudeMcpConfigOptions): C
   };
 }
 
+/**
+ * Recursively collect any object KEYS in `payload` that match
+ * {@link CLAUDE_FORBIDDEN_CONFIG_KEYS} (approval/permission/tool-policy keys
+ * Vibecode must never write). Recurses through plain objects and arrays.
+ *
+ * Matching is on keys only and case-insensitive — string VALUES that merely
+ * contain the same words (e.g. an arg that mentions "allowedTools") are not
+ * flagged. This is the fail-closed production guard behind the Claude install
+ * payload: if a future edit ever adds such a key, install aborts before
+ * spawning Claude rather than silently passing it to `claude mcp add-json`.
+ */
+export function findForbiddenClaudeConfigKeys(payload: unknown): string[] {
+  const forbidden = new Set(CLAUDE_FORBIDDEN_CONFIG_KEYS.map((key) => key.toLowerCase()));
+  const found: string[] = [];
+  const seen = new Set<unknown>();
+  const visit = (value: unknown): void => {
+    if (value === null || typeof value !== 'object') return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (forbidden.has(key.toLowerCase()) && !found.includes(key)) found.push(key);
+      visit(child);
+    }
+  };
+  visit(payload);
+  return found;
+}
+
 export function applyClaudeMcpInstall(options: ClaudeMcpInstallOptions): ClaudeMcpInstallResult {
-  const command = buildClaudeMcpInstallCommand(options);
+  const buildCommand = options.buildInstallCommand ?? buildClaudeMcpInstallCommand;
+  const command = buildCommand(options);
   const warnings = [
     ...command.warnings,
     'Vibecode does not manage Claude MCP approvals. Claude Code applies its own permission/trust settings.',
   ];
+
+  // Fail closed: never pass an approval/permission/tool-policy key to Claude,
+  // even if a future change accidentally introduces one into the payload.
+  const forbiddenKeys = findForbiddenClaudeConfigKeys(command.server_config);
+  if (forbiddenKeys.length > 0) {
+    return {
+      ok: false,
+      error: {
+        code: 'CLAUDE_MCP_FORBIDDEN_KEY',
+        message: `Refusing to install: Claude MCP payload contains forbidden approval/permission keys: ${forbiddenKeys.join(', ')}.`,
+        path: command.cwd,
+        details: [
+          `Forbidden keys: ${forbiddenKeys.join(', ')}`,
+          'Vibecode registers MCP servers/tools but does not manage Claude approval or permission policy.',
+          'No Claude config was modified.',
+        ],
+      },
+      warnings,
+    };
+  }
 
   if (!options.dryRun && !options.yes) {
     return {

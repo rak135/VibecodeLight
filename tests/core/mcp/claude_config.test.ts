@@ -3,10 +3,14 @@ import os from 'os';
 import path from 'path';
 
 import {
+  applyClaudeMcpInstall,
   buildClaudeMcpConfig,
   buildClaudeMcpInstallCommand,
   CLAUDE_FORBIDDEN_CONFIG_KEYS,
+  findForbiddenClaudeConfigKeys,
   parseClaudeMcpScope,
+  type ClaudeMcpInstallCommand,
+  type ClaudeProcessRunner,
 } from '../../../src/core/mcp/claude_config.js';
 
 function makeRepo(): string {
@@ -116,3 +120,141 @@ describe('Claude MCP config generation', () => {
 function normalizeCliPath(value: string): string {
   return path.resolve(value).replace(/\\/g, '/');
 }
+
+describe('findForbiddenClaudeConfigKeys', () => {
+  test('returns [] for the normal Claude MCP server payload', () => {
+    const repoRoot = makeRepo();
+    try {
+      const command = buildClaudeMcpInstallCommand({
+        repoRoot,
+        vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
+      });
+      expect(findForbiddenClaudeConfigKeys(command.server_config)).toEqual([]);
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('detects a forbidden top-level object key', () => {
+    const found = findForbiddenClaudeConfigKeys({ type: 'stdio', allowedTools: ['*'] });
+    expect(found).toContain('allowedTools');
+  });
+
+  test('detects forbidden keys nested under objects and arrays', () => {
+    const payload = {
+      type: 'stdio',
+      command: 'node',
+      env: { nested: { hooks: { PreToolUse: 'x' } } },
+      extras: [{ ok: true }, { deniedTools: ['shell'] }],
+    };
+    const found = findForbiddenClaudeConfigKeys(payload);
+    expect(found).toEqual(expect.arrayContaining(['hooks', 'deniedTools']));
+  });
+
+  test('checks object KEYS only — does not flag string values that merely contain the words', () => {
+    const payload = {
+      type: 'stdio',
+      command: 'node',
+      args: ['--note', 'this string mentions allowedTools and hooks but is not a key'],
+    };
+    expect(findForbiddenClaudeConfigKeys(payload)).toEqual([]);
+  });
+
+  test('matches forbidden keys case-insensitively', () => {
+    expect(findForbiddenClaudeConfigKeys({ AllowedTools: [] })).toContain('AllowedTools');
+  });
+});
+
+describe('Claude MCP install forbidden-key runtime guard', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = makeRepo();
+  });
+
+  afterEach(() => {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  test('the normal install payload passes the guard and still spawns Claude', () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const runner: ClaudeProcessRunner = (command, args) => {
+      calls.push({ command, args });
+      return { status: 0, stdout: '', stderr: '' };
+    };
+
+    const result = applyClaudeMcpInstall({ repoRoot, yes: true, runner });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a payload with a forbidden top-level key fails before spawning Claude', () => {
+    const calls: unknown[] = [];
+    const runner: ClaudeProcessRunner = (...args) => {
+      calls.push(args);
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    // Inject a builder that produces a payload a future bug might create.
+    const buildInstallCommand = (options: { repoRoot: string }): ClaudeMcpInstallCommand => {
+      const base = buildClaudeMcpInstallCommand(options);
+      return {
+        ...base,
+        server_config: { ...base.server_config, allowedTools: ['*'] } as unknown as ClaudeMcpInstallCommand['server_config'],
+      };
+    };
+
+    const result = applyClaudeMcpInstall({ repoRoot, yes: true, runner, buildInstallCommand });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected guard failure');
+    expect(result.error.code).toBe('CLAUDE_MCP_FORBIDDEN_KEY');
+    expect((result.error.details ?? []).join(' ')).toContain('allowedTools');
+    // Claude was never spawned.
+    expect(calls).toEqual([]);
+  });
+
+  test('a payload with a nested forbidden key fails before spawning Claude', () => {
+    const calls: unknown[] = [];
+    const runner: ClaudeProcessRunner = (...args) => {
+      calls.push(args);
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const buildInstallCommand = (options: { repoRoot: string }): ClaudeMcpInstallCommand => {
+      const base = buildClaudeMcpInstallCommand(options);
+      return {
+        ...base,
+        server_config: { ...base.server_config, env: { hooks: { PreToolUse: 'x' } } } as unknown as ClaudeMcpInstallCommand['server_config'],
+      };
+    };
+
+    const result = applyClaudeMcpInstall({ repoRoot, yes: true, runner, buildInstallCommand });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected guard failure');
+    expect(result.error.code).toBe('CLAUDE_MCP_FORBIDDEN_KEY');
+    expect((result.error.details ?? []).join(' ')).toContain('hooks');
+    expect(calls).toEqual([]);
+  });
+
+  test('the guard also fails closed on dry-run (no preview of a forbidden payload)', () => {
+    const buildInstallCommand = (options: { repoRoot: string }): ClaudeMcpInstallCommand => {
+      const base = buildClaudeMcpInstallCommand(options);
+      return {
+        ...base,
+        server_config: { ...base.server_config, deniedTools: ['x'] } as unknown as ClaudeMcpInstallCommand['server_config'],
+      };
+    };
+
+    const result = applyClaudeMcpInstall({ repoRoot, dryRun: true, buildInstallCommand });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected guard failure');
+    expect(result.error.code).toBe('CLAUDE_MCP_FORBIDDEN_KEY');
+  });
+
+  test('every declared CLAUDE_FORBIDDEN_CONFIG_KEYS value is detected as a key', () => {
+    for (const key of CLAUDE_FORBIDDEN_CONFIG_KEYS) {
+      expect(findForbiddenClaudeConfigKeys({ [key]: true })).toContain(key);
+    }
+  });
+});

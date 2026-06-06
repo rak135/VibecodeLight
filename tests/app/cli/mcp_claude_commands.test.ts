@@ -111,6 +111,35 @@ describe('vibecode mcp config/install/doctor for Claude Code', () => {
     expect(payload.error.details.join(' ')).toContain('local');
   });
 
+  test('install surfaces a structured forbidden-key guard failure as exit 1 JSON', async () => {
+    vi.doMock('../../../src/core/mcp/claude_config.js', async () => {
+      const actual = await vi.importActual<typeof import('../../../src/core/mcp/claude_config.js')>(
+        '../../../src/core/mcp/claude_config.js',
+      );
+      return {
+        ...actual,
+        applyClaudeMcpInstall: vi.fn().mockReturnValue({
+          ok: false,
+          error: {
+            code: 'CLAUDE_MCP_FORBIDDEN_KEY',
+            message: 'Refusing to install: Claude MCP payload contains forbidden approval/permission keys: allowedTools.',
+            path: repoRoot,
+            details: ['Forbidden keys: allowedTools', 'No Claude config was modified.'],
+          },
+          warnings: [],
+        }),
+      };
+    });
+
+    const result = await runCli(['mcp', 'install', '--agent', 'claude', '--repo', repoRoot, '--yes', '--json']);
+
+    expect(result.exitCode).toBe(1);
+    const payload = JSON.parse(result.logs[0]);
+    expect(payload.ok).toBe(false);
+    expect(payload.error.code).toBe('CLAUDE_MCP_FORBIDDEN_KEY');
+    expect(payload.error.details.join(' ')).toContain('allowedTools');
+  });
+
   test('doctor --agent claude delegates to core doctor and preserves JSON output', async () => {
     vi.doMock('../../../src/core/mcp/claude_config.js', async () => {
       const actual = await vi.importActual<typeof import('../../../src/core/mcp/claude_config.js')>(
