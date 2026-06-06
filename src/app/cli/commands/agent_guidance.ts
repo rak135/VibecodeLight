@@ -10,26 +10,20 @@ import {
 } from '../../../core/agent_guidance/terminal_agent_preflight.js';
 import type { AgentGuidanceTerminalPreflightMode } from '../../../core/config/agent_guidance_config.js';
 import { resolveRepoRoot } from '../../../core/workspace/repo_root.js';
-
-interface CliStructuredError {
-  code: string;
-  message: string;
-  path: string;
-  details: string[];
-}
+import {
+  printJson,
+  type EmitCliStructuredError,
+  type MakeCliStructuredError,
+} from '../structured_output.js';
 
 export interface AgentGuidanceCommandDependencies {
-  makeCliStructuredError: (code: string, message: string, pathValue?: string, details?: string[]) => CliStructuredError;
-  emitCliStructuredError: (error: CliStructuredError, options: { json?: boolean; prefix: string }) => void;
+  makeCliStructuredError: MakeCliStructuredError;
+  emitCliStructuredError: EmitCliStructuredError;
 }
 
 function parseAgent(value: string | undefined): AgentGuidanceIntegrationAgent | null {
   const normalized = value?.trim().toLowerCase();
   return normalized === 'claude' || normalized === 'codex' ? normalized : null;
-}
-
-function printJson(payload: unknown): void {
-  console.log(JSON.stringify(payload));
 }
 
 function parseTerminalPreflightMode(value: string | undefined): AgentGuidanceTerminalPreflightMode | null | undefined {

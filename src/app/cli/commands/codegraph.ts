@@ -50,17 +50,15 @@ import {
   writeCodeGraphBinarySetting,
   writeCodeGraphTransportSetting,
 } from '../../../core/config/index.js';
-
-interface CliStructuredError {
-  code: string;
-  message: string;
-  path: string;
-  details: string[];
-}
+import {
+  type CliStructuredError,
+  type EmitCliStructuredError,
+  type MakeCliStructuredError,
+} from '../structured_output.js';
 
 export interface CodeGraphCommandDependencies {
-  makeCliStructuredError: (code: string, message: string, pathValue?: string, details?: string[]) => CliStructuredError;
-  emitCliStructuredError: (error: CliStructuredError, options: { json?: boolean; prefix: string }) => void;
+  makeCliStructuredError: MakeCliStructuredError;
+  emitCliStructuredError: EmitCliStructuredError;
 }
 
 function formatCodeGraphStatusLine(status: { available: boolean; initialized: boolean; version?: string }): string {

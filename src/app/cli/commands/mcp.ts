@@ -25,6 +25,12 @@ import {
   VIBECODE_MCP_TOOL_NAMES,
   type McpLogLevel,
 } from '../../mcp/index.js';
+import {
+  printJson,
+  type CliStructuredError,
+  type EmitCliStructuredError,
+  type MakeCliStructuredError,
+} from '../structured_output.js';
 
 /**
  * CLI surface for the VibecodeMCP stdio server:
@@ -41,16 +47,9 @@ import {
  * `<repo>/.vibecode/logs/mcp_tool_usage.jsonl`.
  */
 
-interface CliStructuredError {
-  code: string;
-  message: string;
-  path: string;
-  details: string[];
-}
-
 export interface McpCommandDependencies {
-  makeCliStructuredError: (code: string, message: string, pathValue?: string, details?: string[]) => CliStructuredError;
-  emitCliStructuredError: (error: CliStructuredError, options: { json?: boolean; prefix: string }) => void;
+  makeCliStructuredError: MakeCliStructuredError;
+  emitCliStructuredError: EmitCliStructuredError;
 }
 
 function parseLogLevel(value: string | undefined): McpLogLevel | undefined {
@@ -93,10 +92,6 @@ function parseAgentAndScope(options: { agent?: string; scope?: string }):
 
   if (agent === 'claude') return { ok: true, agent, scope: scope as ClaudeMcpScope };
   return { ok: true, agent, scope: scope as McpConfigScope };
-}
-
-function printJson(payload: unknown): void {
-  console.log(JSON.stringify(payload));
 }
 
 export function registerMcpCommands(

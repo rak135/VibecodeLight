@@ -53,6 +53,11 @@ import { registerMcpCommands } from './commands/mcp.js';
 import { registerRunCreateCommand, registerRunsCommands, resolveRunDir } from './commands/runs.js';
 import { registerSkillsCommands } from './commands/skills.js';
 import { registerWorkspaceCommands } from './commands/workspace.js';
+import {
+  emitCliStructuredError,
+  makeCliStructuredError,
+  type CliStructuredError,
+} from './structured_output.js';
 
 export { BAD_PROVIDER_RESPONSE_TIP };
 export type { PromptSendTerminal };
@@ -96,28 +101,6 @@ function toErrorEnvelope(error: unknown, fallbackPath?: string): NonNullable<Fla
     path: fallbackPath,
     details: [],
   };
-}
-
-interface CliStructuredError {
-  code: string;
-  message: string;
-  path: string;
-  details: string[];
-}
-
-function makeCliStructuredError(code: string, message: string, pathValue = '', details: string[] = []): CliStructuredError {
-  return { code, message, path: pathValue, details };
-}
-
-function emitCliStructuredError(error: CliStructuredError, options: { json?: boolean; prefix: string }): void {
-  if (options.json) {
-    console.log(JSON.stringify({ ok: false, error }));
-  } else {
-    console.error(`${options.prefix}: ${error.message}`);
-    if (error.path) console.error(`path: ${error.path}`);
-    for (const detail of error.details) console.error(`detail: ${detail}`);
-  }
-  process.exitCode = 1;
 }
 
 function parseCodeGraphModeOption(mode: string | undefined):
