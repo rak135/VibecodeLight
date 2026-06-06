@@ -8,6 +8,13 @@ export type McpConfigScope = 'user' | 'project';
 
 export const CODEX_MCP_SERVER_NAME = 'vibecode';
 
+/**
+ * Maximum number of timestamped Codex config backups (`config.toml.bak.<ts>`)
+ * retained per config file. Older backups for the same config are pruned after
+ * a successful install so repeated installs do not accumulate forever.
+ */
+export const CODEX_CONFIG_BACKUP_LIMIT = 5;
+
 export const CODEX_MCP_ENABLED_TOOLS = [
   // Phase MCP-1: read-only CodeGraph tools.
   'vibecode_codegraph_status',
@@ -82,6 +89,12 @@ export interface McpConfigError {
 export interface CodexInstallOptions extends CodexMcpConfigOptions {
   dryRun?: boolean;
   yes?: boolean;
+  /** Validates the fully patched TOML before it overwrites the config. Defaults to {@link validateCodexConfigToml}. */
+  validateToml?: (text: string) => { ok: true } | { ok: false; error: string };
+  /** Platform override for permission hardening. Defaults to process.platform. */
+  platform?: typeof process.platform;
+  /** chmod implementation seam (POSIX hardening). Defaults to fs.chmodSync. */
+  chmod?: (path: string, mode: number) => void;
 }
 
 export type CodexInstallResult =
@@ -268,6 +281,65 @@ export function extractTomlTableBlock(source: string, tableName: string): string
   return source.slice(start, nextMatch?.index ?? source.length);
 }
 
+/**
+ * Best-effort structural validation of the fully patched Codex config before it
+ * is written. A real TOML parser is not a project dependency, so this verifies
+ * the invariants this installer is responsible for — exactly one well-formed
+ * `[mcp_servers.vibecode]` table carrying the keys we write. This catches the
+ * corruption a patching bug would introduce (missing/duplicated table, snippet
+ * merged into the wrong place) without false-positiving on otherwise valid but
+ * exotic user TOML elsewhere in the file. Callers may inject a stricter
+ * validator via {@link CodexInstallOptions.validateToml}.
+ */
+export function validateCodexConfigToml(text: string): { ok: true } | { ok: false; error: string } {
+  const headers = text.match(/^\s*\[mcp_servers\.vibecode\]\s*(?:#.*)?$/gm);
+  if (!headers || headers.length === 0) {
+    return { ok: false, error: 'patched config is missing the [mcp_servers.vibecode] table' };
+  }
+  if (headers.length > 1) {
+    return { ok: false, error: `patched config has ${headers.length} [mcp_servers.vibecode] tables; expected exactly one` };
+  }
+  const block = extractTomlTableBlock(text, 'mcp_servers.vibecode');
+  if (!block) {
+    return { ok: false, error: 'patched [mcp_servers.vibecode] table could not be extracted' };
+  }
+  for (const key of ['command', 'args', 'enabled_tools'] as const) {
+    if (!new RegExp(`^\\s*${key}\\s*=`, 'm').test(block)) {
+      return { ok: false, error: `patched [mcp_servers.vibecode] table is missing ${key}` };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Delete timestamped backups for a single config file beyond the retention
+ * limit, keeping the newest {@link CODEX_CONFIG_BACKUP_LIMIT}. Only files named
+ * `<basename>.bak.<...>` for THIS exact config path are considered; unrelated
+ * files and backups of other configs are never touched. Best-effort: failures
+ * to read the directory or unlink a file are swallowed so pruning never turns a
+ * successful install into a reported failure.
+ */
+function pruneCodexBackups(configPath: string, limit: number): void {
+  const dir = path.dirname(configPath);
+  const prefix = `${path.basename(configPath)}.bak.`;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  const backups = entries.filter((name) => name.startsWith(prefix)).sort();
+  // Names embed an ISO timestamp (lexicographically sortable); newest last.
+  const stale = backups.slice(0, Math.max(0, backups.length - limit));
+  for (const name of stale) {
+    try {
+      fs.rmSync(path.join(dir, name), { force: true });
+    } catch {
+      // Best-effort: leaving an extra backup is preferable to failing install.
+    }
+  }
+}
+
 export function applyCodexMcpInstall(options: CodexInstallOptions): CodexInstallResult {
   const config = buildCodexMcpConfig(options);
   const configPath = normalizeNativePath(config.config_path);
@@ -307,16 +379,49 @@ export function applyCodexMcpInstall(options: CodexInstallOptions): CodexInstall
     };
   }
 
+  // Validate the fully patched TOML before touching the filesystem. A patch bug
+  // or unexpected existing shape must never overwrite the user's config.
+  const validateToml = options.validateToml ?? validateCodexConfigToml;
+  const validation = validateToml(patch.next);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      error: {
+        code: 'CODEX_CONFIG_INVALID',
+        message: `Refusing to write Codex config: the patched TOML failed validation (${validation.error}).`,
+        path: config.config_path,
+        details: ['No files were written.', 'The existing Codex config was left unchanged.'],
+      },
+      warnings: config.warnings,
+    };
+  }
+
+  const platform = options.platform ?? process.platform;
+  const chmod = options.chmod ?? fs.chmodSync;
+  const hardenPerms = (target: string): void => {
+    if (platform === 'win32') return; // Do not fake POSIX permissions on Windows.
+    try {
+      chmod(target, 0o600);
+    } catch {
+      // Permission hardening is best-effort; never fail an otherwise-good write.
+    }
+  };
+
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     let backupPath: string | null = null;
     if (exists) {
       backupPath = `${configPath}.bak.${timestampForBackup()}`;
       fs.copyFileSync(configPath, backupPath);
+      hardenPerms(backupPath);
     }
     const tempPath = `${configPath}.tmp.${process.pid}`;
     fs.writeFileSync(tempPath, patch.next, 'utf8');
+    // chmod the temp file before rename so the final config inherits 0600.
+    hardenPerms(tempPath);
     fs.renameSync(tempPath, configPath);
+    // Only after a safe write do we prune older backups for this config.
+    pruneCodexBackups(configPath, CODEX_CONFIG_BACKUP_LIMIT);
     return {
       ok: true,
       agent: 'codex',
