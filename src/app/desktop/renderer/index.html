@@ -286,26 +286,112 @@
       </aside>
     </div>
 
-    <!-- ============ Flash settings overlay (Elegant Dark) ============ -->
+    <!-- ============ Settings overlay (tabbed) ============ -->
     <section class="settings-overlay" id="settings-overlay" aria-hidden="true">
       <div class="settings-panel" role="dialog" aria-labelledby="settings-title">
         <div class="settings-row">
-          <h2 id="settings-title">Flash Settings</h2>
+          <h2 id="settings-title">Settings</h2>
           <button id="close-settings" class="btn ghost" type="button">Close</button>
         </div>
-        <div>
-          <h3>Active flash configuration</h3>
-          <ul class="settings-list" id="flash-settings-rows"><li>Loading…</li></ul>
+
+        <div class="settings-tabs" id="settings-tabs" role="tablist" aria-label="Settings sections"></div>
+
+        <div class="settings-panels" id="settings-panels">
+          <!-- Flash tab: existing flash settings (preserved). -->
+          <div class="settings-tab-panel" data-tab-panel="flash" id="settings-panel-flash">
+            <div>
+              <h3>Active flash configuration</h3>
+              <ul class="settings-list" id="flash-settings-rows"><li>Loading…</li></ul>
+            </div>
+            <div>
+              <h3>Providers &amp; models</h3>
+              <ul class="settings-list" id="flash-providers"><li>Loading…</li></ul>
+            </div>
+            <div class="settings-row">
+              <button id="sync-from-global" class="btn" type="button">Sync global → local</button>
+              <button id="open-config-folder" class="btn" type="button">Open config folder</button>
+            </div>
+            <span class="settings-status" id="flash-settings-status" aria-live="polite"></span>
+          </div>
+
+          <!-- CodeGraph tab placeholder. CodeGraph transport / mode are wired
+               via the composer overlay; this tab points users at those
+               controls until they get a dedicated home. -->
+          <div class="settings-tab-panel" data-tab-panel="codegraph" id="settings-panel-codegraph" hidden>
+            <h3>CodeGraph</h3>
+            <p>
+              CodeGraph transport (<code>cli</code> / <code>mcp</code> / <code>auto</code>) and the remembered
+              Desktop CodeGraph mode (detect-only / use-existing) are configured from the composer header today.
+              A dedicated split will land in a follow-up so they can be edited from this tab.
+            </p>
+            <p class="settings-note">No changes are made when this tab is opened.</p>
+          </div>
+
+          <!-- MCP tab: read-only inventory of VibecodeMCP tools. -->
+          <div class="settings-tab-panel" data-tab-panel="mcp" id="settings-panel-mcp" hidden>
+            <h3>MCP tools</h3>
+            <p id="mcp-tools-summary" class="settings-note">Loading VibecodeMCP tool inventory…</p>
+            <ul class="settings-list" id="mcp-tools-list"></ul>
+          </div>
+
+          <!-- Agent Guidance tab. -->
+          <div class="settings-tab-panel" data-tab-panel="agent-guidance" id="settings-panel-agent-guidance" hidden>
+            <h3>Agent Guidance</h3>
+            <p class="settings-note">
+              Local guidance defaults for terminal agents. Vibecode does NOT manage Claude/Codex approvals,
+              does NOT inject hidden text into the PTY, and does NOT modify <code>final_prompt.md</code> after
+              the composer preview.
+            </p>
+            <div class="settings-row">
+              <label>
+                <input type="checkbox" id="agc-enabled" /> Enabled
+              </label>
+              <label>
+                <input type="checkbox" id="agc-apply-terminal" /> Apply to terminal agents
+              </label>
+            </div>
+            <div>
+              <h4>Default guidance</h4>
+              <textarea id="agc-default-guidance" rows="10" style="width:100%;font-family:var(--mono,monospace);font-size:12px"></textarea>
+            </div>
+            <div>
+              <h4>Per-tool notes</h4>
+              <ul class="settings-list" id="agc-per-tool-list"></ul>
+            </div>
+            <div>
+              <h4>Effective guidance preview</h4>
+              <pre id="agc-effective-preview" style="white-space:pre-wrap;background:var(--surface-2,#111);padding:8px;border-radius:4px;font-size:12px"></pre>
+            </div>
+            <div class="settings-row">
+              <button id="agc-save" class="btn primary" type="button">Save</button>
+              <button id="agc-reset" class="btn" type="button">Reset to defaults</button>
+            </div>
+            <div>
+              <small>Config path: <code id="agc-config-path">(loading…)</code></small>
+              <br />
+              <small id="agc-status" class="settings-status" aria-live="polite"></small>
+            </div>
+          </div>
+
+          <!-- Terminal tab placeholder: explicit boundary about hidden PTY. -->
+          <div class="settings-tab-panel" data-tab-panel="terminal" id="settings-panel-terminal" hidden>
+            <h3>Terminal</h3>
+            <p>
+              Terminal guidance injection is <strong>not implemented</strong>. Vibecode does not send hidden
+              text into the PTY. The exact contents of <code>final_prompt.md</code> are what Vibecode sends
+              into the terminal — nothing is appended after preview.
+            </p>
+          </div>
+
+          <!-- Advanced tab placeholder: diagnostics / config paths. -->
+          <div class="settings-tab-panel" data-tab-panel="advanced" id="settings-panel-advanced" hidden>
+            <h3>Advanced</h3>
+            <p class="settings-note">
+              Diagnostics and config-path information will land here. For now, see the Flash and Agent
+              Guidance tabs for active config paths.
+            </p>
+          </div>
         </div>
-        <div>
-          <h3>Providers &amp; models</h3>
-          <ul class="settings-list" id="flash-providers"><li>Loading…</li></ul>
-        </div>
-        <div class="settings-row">
-          <button id="sync-from-global" class="btn" type="button">Sync global → local</button>
-          <button id="open-config-folder" class="btn" type="button">Open config folder</button>
-        </div>
-        <span class="settings-status" id="flash-settings-status" aria-live="polite"></span>
       </div>
     </section>
 
@@ -313,6 +399,8 @@
     <script src="vendor/xterm/xterm.js"></script>
     <script src="vendor/xterm/addon-fit.js"></script>
     <script src="flash_settings.js"></script>
+    <script src="settings_shell.js"></script>
+    <script src="agent_guidance_settings.js"></script>
     <script src="composer_steps.js"></script>
     <script src="terminal_keys.js"></script>
     <script src="terminals.js"></script>
@@ -1876,6 +1964,8 @@
         settingsOverlay.setAttribute('aria-hidden', 'false');
         void loadGlobalCodeGraphTransport();
         if (flashController) void flashController.refresh();
+        if (agentGuidanceController) void agentGuidanceController.refresh();
+        if (typeof loadMcpToolInventory === 'function') void loadMcpToolInventory();
       }
       function closeSettings() {
         settingsOverlay.classList.remove('open');
@@ -1900,6 +1990,195 @@
         composerModeRadios.forEach((radio) => radio.addEventListener('change', applyComposerMode));
         void loadGlobalCodeGraphTransport();
         void flashController.refresh();
+      }
+
+      // ---- Settings shell (tabs) ----
+      const tabsBarEl = $('settings-tabs');
+      const settingsPanels = $('settings-panels');
+      let settingsShellController = null;
+      let agentGuidanceController = null;
+
+      function renderSettingsTabs(state) {
+        if (!tabsBarEl) return;
+        tabsBarEl.innerHTML = '';
+        state.tabs.forEach((tab) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'settings-tab' + (tab.id === state.activeTabId ? ' active' : '');
+          btn.setAttribute('role', 'tab');
+          btn.setAttribute('aria-selected', tab.id === state.activeTabId ? 'true' : 'false');
+          btn.setAttribute('data-tab', tab.id);
+          btn.textContent = tab.label;
+          btn.title = tab.description;
+          btn.addEventListener('click', () => {
+            if (settingsShellController) settingsShellController.activate(tab.id);
+          });
+          tabsBarEl.appendChild(btn);
+        });
+        if (settingsPanels) {
+          const panels = settingsPanels.querySelectorAll('.settings-tab-panel');
+          panels.forEach((panel) => {
+            panel.hidden = panel.getAttribute('data-tab-panel') !== state.activeTabId;
+          });
+        }
+      }
+
+      function setupSettingsShell() {
+        if (!window.VibecodeSettingsShell || !tabsBarEl) return;
+        settingsShellController = window.VibecodeSettingsShell.createController({
+          view: { renderTabs: renderSettingsTabs },
+        });
+      }
+
+      // ---- MCP tab (read-only inventory) ----
+      const mcpSummaryEl = $('mcp-tools-summary');
+      const mcpListEl = $('mcp-tools-list');
+      let mcpToolsLoaded = false;
+      async function loadMcpToolInventory() {
+        if (mcpToolsLoaded) return;
+        if (!window.vibecodeAPI || !window.vibecodeAPI.config || typeof window.vibecodeAPI.config.getAgentGuidanceMcpTools !== 'function') {
+          if (mcpSummaryEl) mcpSummaryEl.textContent = 'MCP tool registry is unavailable.';
+          return;
+        }
+        try {
+          const resp = await window.vibecodeAPI.config.getAgentGuidanceMcpTools();
+          if (!resp || resp.ok !== true || !Array.isArray(resp.tools)) {
+            if (mcpSummaryEl) mcpSummaryEl.textContent = 'MCP tool registry returned no tools.';
+            return;
+          }
+          mcpToolsLoaded = true;
+          if (mcpSummaryEl) {
+            mcpSummaryEl.textContent =
+              'VibecodeMCP tools (' + resp.tools.length + ') — read-only. Workspace orientation tools appear when MCP-3 is present on this branch.';
+          }
+          if (mcpListEl) {
+            mcpListEl.innerHTML = '';
+            const byGroup = { workspace_orientation: [], codegraph: [], runs_artifacts: [] };
+            resp.tools.forEach((t) => { if (byGroup[t.group]) byGroup[t.group].push(t); });
+            const groupLabels = {
+              workspace_orientation: 'Workspace orientation',
+              codegraph: 'CodeGraph',
+              runs_artifacts: 'Runs / artifacts',
+            };
+            Object.keys(byGroup).forEach((group) => {
+              if (byGroup[group].length === 0) return;
+              const header = document.createElement('li');
+              header.innerHTML = '<strong>' + groupLabels[group] + '</strong>';
+              mcpListEl.appendChild(header);
+              byGroup[group].forEach((tool) => {
+                const li = document.createElement('li');
+                const name = document.createElement('code');
+                name.textContent = tool.name;
+                li.appendChild(name);
+                li.appendChild(document.createTextNode(' — ' + tool.description));
+                mcpListEl.appendChild(li);
+              });
+            });
+          }
+        } catch (_error) {
+          if (mcpSummaryEl) mcpSummaryEl.textContent = 'MCP tool registry could not be loaded.';
+        }
+      }
+
+      // ---- Agent Guidance tab wiring ----
+      const agcEnabledEl = $('agc-enabled');
+      const agcApplyTerminalEl = $('agc-apply-terminal');
+      const agcDefaultGuidanceEl = $('agc-default-guidance');
+      const agcPerToolListEl = $('agc-per-tool-list');
+      const agcEffectivePreviewEl = $('agc-effective-preview');
+      const agcConfigPathEl = $('agc-config-path');
+      const agcStatusEl = $('agc-status');
+      const agcSaveBtn = $('agc-save');
+      const agcResetBtn = $('agc-reset');
+      let agentGuidanceLastConfig = null;
+      let agentGuidanceLastTools = [];
+
+      function renderAgentGuidanceConfig(config) {
+        agentGuidanceLastConfig = config;
+        if (agcEnabledEl) agcEnabledEl.checked = config.enabled !== false;
+        if (agcApplyTerminalEl) agcApplyTerminalEl.checked = config.apply_to_terminal_agents !== false;
+        if (agcDefaultGuidanceEl) agcDefaultGuidanceEl.value = config.default_guidance || '';
+        renderAgentGuidancePerToolList(config.per_tool_notes || {}, agentGuidanceLastTools);
+      }
+
+      function renderAgentGuidancePerToolList(notes, tools) {
+        if (!agcPerToolListEl) return;
+        agcPerToolListEl.innerHTML = '';
+        tools.forEach((tool) => {
+          const li = document.createElement('li');
+          const label = document.createElement('label');
+          label.style.display = 'flex';
+          label.style.flexDirection = 'column';
+          const head = document.createElement('span');
+          const code = document.createElement('code');
+          code.textContent = tool.name;
+          head.appendChild(code);
+          head.appendChild(document.createTextNode(' (' + tool.group + ')'));
+          label.appendChild(head);
+          const textarea = document.createElement('textarea');
+          textarea.rows = 2;
+          textarea.style.width = '100%';
+          textarea.dataset.tool = tool.name;
+          textarea.value = notes[tool.name] || '';
+          label.appendChild(textarea);
+          li.appendChild(label);
+          agcPerToolListEl.appendChild(li);
+        });
+      }
+
+      function collectAgentGuidancePerToolNotes() {
+        const out = {};
+        if (!agcPerToolListEl) return out;
+        const textareas = agcPerToolListEl.querySelectorAll('textarea[data-tool]');
+        textareas.forEach((ta) => {
+          const v = ta.value;
+          if (typeof v === 'string' && v.trim() !== '') out[ta.dataset.tool] = v;
+        });
+        return out;
+      }
+
+      function collectAgentGuidanceConfig() {
+        const base = agentGuidanceLastConfig || {};
+        return {
+          schema_version: 1,
+          enabled: agcEnabledEl ? !!agcEnabledEl.checked : true,
+          apply_to_terminal_agents: agcApplyTerminalEl ? !!agcApplyTerminalEl.checked : true,
+          scope: 'global',
+          default_guidance: agcDefaultGuidanceEl ? agcDefaultGuidanceEl.value : (base.default_guidance || ''),
+          per_tool_notes: collectAgentGuidancePerToolNotes(),
+        };
+      }
+
+      function setAgentGuidanceStatus(status) {
+        if (!agcStatusEl || !status) return;
+        agcStatusEl.textContent = status.text || '';
+        agcStatusEl.classList.toggle('error', status.kind === 'error');
+        agcStatusEl.classList.toggle('ok', status.kind === 'ok');
+      }
+
+      const agentGuidanceView = {
+        setConfig(config) { renderAgentGuidanceConfig(config); },
+        setPath(pathInfo) {
+          if (agcConfigPathEl && pathInfo && pathInfo.configPath) agcConfigPathEl.textContent = pathInfo.configPath;
+        },
+        setStatus(status) { setAgentGuidanceStatus(status); },
+        setMcpTools(tools) {
+          agentGuidanceLastTools = Array.isArray(tools) ? tools : [];
+          if (agentGuidanceLastConfig) renderAgentGuidancePerToolList(agentGuidanceLastConfig.per_tool_notes || {}, agentGuidanceLastTools);
+        },
+        setEffectiveGuidance(preview) {
+          if (agcEffectivePreviewEl) agcEffectivePreviewEl.textContent = preview && preview.text ? preview.text : '';
+        },
+      };
+
+      function setupAgentGuidanceSettings() {
+        if (!window.VibecodeAgentGuidanceSettings || !window.vibecodeAPI || !window.vibecodeAPI.config) return;
+        agentGuidanceController = window.VibecodeAgentGuidanceSettings.createController({
+          api: window.vibecodeAPI.config,
+          view: agentGuidanceView,
+        });
+        if (agcSaveBtn) agcSaveBtn.addEventListener('click', () => { void agentGuidanceController.save(collectAgentGuidanceConfig()); });
+        if (agcResetBtn) agcResetBtn.addEventListener('click', () => { void agentGuidanceController.reset(); });
       }
 
       // ---- Boot: terminals + workspace ----
@@ -1992,6 +2271,8 @@
 
       main().catch(() => {});
       setupFlashSettings();
+      setupSettingsShell();
+      setupAgentGuidanceSettings();
     </script>
   </body>
 </html>

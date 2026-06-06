@@ -307,4 +307,147 @@ describe('desktop config bridge', () => {
     expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toBe(before);
     expect(JSON.stringify({ invalidMode, invalidTask, invalidApprove })).not.toContain(SECRET);
   });
+
+  test('config:getAgentGuidanceConfig returns defaults when the dedicated file is missing', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('config:getAgentGuidanceConfig')) as {
+      ok: boolean;
+      config: { enabled: boolean; default_guidance: string; per_tool_notes: Record<string, string> };
+      source: string;
+      exists: boolean;
+      configPath: string;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe('default');
+    expect(result.exists).toBe(false);
+    expect(result.config.enabled).toBe(true);
+    expect(result.config.default_guidance).toMatch(/VibecodeMCP/);
+    expect(result.configPath).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
+    // The root and .vibecode config layers must NOT be touched for agent guidance.
+    expect(fs.existsSync(path.join(appData, 'vibecodelight', 'config.yaml'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'config.yaml'))).toBe(false);
+  });
+
+  test('config:getAgentGuidanceConfigPath returns the dedicated path under LOCALAPPDATA', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('config:getAgentGuidanceConfigPath')) as {
+      ok: boolean;
+      configPath: string;
+      filename: string;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.configPath).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
+    expect(result.filename).toBe('agent-guidance-config.yaml');
+  });
+
+  test('config:setAgentGuidanceConfig writes to the dedicated file and leaves root config.yaml untouched', async () => {
+    writeGlobal(true, false);
+    const before = fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8');
+    const ipc = register();
+
+    const initial = (await ipc.invoke('config:getAgentGuidanceConfig')) as { config: Record<string, unknown> };
+    const next = {
+      ...initial.config,
+      enabled: false,
+      default_guidance: 'Custom guidance from bridge test.',
+      per_tool_notes: { vibecode_workspace_info: 'bridge note' },
+    };
+    const write = (await ipc.invoke('config:setAgentGuidanceConfig', next)) as {
+      ok: boolean;
+      config: { enabled: boolean; default_guidance: string };
+      configPath: string;
+    };
+    expect(write.ok).toBe(true);
+    expect(write.config.enabled).toBe(false);
+    expect(write.config.default_guidance).toContain('Custom guidance from bridge test.');
+    expect(write.configPath).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
+
+    // Reading back via the bridge returns the persisted custom guidance.
+    const reread = (await ipc.invoke('config:getAgentGuidanceConfig')) as {
+      source: string;
+      config: { enabled: boolean; default_guidance: string; per_tool_notes: Record<string, string> };
+    };
+    expect(reread.source).toBe('file');
+    expect(reread.config.enabled).toBe(false);
+    expect(reread.config.per_tool_notes.vibecode_workspace_info).toBe('bridge note');
+
+    // Root and .vibecode config layers must not have been used for agent guidance.
+    expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'config.yaml'))).toBe(false);
+  });
+
+  test('config:resetAgentGuidanceConfig restores the default guidance text', async () => {
+    const ipc = register();
+    const initial = (await ipc.invoke('config:getAgentGuidanceConfig')) as { config: Record<string, unknown> };
+    await ipc.invoke('config:setAgentGuidanceConfig', { ...initial.config, enabled: false, default_guidance: 'temporary' });
+    const reset = (await ipc.invoke('config:resetAgentGuidanceConfig')) as {
+      ok: boolean;
+      config: { enabled: boolean; default_guidance: string };
+    };
+    expect(reset.ok).toBe(true);
+    expect(reset.config.enabled).toBe(true);
+    expect(reset.config.default_guidance).toMatch(/VibecodeMCP/);
+  });
+
+  test('config:getAgentGuidanceDefaults returns built-in defaults without touching the file', async () => {
+    const ipc = register();
+    const defaultsResp = (await ipc.invoke('config:getAgentGuidanceDefaults')) as {
+      ok: boolean;
+      config: { enabled: boolean; default_guidance: string };
+    };
+    expect(defaultsResp.ok).toBe(true);
+    expect(defaultsResp.config.enabled).toBe(true);
+    expect(defaultsResp.config.default_guidance).toMatch(/VibecodeMCP/);
+    expect(fs.existsSync(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'))).toBe(false);
+  });
+
+  test('config:getAgentGuidanceMcpTools returns read-only tool metadata grouped by area', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('config:getAgentGuidanceMcpTools')) as {
+      ok: boolean;
+      tools: Array<{ name: string; group: string; description: string }>;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.tools.length).toBeGreaterThan(0);
+    const groups = new Set(result.tools.map((t) => t.group));
+    expect(groups).toContain('workspace_orientation');
+    expect(groups).toContain('codegraph');
+    expect(groups).toContain('runs_artifacts');
+    for (const tool of result.tools) {
+      expect(tool.name).toMatch(/^vibecode_/);
+      expect(tool.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('config:setAgentGuidanceConfig rejects non-object payload without writing the file', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('config:setAgentGuidanceConfig', 'not-a-config')) as {
+      ok: boolean;
+      error?: { code: string };
+    };
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('INVALID_AGENT_GUIDANCE_CONFIG');
+    expect(fs.existsSync(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'))).toBe(false);
+  });
+
+  test('agent guidance bridge surfaces parse errors as structured diagnostics without overwriting the file', async () => {
+    const profileDir = path.join(appData, 'vibecodelight');
+    fs.mkdirSync(profileDir, { recursive: true });
+    const configPath = path.join(profileDir, 'agent-guidance-config.yaml');
+    const broken = ': not valid yaml: : :::\n';
+    fs.writeFileSync(configPath, broken, 'utf8');
+
+    const ipc = register();
+    const result = (await ipc.invoke('config:getAgentGuidanceConfig')) as {
+      ok: boolean;
+      error?: { code: string };
+      config: { enabled: boolean };
+    };
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('AGENT_GUIDANCE_CONFIG_PARSE_ERROR');
+    // Defaults are still returned so the UI can render *something*.
+    expect(result.config.enabled).toBe(true);
+    // The broken file is preserved untouched for user inspection.
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(broken);
+  });
 });

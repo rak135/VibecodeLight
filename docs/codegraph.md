@@ -603,6 +603,15 @@ The following are not part of the current implementation:
 - automatic CodeGraph installation or updates
 - automatic writes to external agent configs without explicit `--yes`
 - terminal/shell/write/git tools on the MCP surface
+- hidden PTY prompt injection (the Settings → Terminal tab states this
+  explicitly; Vibecode does not append guidance text into the PTY after
+  the composer preview)
+- modification of `output/final_prompt.md` after the composer preview
+- mutation of Claude/Codex approvals, permissions, allowedTools/deniedTools,
+  hooks, or permission profiles from the Settings → Agent Guidance tab
+- agent-native install/apply of the Agent Guidance config into CLAUDE.md,
+  AGENTS.md, Codex prompts, or any other agent config (Agent Guidance v1
+  stores and previews only; see `%LOCALAPPDATA%/vibecodelight/agent-guidance-config.yaml`)
 
 ### Codex MCP install
 

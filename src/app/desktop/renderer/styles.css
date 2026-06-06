@@ -845,6 +845,20 @@ input, textarea, select { font: inherit; color: inherit; }
 .settings-status.error { color: var(--danger); }
 .settings-status.ok { color: var(--success); }
 .settings-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.settings-tabs {
+  display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.settings-tab {
+  background: transparent; color: var(--text-2); border: 1px solid var(--border);
+  padding: 4px 10px; border-radius: var(--radius-sm); font-family: var(--font-mono);
+  font-size: 11px; cursor: pointer;
+}
+.settings-tab.active { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); }
+.settings-panels { display: flex; flex-direction: column; gap: 14px; }
+.settings-tab-panel { display: flex; flex-direction: column; gap: 10px; }
+.settings-tab-panel[hidden] { display: none; }
+.settings-note { color: var(--muted); font-size: 12px; }
 
 /* CodeGraph action buttons */
 .cg-action-btn {

@@ -47,6 +47,10 @@ describe('desktop preload bridge boundary', () => {
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
     expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
     expect(Object.keys(api.config).sort()).toEqual([
+      'getAgentGuidanceConfig',
+      'getAgentGuidanceConfigPath',
+      'getAgentGuidanceDefaults',
+      'getAgentGuidanceMcpTools',
       'getCodeGraphTransportSetting',
       'getDesktopAutoApproveEnabledSetting',
       'getDesktopCodeGraphModeSetting',
@@ -57,10 +61,12 @@ describe('desktop preload bridge boundary', () => {
       'openDir',
       'providers',
       'rememberLiveSelection',
+      'resetAgentGuidanceConfig',
       'resetCodeGraphTransportSetting',
       'resetDesktopAutoApproveEnabledSetting',
       'resetDesktopCodeGraphModeSetting',
       'resetDesktopTaskNormalizerEnabledSetting',
+      'setAgentGuidanceConfig',
       'setCodeGraphTransportSetting',
       'setDesktopAutoApproveEnabledSetting',
       'setDesktopCodeGraphModeSetting',
@@ -324,5 +330,71 @@ describe('desktop preload bridge boundary', () => {
     await runs.show('2026-05-20_001');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('runs:show', '2026-05-20_001');
+  });
+
+  test('config agent guidance methods invoke only safe config IPC channels', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const config = api.config as {
+      getAgentGuidanceConfig: () => Promise<unknown>;
+      setAgentGuidanceConfig: (config: Record<string, unknown>) => Promise<unknown>;
+      resetAgentGuidanceConfig: () => Promise<unknown>;
+      getAgentGuidanceDefaults: () => Promise<unknown>;
+      getAgentGuidanceConfigPath: () => Promise<unknown>;
+      getAgentGuidanceMcpTools: () => Promise<unknown>;
+    };
+
+    const payload = { schema_version: 1, enabled: false, default_guidance: 'x' };
+    await config.getAgentGuidanceConfig();
+    await config.setAgentGuidanceConfig(payload);
+    await config.resetAgentGuidanceConfig();
+    await config.getAgentGuidanceDefaults();
+    await config.getAgentGuidanceConfigPath();
+    await config.getAgentGuidanceMcpTools();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceConfig');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setAgentGuidanceConfig', payload);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:resetAgentGuidanceConfig');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceDefaults');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceConfigPath');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceMcpTools');
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
+  });
+
+  test('agent guidance bridge does not expose any arbitrary path or file I/O API', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const configKeys = Object.keys(api.config);
+    const forbiddenAgentGuidanceKeys = [
+      'readAgentGuidancePath',
+      'writeAgentGuidancePath',
+      'readArbitraryYaml',
+      'openAgentGuidanceFile',
+    ];
+    for (const key of forbiddenAgentGuidanceKeys) {
+      expect(configKeys).not.toContain(key);
+    }
   });
 });

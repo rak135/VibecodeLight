@@ -210,6 +210,55 @@ export interface DesktopBooleanSettingIpc {
   error?: { code: string; message: string; details: string[] };
 }
 
+export interface AgentGuidanceConfigIpc {
+  schema_version: 1;
+  enabled: boolean;
+  apply_to_terminal_agents: boolean;
+  scope: 'global';
+  default_guidance: string;
+  per_tool_notes: Record<string, string>;
+}
+
+export interface AgentGuidanceReadIpc {
+  ok: boolean;
+  config: AgentGuidanceConfigIpc;
+  source: 'default' | 'file';
+  exists: boolean;
+  configPath: string;
+  warnings: string[];
+  error?: { code: string; message: string; details: string[] };
+}
+
+export interface AgentGuidanceWriteIpc {
+  ok: boolean;
+  config: AgentGuidanceConfigIpc;
+  configPath: string;
+  warnings: string[];
+  error?: { code: string; message: string; details: string[] };
+}
+
+export interface AgentGuidanceDefaultsIpc {
+  ok: boolean;
+  config: AgentGuidanceConfigIpc;
+}
+
+export interface AgentGuidanceConfigPathIpc {
+  ok: boolean;
+  configPath: string;
+  filename: string;
+}
+
+export interface AgentGuidanceMcpToolIpc {
+  name: string;
+  group: 'workspace_orientation' | 'codegraph' | 'runs_artifacts';
+  description: string;
+}
+
+export interface AgentGuidanceMcpToolsIpc {
+  ok: boolean;
+  tools: AgentGuidanceMcpToolIpc[];
+}
+
 /**
  * Mirror of the core `CodeGraphStatus` shape (detect-only, informational). The
  * renderer reads this from `runs:show`; it never parses external_tools.json or
@@ -346,6 +395,12 @@ export interface VibecodePreloadApi {
     rememberLiveSelection(provider: string, model: string): Promise<ConfigRememberLiveSelectionIpc>;
     syncFromGlobal(): Promise<ConfigSyncIpc>;
     openDir(): Promise<{ ok: boolean; error?: string }>;
+    getAgentGuidanceConfig(): Promise<AgentGuidanceReadIpc>;
+    setAgentGuidanceConfig(config: AgentGuidanceConfigIpc): Promise<AgentGuidanceWriteIpc>;
+    resetAgentGuidanceConfig(): Promise<AgentGuidanceWriteIpc>;
+    getAgentGuidanceDefaults(): Promise<AgentGuidanceDefaultsIpc>;
+    getAgentGuidanceConfigPath(): Promise<AgentGuidanceConfigPathIpc>;
+    getAgentGuidanceMcpTools(): Promise<AgentGuidanceMcpToolsIpc>;
   };
   artifacts: {
     copyToClipboard(text: string): void;
@@ -508,6 +563,24 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       openDir() {
         return ipcRenderer.invoke('config:openDir') as Promise<{ ok: boolean; error?: string }>;
+      },
+      getAgentGuidanceConfig() {
+        return ipcRenderer.invoke('config:getAgentGuidanceConfig') as Promise<AgentGuidanceReadIpc>;
+      },
+      setAgentGuidanceConfig(config: AgentGuidanceConfigIpc) {
+        return ipcRenderer.invoke('config:setAgentGuidanceConfig', config) as Promise<AgentGuidanceWriteIpc>;
+      },
+      resetAgentGuidanceConfig() {
+        return ipcRenderer.invoke('config:resetAgentGuidanceConfig') as Promise<AgentGuidanceWriteIpc>;
+      },
+      getAgentGuidanceDefaults() {
+        return ipcRenderer.invoke('config:getAgentGuidanceDefaults') as Promise<AgentGuidanceDefaultsIpc>;
+      },
+      getAgentGuidanceConfigPath() {
+        return ipcRenderer.invoke('config:getAgentGuidanceConfigPath') as Promise<AgentGuidanceConfigPathIpc>;
+      },
+      getAgentGuidanceMcpTools() {
+        return ipcRenderer.invoke('config:getAgentGuidanceMcpTools') as Promise<AgentGuidanceMcpToolsIpc>;
       },
     },
     artifacts: {

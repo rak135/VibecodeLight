@@ -74,6 +74,27 @@ export type {
   WriteDesktopBooleanSettingResult,
   WriteDesktopCodeGraphModeSettingResult,
 } from './desktop_settings_config.js';
+export {
+  AGENT_GUIDANCE_CONFIG_FILENAME,
+  AGENT_GUIDANCE_SCHEMA_VERSION,
+  buildEffectiveAgentGuidance,
+  defaultAgentGuidanceConfig,
+  getAgentGuidanceConfigPath,
+  readAgentGuidanceConfig,
+  resetAgentGuidanceConfig,
+  writeAgentGuidanceConfig,
+} from './agent_guidance_config.js';
+export type {
+  AgentGuidanceConfig,
+  AgentGuidanceConfigError,
+  AgentGuidanceConfigSource,
+  AgentGuidanceMcpToolMetadata,
+  AgentGuidanceScope,
+  EffectiveAgentGuidance,
+  EffectiveAgentGuidanceToolNote,
+  ReadAgentGuidanceConfigResult,
+  WriteAgentGuidanceConfigResult,
+} from './agent_guidance_config.js';
 export type {
   FieldSource,
   SelectedConfigSource,

@@ -120,9 +120,22 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(html).not.toMatch(/id="auto-approve"[^>]*class="[^"]*design-only/);
 
     // No status-disclaimer labels leak into the UI for design-only features.
-    expect(html).not.toMatch(/not implemented/i);
     expect(html).not.toMatch(/coming soon/i);
     expect(html).not.toMatch(/not yet available/i);
+
+    // The Settings → Terminal tab is allowed (and required) to state the
+    // PTY-injection boundary explicitly so users know Vibecode does NOT push
+    // hidden text into the terminal. That boundary statement is a safety
+    // disclosure, not a design-only label. Any remaining "not implemented"
+    // mention must be inside the Terminal tab safety block — nowhere else.
+    const matches = html.match(/not implemented/gi) || [];
+    expect(matches.length).toBeLessThanOrEqual(1);
+    if (matches.length === 1) {
+      const terminalPanel = html.match(/<div[^>]*data-tab-panel="terminal"[\s\S]*?<\/div>/);
+      expect(terminalPanel).not.toBeNull();
+      expect(terminalPanel![0]).toMatch(/not implemented/i);
+      expect(terminalPanel![0]).toMatch(/PTY|terminal/i);
+    }
   });
 
   test('wires auto-approve as a real toggle that auto-sends after a successful build', () => {

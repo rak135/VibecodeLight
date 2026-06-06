@@ -410,7 +410,10 @@ Vibecode-owned config layers are:
 3. Explicit per-run options / CLI flags / GUI state passed into the run
 4. Generated run artifacts under <repo>/.vibecode/runs/<run_id>/
 5. Renderer localStorage for pure UI state only, never semantic pipeline settings
+6. Dedicated Agent Guidance config: %LOCALAPPDATA%/vibecodelight/agent-guidance-config.yaml
 ```
+
+Agent Guidance config (layer 6) is a separate file, never merged into the root global config.yaml or .vibecode/config.yaml. It stores enable/disable, default guidance text, and per-tool notes for terminal agents. It is inspectable/editable/resettable from the desktop Settings UI. This layer does NOT inject hidden text into the PTY, does NOT mutate final_prompt.md after preview, and does NOT modify Claude/Codex approvals or permissions. Installing the guidance into agent-native configs is future work.
 
 The root config.yaml belongs to the target project. VibecodeLight must not create, read, write, or interpret <repo>/config.yaml as Vibecode settings. If root config.yaml appears in scans/context, it is only an ordinary target project file.
 

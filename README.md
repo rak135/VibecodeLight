@@ -1301,6 +1301,34 @@ Real desktop behavior comes after the CLI/core path is reliable.
 
 The initial implementation does not try to detect whether the terminal is shell, Hermes, OpenCode, Codex, or another interactive tool. VibecodeLight behaves like communication with a real terminal, and the user remains responsible for the active terminal state when sending a prompt.
 
+### Settings (tabbed)
+
+The desktop Settings overlay now ships a tabbed layout:
+
+```text
+Flash · CodeGraph · MCP · Agent Guidance · Terminal · Advanced
+```
+
+The Flash tab preserves the existing Flash provider/model controls. The MCP tab shows the canonical VibecodeMCP tool inventory (read-only) grouped into workspace orientation, CodeGraph, and runs/artifacts. The Agent Guidance tab edits a dedicated, separate config layer described below. The CodeGraph, Terminal, and Advanced tabs are placeholders in this slice.
+
+### Agent Guidance (Settings)
+
+Agent Guidance is a *separate* settings layer for terminal-agent guidance. It is **not** stored in the root `config.yaml` and **not** stored in `.vibecode/config.yaml`. It lives in a dedicated YAML file under the user profile directory:
+
+```text
+%LOCALAPPDATA%/vibecodelight/agent-guidance-config.yaml
+```
+
+Boundaries enforced by this slice:
+
+- Agent Guidance is inspectable, editable, resettable, enable/disable-able from the Settings UI.
+- This slice does NOT inject hidden text into the PTY. The exact contents of `output/final_prompt.md` are still what Vibecode sends into the terminal — no hidden suffix is appended after the composer preview.
+- This slice does NOT modify `final_prompt.md` after preview.
+- This slice does NOT mutate Claude/Codex/OpenCode/Hermes approvals or permissions, does NOT edit `allowedTools`/`deniedTools`, and does NOT add hooks or permission profiles.
+- Installing the guidance into agent-native configs (CLAUDE.md, AGENTS.md, Codex prompts, etc.) is future work — this slice stores and previews only.
+
+If the dedicated config file is missing, Settings shows defaults loaded from built-in defaults. If the YAML is invalid, Settings shows a structured diagnostic and leaves the file untouched so the user can fix it by hand.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ---

@@ -1,22 +1,31 @@
 import {
+  AGENT_GUIDANCE_CONFIG_FILENAME,
+  AGENT_GUIDANCE_SCHEMA_VERSION,
+  defaultAgentGuidanceConfig,
   ensureLocalConfig,
+  getAgentGuidanceConfigPath,
   getConfigPaths,
+  readAgentGuidanceConfig,
   readCodeGraphTransportSetting,
   readDesktopAutoApproveEnabledSetting,
   readDesktopCodeGraphModeSetting,
   readDesktopTaskNormalizerEnabledSetting,
   rememberLiveSelection,
+  resetAgentGuidanceConfig,
   resetCodeGraphTransportSetting,
   resetDesktopAutoApproveEnabledSetting,
   resetDesktopCodeGraphModeSetting,
   resetDesktopTaskNormalizerEnabledSetting,
   resolveFlashConfig,
   syncConfig,
+  writeAgentGuidanceConfig,
   writeCodeGraphTransportSetting,
   writeDesktopAutoApproveEnabledSetting,
   writeDesktopCodeGraphModeSetting,
   writeDesktopTaskNormalizerEnabledSetting,
+  type AgentGuidanceConfig,
 } from '../../core/config/index.js';
+import { buildAgentGuidanceMcpTools } from '../../core/config/agent_guidance_mcp_tools.js';
 import { CODEGRAPH_TRANSPORT_VALUES, parseCodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
 
 interface IpcMainLike {
@@ -103,6 +112,80 @@ function invalidDesktopSettingPayload(code: string, raw: unknown, expected: stri
       message: `Invalid desktop setting: ${String(raw)}`,
       details: [expected],
     },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function coerceAgentGuidanceConfig(raw: unknown):
+  | { ok: true; config: AgentGuidanceConfig }
+  | { ok: false; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: 'expected a config object' };
+  const defaults = defaultAgentGuidanceConfig();
+  const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : defaults.enabled;
+  const applyToTerminal =
+    typeof raw.apply_to_terminal_agents === 'boolean'
+      ? raw.apply_to_terminal_agents
+      : defaults.apply_to_terminal_agents;
+  const guidance =
+    typeof raw.default_guidance === 'string' ? raw.default_guidance : defaults.default_guidance;
+  const scope = raw.scope === 'global' ? 'global' : defaults.scope;
+  const perToolRaw = raw.per_tool_notes;
+  const perToolNotes: Record<string, string> = {};
+  if (isRecord(perToolRaw)) {
+    for (const [key, value] of Object.entries(perToolRaw)) {
+      if (typeof value === 'string') perToolNotes[key] = value;
+    }
+  } else if (perToolRaw !== undefined) {
+    return { ok: false, reason: 'per_tool_notes must be a mapping of string notes' };
+  }
+  return {
+    ok: true,
+    config: {
+      schema_version: AGENT_GUIDANCE_SCHEMA_VERSION,
+      enabled,
+      apply_to_terminal_agents: applyToTerminal,
+      scope,
+      default_guidance: guidance,
+      per_tool_notes: perToolNotes,
+    },
+  };
+}
+
+function agentGuidanceReadPayload(result: ReturnType<typeof readAgentGuidanceConfig>) {
+  if (!result.ok && result.error) {
+    return {
+      ok: false,
+      config: result.config,
+      source: result.source,
+      exists: result.exists,
+      configPath: result.configPath,
+      warnings: result.warnings,
+      error: {
+        code: result.error.code,
+        message: result.error.message,
+        details: [`Inspect ${result.configPath} to fix the YAML or delete the file to fall back to defaults.`],
+      },
+    };
+  }
+  return {
+    ok: true,
+    config: result.config,
+    source: result.source,
+    exists: result.exists,
+    configPath: result.configPath,
+    warnings: result.warnings,
+  };
+}
+
+function agentGuidanceWritePayload(result: ReturnType<typeof writeAgentGuidanceConfig>) {
+  return {
+    ok: result.ok,
+    config: result.config,
+    configPath: result.configPath,
+    warnings: result.warnings,
   };
 }
 
@@ -250,5 +333,50 @@ export function registerDesktopConfigIpcHandlers(ipcMain: IpcMainLike, options: 
   ipcMain.handle('config:syncToGlobal', () => {
     const repoRoot = options.getRepoPath();
     return syncConfig({ direction: 'to-global', repoRoot, env: process.env });
+  });
+
+  ipcMain.handle('config:getAgentGuidanceConfig', () => {
+    return agentGuidanceReadPayload(readAgentGuidanceConfig({ env: process.env }));
+  });
+
+  ipcMain.handle('config:setAgentGuidanceConfig', (_event, payload: unknown) => {
+    const parsed = coerceAgentGuidanceConfig(payload);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_AGENT_GUIDANCE_CONFIG',
+          message: `Invalid agent guidance config: ${parsed.reason}.`,
+          details: ['Expected an object with schema_version, enabled, default_guidance, and per_tool_notes.'],
+        },
+      };
+    }
+    return agentGuidanceWritePayload(writeAgentGuidanceConfig({ env: process.env, config: parsed.config }));
+  });
+
+  ipcMain.handle('config:resetAgentGuidanceConfig', () => {
+    return agentGuidanceWritePayload(resetAgentGuidanceConfig({ env: process.env }));
+  });
+
+  ipcMain.handle('config:getAgentGuidanceDefaults', () => {
+    return {
+      ok: true,
+      config: defaultAgentGuidanceConfig(),
+    };
+  });
+
+  ipcMain.handle('config:getAgentGuidanceConfigPath', () => {
+    return {
+      ok: true,
+      configPath: getAgentGuidanceConfigPath(process.env),
+      filename: AGENT_GUIDANCE_CONFIG_FILENAME,
+    };
+  });
+
+  ipcMain.handle('config:getAgentGuidanceMcpTools', () => {
+    return {
+      ok: true,
+      tools: buildAgentGuidanceMcpTools(),
+    };
   });
 }
