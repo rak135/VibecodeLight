@@ -37,7 +37,9 @@ export type McpErrorCode =
   | 'WORKSPACE_INFO_FAILED'
   | 'WORKSPACE_STATUS_FAILED'
   | 'PROJECT_INSTRUCTIONS_NOT_FOUND'
-  | 'PROJECT_INSTRUCTIONS_READ_FAILED';
+  | 'PROJECT_INSTRUCTIONS_READ_FAILED'
+  // Phase Coordination-1: read-only coordination status tool.
+  | 'COORDINATION_STATUS_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -136,6 +138,11 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'Inspect the warning detail; the scan artifact or fallback file may have been deleted or replaced mid-call.',
+  },
+  COORDINATION_STATUS_FAILED: {
+    retryable: true,
+    suggestion:
+      'Coordination status is read-only and degrades to an empty state on a missing file. Retry only if the failure is transient (e.g. a filesystem error).',
   },
 };
 

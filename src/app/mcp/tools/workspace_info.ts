@@ -65,6 +65,10 @@ const WORKSPACE_ORIENTATION_TOOL_NAMES = Object.freeze([
   'vibecode_artifacts_list',
 ]);
 
+const COORDINATION_TOOL_NAMES = Object.freeze([
+  'vibecode_coordination_status',
+]);
+
 export interface WorkspaceInfoToolDeps {
   /** Test seam: override CodeGraph status resolution entirely. */
   codegraphStatus?: (repoRoot: string) => Promise<CodeGraphStatusResult>;
@@ -194,7 +198,8 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
       const total =
         CODEGRAPH_TOOL_NAMES.length +
         RUNS_ARTIFACTS_TOOL_NAMES.length +
-        WORKSPACE_ORIENTATION_TOOL_NAMES.length;
+        WORKSPACE_ORIENTATION_TOOL_NAMES.length +
+        COORDINATION_TOOL_NAMES.length;
 
       const data = {
         repo_root: input.context.repoRoot,
@@ -205,6 +210,7 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
             codegraph: [...CODEGRAPH_TOOL_NAMES],
             runs_artifacts: [...RUNS_ARTIFACTS_TOOL_NAMES],
             workspace_orientation: [...WORKSPACE_ORIENTATION_TOOL_NAMES],
+            coordination: [...COORDINATION_TOOL_NAMES],
           },
         },
         codegraph: {

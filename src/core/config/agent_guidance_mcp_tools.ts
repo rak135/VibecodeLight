@@ -32,6 +32,9 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_artifact_read',
     'vibecode_codegraph_usage',
   ]),
+  coordination: Object.freeze([
+    'vibecode_coordination_status',
+  ]),
 });
 
 const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
@@ -52,6 +55,7 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_run_get: 'Show one Vibecode run by id or via the alias latest/current.',
   vibecode_artifact_read: 'Read one allowlisted Vibecode run artifact (final_prompt, context_pack, …).',
   vibecode_codegraph_usage: 'Return structured CodeGraph usage for a Vibecode run.',
+  vibecode_coordination_status: 'Read-only multi-agent coordination status (advisory; no source-file locks).',
 });
 
 /**

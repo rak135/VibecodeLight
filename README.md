@@ -1068,6 +1068,22 @@ Phase MCP-3 is **read-only**, adds no terminal write, no shell exec, no file
 write, no git commit, no run creation, and no arbitrary file read. Vibecode
 does not manage approvals/permissions: the MCP client/agent owns those.
 
+Multi-agent coordination tool (Phase Coordination-1 — read-only):
+
+```text
+vibecode_coordination_status
+```
+
+`vibecode_coordination_status` reports the advisory multi-agent coordination
+status for the bound repo: the schema version, whether generated state exists
+yet, and counts of agents/claims/conflicts/handoffs. Coordination is
+**advisory** — no source files are hard-locked. Generated coordination state
+lives under `.vibecode/coordination/state.json` (git-ignored, never scanned as
+source). It is read-only and never writes state. The equivalent CLI command is
+`vibecode coordination status --repo <path> --json`; both call the same shared
+core service. Later phases add agent sessions, claims, a file watcher, a
+finalize guard, a commit guard, and the desktop UI panel.
+
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
 not add a permission profile, an allow/deny list, or any approval mutation. MCP-2

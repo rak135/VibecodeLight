@@ -5,6 +5,7 @@ import { buildCodeGraphFilesTool } from './tools/codegraph_files.js';
 import { buildCodeGraphSearchTool } from './tools/codegraph_search.js';
 import { buildCodeGraphStatusTool } from './tools/codegraph_status.js';
 import { buildCodeGraphUsageTool } from './tools/codegraph_usage.js';
+import { buildCoordinationStatusTool } from './tools/coordination_status.js';
 import { buildCurrentRunTool } from './tools/current_run.js';
 import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from './tools/project_instructions.js';
@@ -95,6 +96,8 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildMcpGuidanceTool(),
     buildProjectInstructionsTool(),
     buildArtifactsListTool(),
+    // Phase Coordination-1: read-only multi-agent coordination status.
+    buildCoordinationStatusTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -125,4 +128,6 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_mcp_guidance',
   'vibecode_project_instructions',
   'vibecode_artifacts_list',
+  // Phase Coordination-1
+  'vibecode_coordination_status',
 ]);

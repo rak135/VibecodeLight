@@ -48,6 +48,7 @@ import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
 import { registerAgentGuidanceCommands } from './commands/agent_guidance.js';
 import { registerCodeGraphCommands } from './commands/codegraph.js';
 import { registerConfigCommands } from './commands/config.js';
+import { registerCoordinationCommands } from './commands/coordination.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerMcpCommands } from './commands/mcp.js';
 import { registerRunCreateCommand, registerRunsCommands, resolveRunDir } from './commands/runs.js';
@@ -280,6 +281,7 @@ export function createCli(): Command {
   registerWorkspaceCommands(program);
 
   registerConfigCommands(program);
+  registerCoordinationCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentGuidanceCommands(program, { makeCliStructuredError, emitCliStructuredError });
 
   program

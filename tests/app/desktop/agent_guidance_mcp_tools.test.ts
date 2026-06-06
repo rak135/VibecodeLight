@@ -50,7 +50,7 @@ describe('agent guidance settings — MCP tool metadata', () => {
     for (const tool of tools) {
       expect(typeof tool.description).toBe('string');
       expect(tool.description.length).toBeGreaterThan(0);
-      expect(['workspace_orientation', 'codegraph', 'runs_artifacts']).toContain(tool.group);
+      expect(['workspace_orientation', 'codegraph', 'runs_artifacts', 'coordination']).toContain(tool.group);
     }
   });
 

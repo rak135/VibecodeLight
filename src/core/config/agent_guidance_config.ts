@@ -417,7 +417,7 @@ export function resetAgentGuidanceConfig(opts: {
 
 export interface AgentGuidanceMcpToolMetadata {
   name: string;
-  group: 'workspace_orientation' | 'codegraph' | 'runs_artifacts';
+  group: 'workspace_orientation' | 'codegraph' | 'runs_artifacts' | 'coordination';
   description: string;
 }
 

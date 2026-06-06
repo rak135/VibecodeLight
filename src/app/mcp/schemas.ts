@@ -172,6 +172,16 @@ export const PROJECT_INSTRUCTIONS_INPUT_SCHEMA: JsonSchema = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Phase Coordination-1: read-only coordination status input schema
+// ---------------------------------------------------------------------------
+
+export const COORDINATION_STATUS_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {},
+};
+
 export const ARTIFACTS_LIST_INPUT_SCHEMA: JsonSchema = {
   type: 'object',
   additionalProperties: false,

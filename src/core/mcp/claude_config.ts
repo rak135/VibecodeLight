@@ -41,6 +41,8 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_mcp_guidance',
   'vibecode_project_instructions',
   'vibecode_artifacts_list',
+  // Phase Coordination-1: read-only multi-agent coordination status.
+  'vibecode_coordination_status',
 ] as const;
 
 export interface ClaudeMcpServerConfig {
