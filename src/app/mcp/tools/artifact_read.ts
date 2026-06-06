@@ -5,7 +5,7 @@ import {
   readRunArtifactText,
 } from '../../../core/runs/run_artifacts.js';
 import { buildMcpError } from '../errors.js';
-import { formatError, formatSimpleSuccess, type McpToolFormattedResult } from '../format.js';
+import { MCP_TEXT_OUTPUT_LIMIT, formatError, formatSimpleSuccess, type McpToolFormattedResult } from '../format.js';
 import {
   ARTIFACT_READ_INPUT_SCHEMA,
   rejectUnknownKeys,
@@ -22,11 +22,11 @@ const ALLOWED_KEYS = new Set(['run_id', 'artifact', 'max_bytes']);
 /**
  * Default max bytes returned by the tool when the caller does not specify one.
  * Keeps responses bounded for model consumption without forcing the agent to
- * compute byte budgets up-front. Matches the shared MCP text bound from
- * format.ts so a full artifact and the wrapping text content stay within the
- * same envelope budget.
+ * compute byte budgets up-front. Aliased to the shared MCP text bound from
+ * format.ts (single source of truth) so a full artifact and the wrapping text
+ * content stay within the same envelope budget and cannot drift apart.
  */
-const DEFAULT_MAX_BYTES = 16_000;
+export const DEFAULT_MAX_BYTES = MCP_TEXT_OUTPUT_LIMIT;
 
 export function buildArtifactReadTool(): McpToolDefinition {
   const inputSchema: JsonSchema = ARTIFACT_READ_INPUT_SCHEMA;
