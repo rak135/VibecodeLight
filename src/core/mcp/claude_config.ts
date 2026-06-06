@@ -2,6 +2,8 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { detectClaudeMcpConfig, type ClaudeMcpDetectionResult } from './claude_mcp_detect.js';
+
 export type ClaudeMcpScope = 'local' | 'user' | 'project';
 
 export const CLAUDE_MCP_SERVER_NAME = 'vibecode';
@@ -146,6 +148,10 @@ export interface ClaudeDoctorOptions extends ClaudeMcpConfigOptions {
   runner?: ClaudeProcessRunner;
   timeoutMs?: number;
   toolsProvider?: () => { ok: true; tools: string[] } | { ok: false; error: string };
+  /** Directory holding Claude's `.claude.json`; defaults to CLAUDE_CONFIG_DIR or the user home. */
+  claudeConfigDir?: string;
+  /** Environment used for config-dir resolution in read-only detection. */
+  env?: Record<string, string | undefined>;
 }
 
 export interface ClaudeDoctorResult {
@@ -389,13 +395,26 @@ export function runClaudeMcpDoctor(options: ClaudeDoctorOptions): ClaudeDoctorRe
   checks.claude_mcp_get = {
     ok: serverVisible,
     message: serverVisible
-      ? 'Claude MCP server `vibecode` is configured.'
+      ? 'Claude reports a `vibecode` MCP server for this scope/project.'
       : fallbackMessage(get.error?.message, boundText(get.stderr), '`claude mcp get vibecode` did not find the server.'),
   };
   collectApprovalWarnings(`${get.stdout}\n${get.stderr}`, warnings);
-  if (!serverVisible) warnings.push('Claude Code does not currently report a configured `vibecode` MCP server for this scope/project.');
 
-  const ok = checks.claude_cli.ok && checks.tools.ok && checks.claude_mcp_list.ok && checks.claude_mcp_get.ok;
+  // Authoritative binding check: read-only detection of the configured server
+  // across local/project/user scopes. Exit-code visibility from `mcp get` is
+  // kept as a liveness signal only — it cannot tell us whether the configured
+  // server points at THIS repo with the current serve command/args.
+  const detection = detectClaudeMcpConfig({
+    repoRoot: options.repoRoot,
+    vibecodeBinPath: options.vibecodeBinPath,
+    env: options.env,
+    claudeConfigDir: options.claudeConfigDir,
+  });
+  warnings.push(...detection.warnings);
+  checks.server_binding = buildServerBindingCheck(detection);
+  if (!checks.server_binding.ok) warnings.push(checks.server_binding.message);
+
+  const ok = checks.claude_cli.ok && checks.tools.ok && checks.server_binding.ok;
   return {
     ok,
     agent: 'claude',
@@ -416,6 +435,39 @@ export function runClaudeMcpDoctor(options: ClaudeDoctorOptions): ClaudeDoctorRe
   };
 }
 
+/**
+ * Translate read-only detection into the doctor's `server_binding` check. This
+ * distinguishes the four states the doctor must report: missing, wrong-repo,
+ * stale command/args, and up-to-date.
+ */
+function buildServerBindingCheck(detection: ClaudeMcpDetectionResult): { ok: boolean; message: string } {
+  if (!detection.configured) {
+    return {
+      ok: false,
+      message:
+        'No configured `vibecode` MCP server was found in Claude local/project/user config for this repo. Run `vibecode mcp install --agent claude --repo <path> --yes`.',
+    };
+  }
+  const effective = detection.effective;
+  const scope = effective?.scope ?? 'unknown';
+  if (detection.status === 'up_to_date') {
+    return {
+      ok: true,
+      message: `Configured \`vibecode\` MCP server (${scope} scope) is up to date and matches this repo and serve command.`,
+    };
+  }
+  if (effective && effective.matches_repo === false) {
+    return {
+      ok: false,
+      message: `Configured \`vibecode\` MCP server (${scope} scope) is bound to a different repo: ${effective.repo_binding ?? 'unknown'}. Re-run install for this repo.`,
+    };
+  }
+  return {
+    ok: false,
+    message: `Configured \`vibecode\` MCP server (${scope} scope) command/args are stale versus the current \`vibecode mcp serve\` invocation. Re-run install to update.`,
+  };
+}
+
 function claudeScopeWarnings(scope: ClaudeMcpScope): string[] {
   if (scope === 'project') {
     return [
@@ -429,13 +481,98 @@ function claudeScopeWarnings(scope: ClaudeMcpScope): string[] {
   return [];
 }
 
+/** Resolves a bare command name to a concrete executable. Returns null when unresolved. */
+export type ClaudeExecutableResolver = (command: string) => string | null;
+
+export interface ClaudeSpawnInvocation {
+  /** Executable to spawn (the command, a resolved path, or the system shell). */
+  file: string;
+  /** Argument vector — always a real array, never a concatenated shell string. */
+  args: string[];
+  /** Always false: we never hand arguments to a shell for interpretation. */
+  shell: false;
+  /** True only for the cmd.exe verbatim path on Windows. */
+  windowsVerbatimArguments: boolean;
+}
+
+/**
+ * Quote a single argument for a cmd.exe verbatim command line. cmd.exe accepts
+ * a doubled double-quote (`""`) as a literal quote inside a quoted token, which
+ * lets a JSON payload (full of `"`) survive intact when passed to a `.cmd`
+ * shim. Verified to round-trip `claude mcp add-json <json>` through a real
+ * `node cli %*` batch shim.
+ */
+function quoteCmdArg(arg: string): string {
+  return `"${arg.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Resolve a command to a concrete Windows executable via `where`. Returns the
+ * first match (typically `claude.cmd` for an npm-installed Claude CLI), or null
+ * when the command cannot be found on PATH.
+ */
+function resolveWindowsExecutable(command: string): string | null {
+  // Already an explicit path to a known executable type — use it as-is.
+  if (/[\\/]/.test(command) && /\.(cmd|bat|exe)$/i.test(command)) return command;
+  const result = spawnSync('where', [command], { encoding: 'utf8', windowsHide: true });
+  if (result.status !== 0 || typeof result.stdout !== 'string') return null;
+  const first = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return first ?? null;
+}
+
+/**
+ * Decide exactly how to spawn the Claude CLI.
+ *
+ * POSIX: spawn the bare command; the OS resolves it on PATH. No shell.
+ *
+ * Windows: Node (post the batch CVE fix) refuses to run a `.cmd`/`.bat` with
+ * `shell:false` (EINVAL), and `shell:true` concatenates — and thereby corrupts
+ * — the JSON argument that `claude mcp add-json` requires. So we resolve the
+ * executable and route a `.cmd`/`.bat` shim through `cmd.exe /d /s /c "<line>"`
+ * with `windowsVerbatimArguments` and explicit quoting we control. A resolved
+ * `.exe` is spawned directly. An unresolved command falls back to the bare name
+ * so the spawn surfaces a clean ENOENT (→ CLAUDE_CLI_NOT_FOUND). Shell is never
+ * enabled, so there is no shell-injection surface.
+ */
+export function buildClaudeSpawnInvocation(opts: {
+  command: string;
+  args: string[];
+  platform?: typeof process.platform;
+  env?: Record<string, string | undefined>;
+  resolveExecutable?: ClaudeExecutableResolver;
+}): ClaudeSpawnInvocation {
+  const platform = opts.platform ?? process.platform;
+  if (platform !== 'win32') {
+    return { file: opts.command, args: opts.args, shell: false, windowsVerbatimArguments: false };
+  }
+
+  const resolve = opts.resolveExecutable ?? resolveWindowsExecutable;
+  const resolved = resolve(opts.command);
+
+  if (resolved && /\.(cmd|bat)$/i.test(resolved)) {
+    const env = opts.env ?? process.env;
+    const comspec = env.ComSpec ?? env.COMSPEC ?? 'cmd.exe';
+    const line = [resolved, ...opts.args].map(quoteCmdArg).join(' ');
+    // cmd /s strips the first and last quote of the whole string; wrap it.
+    return { file: comspec, args: ['/d', '/s', '/c', `"${line}"`], shell: false, windowsVerbatimArguments: true };
+  }
+
+  // Resolved .exe (or any non-batch), or unresolved: spawn directly, no shell.
+  return { file: resolved ?? opts.command, args: opts.args, shell: false, windowsVerbatimArguments: false };
+}
+
 function runDefaultClaudeProcess(command: string, args: string[], options: { cwd: string; timeoutMs: number }): ClaudeProcessResult {
-  const result = spawnSync(command, args, {
+  const invocation = buildClaudeSpawnInvocation({ command, args });
+  const result = spawnSync(invocation.file, invocation.args, {
     cwd: options.cwd,
     encoding: 'utf8',
-    shell: false,
+    shell: invocation.shell,
     windowsHide: true,
     timeout: options.timeoutMs,
+    ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
   return {
     status: result.status,
