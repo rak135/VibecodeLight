@@ -59,6 +59,12 @@ export interface CodeGraphStatus {
   repoAtlasJsonArtifact?: string;
 }
 
+export interface CodeGraphRuntimeStatusInput {
+  available: boolean;
+  initialized: boolean;
+  warnings?: string[];
+}
+
 /**
  * Default usage note when CodeGraph context was not used. Overridden by
  * `applyUsage` when a use-existing run successfully included CodeGraph context.
@@ -196,6 +202,20 @@ export function summarizeCodeGraphStatus(
     usageReason: 'detect-only',
     ...defaultRepoAtlasFields(),
   };
+}
+
+/**
+ * Convert live adapter-level CodeGraph status into the same display-ready
+ * derived status used by run artifacts. This keeps status semantics centralized
+ * in core while letting callers preserve adapter-specific fields separately.
+ */
+export function summarizeCodeGraphRuntimeStatus(status: CodeGraphRuntimeStatusInput): CodeGraphStatus {
+  return summarizeCodeGraphStatus({
+    available: status.available,
+    initialized: status.initialized,
+    mode: 'detect-only',
+    warnings: normalizeWarnings(status.warnings),
+  });
 }
 
 function usageNote(mode: string | null, used: boolean, reason?: string): string {

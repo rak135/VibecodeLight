@@ -966,7 +966,7 @@ pnpm vibecode codegraph sync     --repo <path> [--json]
 pnpm vibecode codegraph reindex  --repo <path> [--json]
 ```
 
-`status` is read-only (uses `codegraph --version` and an `fs.existsSync` check on `.codegraph/`). `init`, `sync`, and `reindex` are thin wrappers around `codegraph init -i`, `codegraph sync`, and `codegraph index --force`; failures return a structured `CODEGRAPH_<ACTION>_FAILED` envelope. These are the same operations the desktop composer's CodeGraph buttons trigger.
+`status` is read-only (uses `codegraph --version` and an `fs.existsSync` check on `.codegraph/`). In `--json` mode it preserves adapter fields such as `available`, `initialized`, `version`, and `binary`, and also reports the shared derived CodeGraph status view (`state`, `label`, `displayWarnings`, `usageNote`, `usedForContext`). `init`, `sync`, and `reindex` are thin wrappers around `codegraph init -i`, `codegraph sync`, and `codegraph index --force`; failures return a structured `CODEGRAPH_<ACTION>_FAILED` envelope. These are the same operations the desktop composer's CodeGraph buttons trigger.
 
 Agent-facing read-only query namespace (provider-agnostic shell tools):
 

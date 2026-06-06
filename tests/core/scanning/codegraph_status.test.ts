@@ -9,6 +9,7 @@ import {
   CODEGRAPH_USAGE_NOTE,
   formatCodeGraphWarning,
   readRunCodeGraphStatus,
+  summarizeCodeGraphRuntimeStatus,
   summarizeCodeGraphStatus,
 } from '../../../src/core/scanning/codegraph_status.js';
 
@@ -84,6 +85,42 @@ describe('summarizeCodeGraphStatus', () => {
     expect(status.usageNote).toBe(CODEGRAPH_USAGE_NOTE);
     expect(status.usageNote.toLowerCase()).toContain('detect-only');
     expect(Object.keys(status)).not.toContain('enabled');
+  });
+});
+
+describe('summarizeCodeGraphRuntimeStatus', () => {
+  test('derives display status from live adapter status without changing semantics', () => {
+    const status = summarizeCodeGraphRuntimeStatus({
+      available: true,
+      initialized: true,
+      warnings: [
+        'CODEGRAPH_INDEX_STALE: pending changes reported by codegraph status --json; using existing index without automatic sync',
+      ],
+    });
+
+    expect(status.state).toBe('ready');
+    expect(status.label).toBe('CodeGraph: ready');
+    expect(status.displayWarnings).toEqual([
+      'Index may be stale. Existing index was used. Run Sync to update it.',
+    ]);
+    expect(status.usageNote).toBe(CODEGRAPH_USAGE_NOTE);
+    expect(status.usedForContext).toBe(false);
+  });
+
+  test('maps unavailable live status to the same derived optional state', () => {
+    const status = summarizeCodeGraphRuntimeStatus({
+      available: false,
+      initialized: false,
+      warnings: ['CODEGRAPH_NOT_INSTALLED: missing binary'],
+    });
+
+    expect(status.state).toBe('not-installed');
+    expect(status.label).toBe('CodeGraph: not installed (optional)');
+    expect(status.displayWarnings).toEqual([
+      'CodeGraph is not installed; existing index was not used.',
+    ]);
+    expect(status.usageNote).toBe(CODEGRAPH_USAGE_NOTE);
+    expect(status.usedForContext).toBe(false);
   });
 });
 

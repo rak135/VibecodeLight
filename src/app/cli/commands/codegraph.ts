@@ -55,6 +55,7 @@ import {
   type EmitCliStructuredError,
   type MakeCliStructuredError,
 } from '../structured_output.js';
+import { summarizeCodeGraphRuntimeStatus } from '../../../core/scanning/codegraph_status.js';
 
 export interface CodeGraphCommandDependencies {
   makeCliStructuredError: MakeCliStructuredError;
@@ -559,6 +560,11 @@ export function registerCodeGraphCommands(program: Command, dependencies: CodeGr
       const repoRoot = path.resolve(options.repo);
       const binary = resolveCodeGraphBinary({ cliOption: options.codegraphBin, env: process.env });
       const result = await getCodeGraphStatus(repoRoot, { command: binary.command, binary });
+      const derived = summarizeCodeGraphRuntimeStatus({
+        available: result.available,
+        initialized: result.initialized,
+        warnings: result.warnings,
+      });
       if (options.json) {
         console.log(JSON.stringify({
           ok: true,
@@ -566,16 +572,27 @@ export function registerCodeGraphCommands(program: Command, dependencies: CodeGr
             available: result.available,
             initialized: result.initialized,
             version: result.version,
+            state: derived.state,
+            label: derived.label,
+            detail: derived.detail,
+            warnings: derived.warnings,
+            displayWarnings: derived.displayWarnings,
+            usageNote: derived.usageNote,
+            usedForContext: derived.usedForContext,
+            usageReason: derived.usageReason,
             binary: codeGraphBinaryDiagnostics(binary),
           },
           artifacts: [],
-          warnings: result.warnings,
+          warnings: derived.warnings,
         }));
         return;
       }
+      console.log(derived.label);
       console.log(formatCodeGraphStatusLine(result));
       console.log(`binary: ${binary.command} (source: ${binary.source})`);
-      for (const warning of result.warnings) console.log(`warning: ${warning}`);
+      for (const warning of derived.displayWarnings.length > 0 ? derived.displayWarnings : derived.warnings) {
+        console.log(`warning: ${warning}`);
+      }
       if (!result.available) {
         console.log('hint: Set VIBECODE_CODEGRAPH_BIN or run `vibecode codegraph binary set <path>`.');
       }
