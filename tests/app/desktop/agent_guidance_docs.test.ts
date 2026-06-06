@@ -42,10 +42,30 @@ describe('Settings v1 / Agent Guidance docs contract', () => {
     expect(text).toMatch(/MCP exposes Agent Guidance/i);
   });
 
+  test('README documents Terminal Agent Preflight boundaries', () => {
+    const text = read('README.md');
+    expect(text).toMatch(/Terminal Agent Preflight/);
+    expect(text).toMatch(/opening new Vibecode terminals/i);
+    expect(text).toMatch(/user.*starts.*codex\/claude.*manually/i);
+    expect(text).toMatch(/no Start Codex button/i);
+    expect(text).toMatch(/no hidden PTY\/stdin injection/i);
+    expect(text).toMatch(/no Composer.*final_prompt\.md mutation/i);
+    expect(text).toMatch(/no approval\/permission mutation/i);
+    expect(text).toMatch(/restart\/reconnect/i);
+  });
+
   test('AGENTS.md adds the dedicated Agent Guidance config layer', () => {
     const text = read('AGENTS.md');
     expect(text).toMatch(/agent-guidance-config\.yaml/);
     expect(text).toMatch(/separate file, never merged into the root global config\.yaml/);
+  });
+
+  test('AGENTS.md lists agent-guidance preflight CLI and terminal boundaries', () => {
+    const text = read('AGENTS.md');
+    expect(text).toMatch(/vibecode agent-guidance preflight --repo <path> --terminal --json/);
+    expect(text).toMatch(/Terminal Agent Preflight/);
+    expect(text).toMatch(/does not start agents/i);
+    expect(text).toMatch(/does not send text into the terminal/i);
   });
 
   test('docs/codegraph.md mentions the new boundaries explicitly under "intentionally not implemented"', () => {
@@ -56,5 +76,17 @@ describe('Settings v1 / Agent Guidance docs contract', () => {
     expect(text).toMatch(/agent-guidance-config\.yaml/);
     expect(text).toMatch(/vibecode_mcp_guidance/);
     expect(text).toMatch(/new MCP sessions/i);
+  });
+
+  test('docs/codegraph.md and roadmap mention Terminal Agent Preflight and restart/reconnect behavior', () => {
+    const combined = `${read('docs/codegraph.md')}\n${read('docs/codegraph_mcp_roadmap.md')}`;
+    expect(combined).toMatch(/Terminal Agent Preflight/);
+    expect(combined).toMatch(/supported agents have VibecodeMCP configured/i);
+    expect(combined).toMatch(/user still starts/i);
+    expect(combined).toMatch(/no Start Codex/i);
+    expect(combined).toMatch(/no hidden PTY\/stdin injection/i);
+    expect(combined).toMatch(/no final_prompt\.md mutation/i);
+    expect(combined).toMatch(/no approval\/permission mutation/i);
+    expect(combined).toMatch(/restart\/reconnect/i);
   });
 });

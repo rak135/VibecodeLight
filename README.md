@@ -832,6 +832,14 @@ vibecode skills copy --all
 
 `skills list` and `skills project-list` accept `--json`. `skills copy` accepts `--force` to overwrite an existing destination and `--repo <path>` to target a specific repository.
 
+Agent Guidance terminal preflight smoke commands:
+
+```powershell
+vibecode agent-guidance preflight --repo <path> --terminal --json
+vibecode agent-guidance preflight --repo <path> --terminal --mode check_only --json
+vibecode agent-guidance preflight --repo <path> --terminal --mode auto_repair --json
+```
+
 ### Debug/internal CLI
 
 ```powershell
@@ -1309,7 +1317,7 @@ The desktop Settings overlay now ships a tabbed layout:
 Flash · CodeGraph · MCP · Agent Guidance · Terminal · Advanced
 ```
 
-The Flash tab preserves the existing Flash provider/model controls. The MCP tab shows the canonical VibecodeMCP tool inventory (read-only) grouped into workspace orientation, CodeGraph, and runs/artifacts, plus Agent Guidance enabled/source/hash status. The Agent Guidance tab edits a dedicated, separate config layer described below and shows safe Claude/Codex integration status/apply controls. The CodeGraph, Terminal, and Advanced tabs are placeholders in this slice.
+The Flash tab preserves the existing Flash provider/model controls. The MCP tab shows the canonical VibecodeMCP tool inventory (read-only) grouped into workspace orientation, CodeGraph, and runs/artifacts, plus Agent Guidance enabled/source/hash status. The Agent Guidance tab edits a dedicated, separate config layer described below and shows safe Claude/Codex integration status/apply controls plus Terminal Agent Preflight policy. The CodeGraph and Advanced tabs are placeholders in this slice.
 
 ### Agent Guidance (Settings)
 
@@ -1328,8 +1336,25 @@ Boundaries enforced by this slice:
 - This slice does NOT mutate Claude/Codex/OpenCode/Hermes approvals or permissions, does NOT edit `allowedTools`/`deniedTools`, and does NOT add hooks or permission profiles.
 - `vibecode agent-guidance status --agent claude --repo <path> --json` and `vibecode agent-guidance status --agent codex --repo <path> --json` report config validity, source, `guidance_hash`, expected MCP tool count, and whether the agent-side VibecodeMCP config appears current.
 - `vibecode agent-guidance apply --agent claude --repo <path> --dry-run --json` and `vibecode agent-guidance apply --agent codex --repo <path> --dry-run --json` preview the safe MCP config action. `--yes` is required to write/update the existing VibecodeMCP server config. Apply means new MCP sessions can read the dedicated guidance config through VibecodeMCP; it does not write prompt text to terminal, root repo files, `AGENTS.md`, `CLAUDE.md`, or approval/permission settings.
+- Terminal Agent Preflight runs when opening new Vibecode terminals. It ensures supported agents have VibecodeMCP configured according to Settings policy, defaults to `check_only`, and can use `auto_repair` only for the same safe MCP config surface as `agent-guidance apply --yes`.
+- The user still starts codex/claude manually. There is no Start Codex button and no Start Claude button, no hidden PTY/stdin injection, no Composer final_prompt.md mutation, and no approval/permission mutation.
+- `vibecode agent-guidance preflight --repo <path> --terminal --json` runs the same check without opening a terminal; add `--mode check_only` or `--mode auto_repair` to override the configured mode for smoke testing.
 - Restart/reconnect an already running Claude/Codex MCP session after changing guidance or applying MCP config.
 - Writing guidance into agent-native instruction files (CLAUDE.md, AGENTS.md, Codex prompts, etc.) remains out of scope.
+
+Terminal preflight settings live in the same dedicated Agent Guidance file:
+
+```yaml
+terminal_preflight:
+  enabled: true
+  mode: check_only
+  supported_agents:
+    codex: true
+    claude: true
+  repair:
+    create_backup: true
+    require_valid_guidance_config: true
+```
 
 If the dedicated config file is missing, Settings shows defaults loaded from built-in defaults. If the YAML is invalid, Settings shows a structured diagnostic and leaves the file untouched so the user can fix it by hand.
 

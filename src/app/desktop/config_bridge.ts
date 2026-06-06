@@ -2,9 +2,11 @@ import {
   AGENT_GUIDANCE_CONFIG_FILENAME,
   AGENT_GUIDANCE_SCHEMA_VERSION,
   defaultAgentGuidanceConfig,
+  defaultAgentGuidanceTerminalPreflightConfig,
   ensureLocalConfig,
   getAgentGuidanceConfigPath,
   getConfigPaths,
+  normalizeTerminalPreflightForWrite,
   readAgentGuidanceConfig,
   readCodeGraphTransportSetting,
   readDesktopAutoApproveEnabledSetting,
@@ -24,6 +26,7 @@ import {
   writeDesktopCodeGraphModeSetting,
   writeDesktopTaskNormalizerEnabledSetting,
   type AgentGuidanceConfig,
+  type AgentGuidanceTerminalPreflightConfig,
 } from '../../core/config/index.js';
 import { buildAgentGuidanceMcpTools } from '../../core/config/agent_guidance_mcp_tools.js';
 import { buildAgentGuidanceRuntime } from '../../core/agent_guidance/agent_guidance_runtime.js';
@@ -156,8 +159,32 @@ function coerceAgentGuidanceConfig(raw: unknown):
       scope,
       default_guidance: guidance,
       per_tool_notes: perToolNotes,
+      terminal_preflight: normalizeTerminalPreflightForWrite(raw.terminal_preflight),
     },
   };
+}
+
+function coerceTerminalPreflightConfig(raw: unknown):
+  | { ok: true; config: AgentGuidanceTerminalPreflightConfig }
+  | { ok: false; code: string; reason: string } {
+  if (!isRecord(raw)) {
+    return { ok: false, code: 'INVALID_TERMINAL_PREFLIGHT_CONFIG', reason: 'expected a terminal_preflight object' };
+  }
+  if (raw.mode !== undefined && raw.mode !== 'check_only' && raw.mode !== 'auto_repair') {
+    return { ok: false, code: 'INVALID_TERMINAL_PREFLIGHT_MODE', reason: 'mode must be check_only or auto_repair' };
+  }
+  if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
+    return { ok: false, code: 'INVALID_TERMINAL_PREFLIGHT_CONFIG', reason: 'enabled must be boolean' };
+  }
+  const supported = raw.supported_agents;
+  if (supported !== undefined && !isRecord(supported)) {
+    return { ok: false, code: 'INVALID_TERMINAL_PREFLIGHT_CONFIG', reason: 'supported_agents must be a mapping' };
+  }
+  const repair = raw.repair;
+  if (repair !== undefined && !isRecord(repair)) {
+    return { ok: false, code: 'INVALID_TERMINAL_PREFLIGHT_CONFIG', reason: 'repair must be a mapping' };
+  }
+  return { ok: true, config: normalizeTerminalPreflightForWrite(raw) };
 }
 
 function agentGuidanceReadPayload(result: ReturnType<typeof readAgentGuidanceConfig>) {
@@ -192,6 +219,24 @@ function agentGuidanceWritePayload(result: ReturnType<typeof writeAgentGuidanceC
     config: result.config,
     configPath: result.configPath,
     warnings: result.warnings,
+  };
+}
+
+function agentGuidanceTerminalPreflightPayload(opts: {
+  ok: boolean;
+  configPath: string;
+  terminalPreflight: AgentGuidanceTerminalPreflightConfig;
+  guidanceHash?: string;
+  warnings?: string[];
+  error?: { code: string; message: string; details: string[] };
+}) {
+  return {
+    ok: opts.ok,
+    terminal_preflight: opts.terminalPreflight,
+    configPath: opts.configPath,
+    guidance_hash: opts.guidanceHash,
+    warnings: opts.warnings ?? [],
+    ...(opts.error ? { error: opts.error } : {}),
   };
 }
 
@@ -415,6 +460,58 @@ export function registerDesktopConfigIpcHandlers(ipcMain: IpcMainLike, options: 
       expected_tool_count: buildAgentGuidanceMcpTools().length,
       warnings: runtime.warnings,
     };
+  });
+
+  ipcMain.handle('config:getAgentGuidanceTerminalPreflightConfig', () => {
+    const read = readAgentGuidanceConfig({ env: process.env });
+    const runtime = buildAgentGuidanceRuntime({ env: process.env });
+    return agentGuidanceTerminalPreflightPayload({
+      ok: read.ok,
+      terminalPreflight: read.config.terminal_preflight ?? defaultAgentGuidanceTerminalPreflightConfig(),
+      configPath: read.configPath,
+      guidanceHash: runtime.guidance_hash,
+      warnings: [...read.warnings, ...runtime.warnings],
+      ...(read.error
+        ? {
+            error: {
+              code: read.error.code,
+              message: read.error.message,
+              details: [`Inspect ${read.configPath} to fix the YAML or delete the file to fall back to defaults.`],
+            },
+          }
+        : {}),
+    });
+  });
+
+  ipcMain.handle('config:setAgentGuidanceTerminalPreflightConfig', (_event, payload: unknown) => {
+    const parsed = coerceTerminalPreflightConfig(payload);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        warnings: [],
+        error: {
+          code: parsed.code,
+          message: `Invalid terminal preflight config: ${parsed.reason}.`,
+          details: ['Expected enabled, mode check_only|auto_repair, supported_agents.codex/claude, and repair toggles.'],
+        },
+      };
+    }
+    const read = readAgentGuidanceConfig({ env: process.env });
+    const write = writeAgentGuidanceConfig({
+      env: process.env,
+      config: {
+        ...read.config,
+        terminal_preflight: parsed.config,
+      },
+    });
+    const runtime = buildAgentGuidanceRuntime({ env: process.env });
+    return agentGuidanceTerminalPreflightPayload({
+      ok: write.ok,
+      terminalPreflight: write.config.terminal_preflight,
+      configPath: write.configPath,
+      guidanceHash: runtime.guidance_hash,
+      warnings: write.warnings,
+    });
   });
 
   ipcMain.handle('config:getAgentGuidanceIntegrationStatus', (_event, agentRaw: unknown) => {

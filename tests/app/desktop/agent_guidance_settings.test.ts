@@ -10,6 +10,12 @@ const DEFAULT_CONFIG: AgentGuidanceConfigView = {
   per_tool_notes: {
     vibecode_workspace_info: 'Start here when entering a repo.',
   },
+  terminal_preflight: {
+    enabled: true,
+    mode: 'check_only',
+    supported_agents: { codex: true, claude: true },
+    repair: { create_backup: true, require_valid_guidance_config: true },
+  },
 };
 
 function makeApi(overrides: Partial<Record<string, unknown>> = {}) {
@@ -91,6 +97,28 @@ function makeApi(overrides: Partial<Record<string, unknown>> = {}) {
       },
       mcp: { expected_tool_count: 17, configured: false, up_to_date: false, status: 'not_configured' },
       restart_required: true,
+      warnings: [],
+    })),
+    getAgentGuidanceTerminalPreflightConfig: vi.fn(async () => ({
+      ok: true,
+      terminal_preflight: structuredClone(DEFAULT_CONFIG.terminal_preflight),
+      configPath: 'C:/AppData/vibecodelight/agent-guidance-config.yaml',
+      guidance_hash: 'a'.repeat(64),
+      last_result: {
+        checked_at: '2026-06-06T12:00:00.000Z',
+        guidance_hash: 'a'.repeat(64),
+        agents: [
+          { agent: 'codex', configured: true, stale: false, repaired: false },
+          { agent: 'claude', configured: false, stale: false, repaired: false },
+        ],
+      },
+      warnings: [],
+    })),
+    setAgentGuidanceTerminalPreflightConfig: vi.fn(async (terminalPreflight: AgentGuidanceConfigView['terminal_preflight']) => ({
+      ok: true,
+      terminal_preflight: terminalPreflight,
+      configPath: 'C:/AppData/vibecodelight/agent-guidance-config.yaml',
+      guidance_hash: 'a'.repeat(64),
       warnings: [],
     })),
     dryRunAgentGuidanceIntegration: vi.fn(async (agent: 'claude' | 'codex') => ({
@@ -175,6 +203,37 @@ describe('agent guidance settings — effective preview', () => {
     expect(text).toContain('KNOWN_NOTE');
     expect(text).not.toContain('UNKNOWN_NOTE');
   });
+
+  test('buildTerminalPreflightView renders section controls, safe copy, and status rows', () => {
+    const view = AgentGuidanceSettings.buildTerminalPreflightView({
+      terminal_preflight: DEFAULT_CONFIG.terminal_preflight,
+      last_result: {
+        checked_at: '2026-06-06T12:00:00.000Z',
+        guidance_hash: 'b'.repeat(64),
+        agents: [
+          { agent: 'codex', configured: true, stale: false, repaired: false },
+          { agent: 'claude', configured: false, stale: true, repaired: false },
+        ],
+      },
+    });
+
+    expect(view.title).toBe('Terminal Agent Preflight');
+    expect(view.copy).toMatch(/opening new Vibecode terminals/i);
+    expect(view.copy).toMatch(/does not start agents/i);
+    expect(view.copy).toMatch(/does not send text into the terminal/i);
+    expect(view.modeOptions.map((o: { value: string }) => o.value)).toEqual(['check_only', 'auto_repair']);
+    expect(view.agentToggles).toEqual([
+      { agent: 'codex', enabled: true },
+      { agent: 'claude', enabled: true },
+    ]);
+    expect(view.statusRows.map((r: { label: string }) => r.label)).toEqual([
+      'last checked at',
+      'guidance hash',
+      'Codex',
+      'Claude',
+    ]);
+    expect(JSON.stringify(view)).not.toMatch(/Start Codex|Start Claude/);
+  });
 });
 
 describe('agent guidance settings — status messages', () => {
@@ -225,6 +284,7 @@ describe('agent guidance settings — controller', () => {
     expect(api.getAgentGuidanceConfigPath).toHaveBeenCalled();
     expect(api.getAgentGuidanceMcpTools).toHaveBeenCalled();
     expect(api.getAgentGuidanceRuntimeStatus).toHaveBeenCalled();
+    expect(api.getAgentGuidanceTerminalPreflightConfig).toHaveBeenCalled();
     expect(api.getAgentGuidanceIntegrationStatus).toHaveBeenCalledWith('claude');
     expect(api.getAgentGuidanceIntegrationStatus).toHaveBeenCalledWith('codex');
     expect(view.setConfig).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
@@ -248,6 +308,29 @@ describe('agent guidance settings — controller', () => {
     });
     expect(api.setAgentGuidanceConfig).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: false, default_guidance: 'new guidance' }),
+    );
+  });
+
+  test('save sends terminal preflight settings through the dedicated bridge method', async () => {
+    const view = makeView();
+    const { api } = makeApi();
+    const controller = AgentGuidanceSettings.createController({ api, view });
+    await controller.refresh();
+    await controller.save({
+      ...DEFAULT_CONFIG,
+      terminal_preflight: {
+        enabled: true,
+        mode: 'auto_repair',
+        supported_agents: { codex: true, claude: false },
+        repair: { create_backup: false, require_valid_guidance_config: true },
+      },
+    });
+    expect(api.setAgentGuidanceTerminalPreflightConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        mode: 'auto_repair',
+        supported_agents: { codex: true, claude: false },
+      }),
     );
   });
 
@@ -334,6 +417,12 @@ describe('agent guidance settings — controller', () => {
     const controller = AgentGuidanceSettings.createController({ api, view });
     await controller.apply('codex', true);
     expect(api.applyAgentGuidanceIntegration).toHaveBeenCalledWith('codex', true);
-    expect(Object.keys(api).join('\n')).not.toMatch(/terminal|pty|stdin|prompt/i);
+    expect(Object.keys(api).join('\n')).not.toMatch(/pty|stdin|prompt|writeTerminal|startCodex|startClaude/i);
+  });
+
+  test('Terminal Agent Preflight copy states no agent launcher and no PTY injection', () => {
+    expect(AgentGuidanceSettings.TERMINAL_PREFLIGHT_COPY).toMatch(/does not start agents/i);
+    expect(AgentGuidanceSettings.TERMINAL_PREFLIGHT_COPY).toMatch(/does not send text into the terminal/i);
+    expect(AgentGuidanceSettings.TERMINAL_PREFLIGHT_COPY).not.toMatch(/Start Codex button|Start Claude button/i);
   });
 });

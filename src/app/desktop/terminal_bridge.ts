@@ -2,6 +2,10 @@ import * as path from 'path';
 
 import { createPtySession } from '../../adapters/pty/index.js';
 import type { PtySession } from '../../adapters/pty/index.js';
+import {
+  runTerminalAgentPreflight,
+  type TerminalAgentPreflightResult,
+} from '../../core/agent_guidance/terminal_agent_preflight.js';
 import { prepareVibecodeCliShim, resolveAppCliPath } from '../../core/terminal/cli_shim.js';
 
 export interface DesktopTerminalEvents {
@@ -31,6 +35,7 @@ interface SessionEntry {
 type PtyFactory = typeof createPtySession;
 
 export type TerminalEnvPreparer = (repoPath: string) => Record<string, string> | undefined;
+export type DesktopTerminalPreflightRunner = (repoPath: string) => Promise<TerminalAgentPreflightResult> | TerminalAgentPreflightResult;
 
 export interface DesktopTerminalServiceOptions {
   /**
@@ -41,6 +46,12 @@ export interface DesktopTerminalServiceOptions {
    * Pass `null` to disable shim/env preparation entirely.
    */
   prepareTerminalEnv?: TerminalEnvPreparer | null;
+  /**
+   * Runs after a PTY is created for a normal terminal. It checks/repairs only
+   * supported Agent Guidance MCP config and never writes to terminal stdin.
+   * Pass null to disable the integration in focused tests.
+   */
+  terminalPreflight?: DesktopTerminalPreflightRunner | null;
 }
 
 function defaultTerminalEnvPreparer(): TerminalEnvPreparer | undefined {
@@ -82,8 +93,10 @@ export class DesktopTerminalService {
   private readonly order: string[] = [];
   private readonly dataHandlers: Array<(sessionId: string, data: string) => void> = [];
   private readonly exitHandlers: Array<(sessionId: string, code: number | undefined) => void> = [];
+  private readonly preflightHandlers: Array<(sessionId: string, result: TerminalAgentPreflightResult) => void> = [];
 
   private readonly prepareTerminalEnv: TerminalEnvPreparer | undefined;
+  private readonly terminalPreflight: DesktopTerminalPreflightRunner | undefined;
 
   constructor(
     private readonly ptyFactory: PtyFactory = createPtySession,
@@ -93,6 +106,11 @@ export class DesktopTerminalService {
       this.prepareTerminalEnv = undefined;
     } else {
       this.prepareTerminalEnv = options.prepareTerminalEnv ?? defaultTerminalEnvPreparer();
+    }
+    if (options.terminalPreflight === null) {
+      this.terminalPreflight = undefined;
+    } else {
+      this.terminalPreflight = options.terminalPreflight ?? ((repoPath: string) => runTerminalAgentPreflight({ repoRoot: repoPath }));
     }
   }
 
@@ -118,7 +136,35 @@ export class DesktopTerminalService {
       for (const handler of this.exitHandlers) handler(sessionId, code);
     });
 
+    this.runPreflight(sessionId, cwd);
+
     return { pid: pty.pid, cwd, shell, sessionId };
+  }
+
+  private runPreflight(sessionId: string, cwd: string): void {
+    if (!this.terminalPreflight) return;
+    void Promise.resolve()
+      .then(() => this.terminalPreflight!(cwd))
+      .then((result) => this.emitPreflightResult(sessionId, result))
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.emitPreflightResult(sessionId, {
+          ok: false,
+          mode: 'check_only',
+          repo_root: cwd,
+          config_path: '',
+          guidance_hash: '',
+          checked_at: new Date().toISOString(),
+          agents: [],
+          warnings: [],
+          errors: [message],
+          no_pty_injection: true,
+        });
+      });
+  }
+
+  private emitPreflightResult(sessionId: string, result: TerminalAgentPreflightResult): void {
+    for (const handler of this.preflightHandlers) handler(sessionId, result);
   }
 
   getSession(sessionId: string): DesktopActiveSession | undefined {
@@ -182,6 +228,10 @@ export class DesktopTerminalService {
   onExit(handler: (sessionId: string, code: number | undefined) => void): void {
     this.exitHandlers.push(handler);
   }
+
+  onPreflightResult(handler: (sessionId: string, result: TerminalAgentPreflightResult) => void): void {
+    this.preflightHandlers.push(handler);
+  }
 }
 
 export interface DesktopIpcRegistrationOptions {
@@ -198,6 +248,7 @@ export function registerDesktopTerminalIpcHandlers(
 
   service.onData((sessionId, data) => options.getWebContents()?.send('terminal:data', sessionId, data));
   service.onExit((sessionId, code) => options.getWebContents()?.send('terminal:exit', sessionId, code));
+  service.onPreflightResult((sessionId, result) => options.getWebContents()?.send('terminal:preflight', sessionId, result));
 
   ipcMain.handle('terminal:start', (_event, repoPath, cols, rows) => service.startSession(
     String(repoPath),

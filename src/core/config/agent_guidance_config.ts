@@ -18,6 +18,22 @@ export interface AgentGuidanceConfig {
   scope: AgentGuidanceScope;
   default_guidance: string;
   per_tool_notes: Record<string, string>;
+  terminal_preflight: AgentGuidanceTerminalPreflightConfig;
+}
+
+export type AgentGuidanceTerminalPreflightMode = 'check_only' | 'auto_repair';
+
+export interface AgentGuidanceTerminalPreflightConfig {
+  enabled: boolean;
+  mode: AgentGuidanceTerminalPreflightMode;
+  supported_agents: {
+    codex: boolean;
+    claude: boolean;
+  };
+  repair: {
+    create_backup: boolean;
+    require_valid_guidance_config: boolean;
+  };
 }
 
 export interface AgentGuidanceConfigError {
@@ -76,6 +92,22 @@ export function defaultAgentGuidanceConfig(): AgentGuidanceConfig {
     scope: 'global',
     default_guidance: DEFAULT_GUIDANCE_TEXT,
     per_tool_notes: { ...DEFAULT_PER_TOOL_NOTES },
+    terminal_preflight: defaultAgentGuidanceTerminalPreflightConfig(),
+  };
+}
+
+export function defaultAgentGuidanceTerminalPreflightConfig(): AgentGuidanceTerminalPreflightConfig {
+  return {
+    enabled: true,
+    mode: 'check_only',
+    supported_agents: {
+      codex: true,
+      claude: true,
+    },
+    repair: {
+      create_backup: true,
+      require_valid_guidance_config: true,
+    },
   };
 }
 
@@ -120,6 +152,76 @@ function parsePerToolNotes(value: unknown, warnings: string[]): Record<string, s
   return out;
 }
 
+function parseTerminalPreflight(
+  value: unknown,
+  warnings: string[],
+): AgentGuidanceTerminalPreflightConfig {
+  const defaults = defaultAgentGuidanceTerminalPreflightConfig();
+  if (value === undefined || value === null) return defaults;
+  if (!isRecord(value)) {
+    warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight must be a mapping; using defaults.');
+    return defaults;
+  }
+
+  const enabled = coerceBoolean(value.enabled);
+  if (value.enabled !== undefined && enabled === null) {
+    warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.enabled must be boolean; using default.');
+  }
+
+  const modeRaw = coerceString(value.mode);
+  let mode = defaults.mode;
+  if (modeRaw === 'check_only' || modeRaw === 'auto_repair') {
+    mode = modeRaw;
+  } else if (value.mode !== undefined) {
+    warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.mode must be check_only or auto_repair; using default.');
+  }
+
+  const supportedRaw = value.supported_agents;
+  const supported = { ...defaults.supported_agents };
+  if (supportedRaw !== undefined) {
+    if (isRecord(supportedRaw)) {
+      const codex = coerceBoolean(supportedRaw.codex);
+      const claude = coerceBoolean(supportedRaw.claude);
+      if (supportedRaw.codex !== undefined && codex === null) {
+        warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.supported_agents.codex must be boolean; using default.');
+      }
+      if (supportedRaw.claude !== undefined && claude === null) {
+        warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.supported_agents.claude must be boolean; using default.');
+      }
+      supported.codex = codex ?? supported.codex;
+      supported.claude = claude ?? supported.claude;
+    } else {
+      warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.supported_agents must be a mapping; using defaults.');
+    }
+  }
+
+  const repairRaw = value.repair;
+  const repair = { ...defaults.repair };
+  if (repairRaw !== undefined) {
+    if (isRecord(repairRaw)) {
+      const createBackup = coerceBoolean(repairRaw.create_backup);
+      const requireValid = coerceBoolean(repairRaw.require_valid_guidance_config);
+      if (repairRaw.create_backup !== undefined && createBackup === null) {
+        warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.repair.create_backup must be boolean; using default.');
+      }
+      if (repairRaw.require_valid_guidance_config !== undefined && requireValid === null) {
+        warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.repair.require_valid_guidance_config must be boolean; using default.');
+      }
+      repair.create_backup = createBackup ?? repair.create_backup;
+      repair.require_valid_guidance_config = requireValid ?? repair.require_valid_guidance_config;
+    } else {
+      warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.repair must be a mapping; using defaults.');
+    }
+  }
+
+  return {
+    enabled: enabled ?? defaults.enabled,
+    mode,
+    supported_agents: supported,
+    repair,
+  };
+}
+
 function applyParsedConfig(
   parsed: unknown,
   warnings: string[],
@@ -160,6 +262,7 @@ function applyParsedConfig(
     scope: scopeStr === 'global' ? 'global' : defaults.scope,
     default_guidance: guidance ?? defaults.default_guidance,
     per_tool_notes: parsePerToolNotes(parsed.per_tool_notes, warnings),
+    terminal_preflight: parseTerminalPreflight(parsed.terminal_preflight, warnings),
   };
 }
 
@@ -253,6 +356,37 @@ function normalizeForWrite(config: AgentGuidanceConfig): AgentGuidanceConfig {
           >,
         )
       : { ...defaults.per_tool_notes },
+    terminal_preflight: normalizeTerminalPreflightForWrite(config.terminal_preflight),
+  };
+}
+
+export function normalizeTerminalPreflightForWrite(
+  config: Partial<AgentGuidanceTerminalPreflightConfig> | unknown,
+): AgentGuidanceTerminalPreflightConfig {
+  const defaults = defaultAgentGuidanceTerminalPreflightConfig();
+  if (!isRecord(config)) return defaults;
+  const supportedRaw = config.supported_agents;
+  const repairRaw = config.repair;
+  return {
+    enabled: typeof config.enabled === 'boolean' ? config.enabled : defaults.enabled,
+    mode: config.mode === 'auto_repair' || config.mode === 'check_only' ? config.mode : defaults.mode,
+    supported_agents: {
+      codex: isRecord(supportedRaw) && typeof supportedRaw.codex === 'boolean'
+        ? supportedRaw.codex
+        : defaults.supported_agents.codex,
+      claude: isRecord(supportedRaw) && typeof supportedRaw.claude === 'boolean'
+        ? supportedRaw.claude
+        : defaults.supported_agents.claude,
+    },
+    repair: {
+      create_backup: isRecord(repairRaw) && typeof repairRaw.create_backup === 'boolean'
+        ? repairRaw.create_backup
+        : defaults.repair.create_backup,
+      require_valid_guidance_config:
+        isRecord(repairRaw) && typeof repairRaw.require_valid_guidance_config === 'boolean'
+          ? repairRaw.require_valid_guidance_config
+          : defaults.repair.require_valid_guidance_config,
+    },
   };
 }
 

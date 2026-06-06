@@ -395,6 +395,39 @@
               </ul>
               <p class="settings-note">Changes apply to new agent/MCP sessions. Restart/reconnect the agent if already running.</p>
             </div>
+            <div>
+              <h4>Terminal Agent Preflight</h4>
+              <p class="settings-note" id="agc-terminal-preflight-copy">
+                Applies when opening new Vibecode terminals. It does not start agents and does not send text
+                into the terminal. Start codex/claude manually as usual.
+              </p>
+              <div class="settings-row">
+                <label>
+                  <input type="checkbox" id="agc-preflight-enabled" /> Enable terminal preflight
+                </label>
+                <label>
+                  Mode
+                  <select id="agc-preflight-mode">
+                    <option value="check_only">Check only</option>
+                    <option value="auto_repair">Auto repair safe MCP config</option>
+                  </select>
+                </label>
+              </div>
+              <div class="settings-row">
+                <label>
+                  <input type="checkbox" id="agc-preflight-codex" /> Codex
+                </label>
+                <label>
+                  <input type="checkbox" id="agc-preflight-claude" /> Claude
+                </label>
+                <label>
+                  <input type="checkbox" id="agc-preflight-backup" /> Create backup
+                </label>
+              </div>
+              <ul class="settings-list" id="agc-preflight-status">
+                <li>Not checked</li>
+              </ul>
+            </div>
             <div class="settings-row">
               <button id="agc-save" class="btn primary" type="button">Save</button>
               <button id="agc-reset" class="btn" type="button">Reset to defaults</button>
@@ -410,9 +443,10 @@
           <div class="settings-tab-panel" data-tab-panel="terminal" id="settings-panel-terminal" hidden>
             <h3>Terminal</h3>
             <p>
-              Terminal guidance injection is <strong>not implemented</strong>. Vibecode does not send hidden
-              text into the PTY. The exact contents of <code>final_prompt.md</code> are what Vibecode sends
-              into the terminal — nothing is appended after preview.
+              Terminal Agent Preflight runs when opening new Vibecode terminals. It checks supported agent
+              VibecodeMCP configuration, does not start agents, and does not send hidden text into the PTY.
+              The exact contents of <code>final_prompt.md</code> are what Vibecode sends into the terminal —
+              nothing is appended after preview.
             </p>
           </div>
 
@@ -2148,9 +2182,22 @@
       const agcStatusEl = $('agc-status');
       const agcSaveBtn = $('agc-save');
       const agcResetBtn = $('agc-reset');
+      const agcPreflightCopyEl = $('agc-terminal-preflight-copy');
+      const agcPreflightEnabledEl = $('agc-preflight-enabled');
+      const agcPreflightModeEl = $('agc-preflight-mode');
+      const agcPreflightCodexEl = $('agc-preflight-codex');
+      const agcPreflightClaudeEl = $('agc-preflight-claude');
+      const agcPreflightBackupEl = $('agc-preflight-backup');
+      const agcPreflightStatusEl = $('agc-preflight-status');
       const AGENT_INTEGRATION_IDS = ['claude', 'codex'];
       let agentGuidanceLastConfig = null;
       let agentGuidanceLastTools = [];
+      let agentGuidanceLastPreflight = {
+        enabled: true,
+        mode: 'check_only',
+        supported_agents: { codex: true, claude: true },
+        repair: { create_backup: true, require_valid_guidance_config: true },
+      };
 
       function renderAgentGuidanceConfig(config) {
         agentGuidanceLastConfig = config;
@@ -2205,6 +2252,22 @@
           scope: 'global',
           default_guidance: agcDefaultGuidanceEl ? agcDefaultGuidanceEl.value : (base.default_guidance || ''),
           per_tool_notes: collectAgentGuidancePerToolNotes(),
+          terminal_preflight: collectTerminalPreflightConfig(),
+        };
+      }
+
+      function collectTerminalPreflightConfig() {
+        return {
+          enabled: agcPreflightEnabledEl ? !!agcPreflightEnabledEl.checked : agentGuidanceLastPreflight.enabled !== false,
+          mode: agcPreflightModeEl && agcPreflightModeEl.value === 'auto_repair' ? 'auto_repair' : 'check_only',
+          supported_agents: {
+            codex: agcPreflightCodexEl ? !!agcPreflightCodexEl.checked : agentGuidanceLastPreflight.supported_agents.codex !== false,
+            claude: agcPreflightClaudeEl ? !!agcPreflightClaudeEl.checked : agentGuidanceLastPreflight.supported_agents.claude !== false,
+          },
+          repair: {
+            create_backup: agcPreflightBackupEl ? !!agcPreflightBackupEl.checked : agentGuidanceLastPreflight.repair.create_backup !== false,
+            require_valid_guidance_config: true,
+          },
         };
       }
 
@@ -2243,6 +2306,41 @@
           el.textContent = status.text || '';
           el.classList.toggle('error', status.kind === 'error');
           el.classList.toggle('ok', status.kind === 'ok');
+        },
+        setTerminalPreflight(view) {
+          if (!view) return;
+          if (agcPreflightCopyEl && view.copy) agcPreflightCopyEl.textContent = view.copy;
+          agentGuidanceLastPreflight = {
+            enabled: view.enabled !== false,
+            mode: view.mode === 'auto_repair' ? 'auto_repair' : 'check_only',
+            supported_agents: {
+              codex: !!(view.agentToggles || []).find((a) => a.agent === 'codex' && a.enabled),
+              claude: !!(view.agentToggles || []).find((a) => a.agent === 'claude' && a.enabled),
+            },
+            repair: {
+              create_backup: view.createBackup !== false,
+              require_valid_guidance_config: true,
+            },
+          };
+          if (agcPreflightEnabledEl) agcPreflightEnabledEl.checked = agentGuidanceLastPreflight.enabled;
+          if (agcPreflightModeEl) agcPreflightModeEl.value = agentGuidanceLastPreflight.mode;
+          if (agcPreflightCodexEl) agcPreflightCodexEl.checked = agentGuidanceLastPreflight.supported_agents.codex;
+          if (agcPreflightClaudeEl) agcPreflightClaudeEl.checked = agentGuidanceLastPreflight.supported_agents.claude;
+          if (agcPreflightBackupEl) agcPreflightBackupEl.checked = agentGuidanceLastPreflight.repair.create_backup;
+          if (agcPreflightStatusEl && Array.isArray(view.statusRows)) {
+            agcPreflightStatusEl.innerHTML = '';
+            view.statusRows.forEach((row) => {
+              const li = document.createElement('li');
+              const label = document.createElement('span');
+              label.className = 'label';
+              label.textContent = row.label + ':';
+              li.appendChild(label);
+              const value = document.createElement('code');
+              value.textContent = row.value || '';
+              li.appendChild(value);
+              agcPreflightStatusEl.appendChild(li);
+            });
+          }
         },
       };
 
@@ -2325,6 +2423,14 @@
               // Origin terminal died; leave the composer open so the user can
               // see why send is disabled, but refresh the disabled state.
               refreshSendButton();
+            }
+          },
+          onPreflight: (_sessionId, result) => {
+            if (result && agentGuidanceView && agentGuidanceView.setTerminalPreflight && window.VibecodeAgentGuidanceSettings) {
+              agentGuidanceView.setTerminalPreflight(window.VibecodeAgentGuidanceSettings.buildTerminalPreflightView({
+                terminal_preflight: agentGuidanceLastPreflight,
+                last_result: result,
+              }));
             }
           },
           onOpenComposer: (info, tileEl) => openOverlay(info, tileEl),

@@ -344,6 +344,9 @@ vibecode agent-guidance apply --agent claude --repo <path> --dry-run --json
 vibecode agent-guidance apply --agent claude --repo <path> --yes --json
 vibecode agent-guidance apply --agent codex --repo <path> --dry-run --json
 vibecode agent-guidance apply --agent codex --repo <path> --yes --json
+vibecode agent-guidance preflight --repo <path> --terminal --json
+vibecode agent-guidance preflight --repo <path> --terminal --mode check_only --json
+vibecode agent-guidance preflight --repo <path> --terminal --mode auto_repair --json
 ```
 
 `vibecode mcp serve` starts a repo-bound stdio MCP server exposing the
@@ -419,7 +422,21 @@ Vibecode-owned config layers are:
 6. Dedicated Agent Guidance config: %LOCALAPPDATA%/vibecodelight/agent-guidance-config.yaml
 ```
 
-Agent Guidance config (layer 6) is a separate file, never merged into the root global config.yaml or .vibecode/config.yaml. It stores enable/disable, default guidance text, and per-tool notes for terminal agents. It is inspectable/editable/resettable from the desktop Settings UI. VibecodeMCP exposes this editable guidance through `vibecode_mcp_guidance`, compact workspace guidance status, SDK server instructions when supported, and bounded per-tool description suffixes. This layer does NOT inject hidden text into the PTY, does NOT mutate final_prompt.md after preview, and does NOT modify Claude/Codex approvals or permissions. `vibecode agent-guidance apply` only ensures Claude/Codex point at the repo-bound VibecodeMCP server; it does not write guidance into AGENTS.md, CLAUDE.md, root config.yaml, terminal stdin, or approval/permission settings. Existing MCP sessions may need restart/reconnect after guidance changes.
+Agent Guidance config (layer 6) is a separate file, never merged into the root global config.yaml or .vibecode/config.yaml. It stores enable/disable, default guidance text, per-tool notes for terminal agents, and Terminal Agent Preflight policy. It is inspectable/editable/resettable from the desktop Settings UI. VibecodeMCP exposes this editable guidance through `vibecode_mcp_guidance`, compact workspace guidance status, SDK server instructions when supported, and bounded per-tool description suffixes. This layer does NOT inject hidden text into the PTY, does NOT mutate final_prompt.md after preview, and does NOT modify Claude/Codex approvals or permissions. `vibecode agent-guidance apply` only ensures Claude/Codex point at the repo-bound VibecodeMCP server; it does not write guidance into AGENTS.md, CLAUDE.md, root config.yaml, terminal stdin, or approval/permission settings. Terminal Agent Preflight runs when opening new Vibecode terminals to check or safely repair supported agent VibecodeMCP config according to this dedicated policy; it does not start agents and does not send text into the terminal. Existing MCP sessions may need restart/reconnect after guidance changes.
+
+Terminal Agent Preflight settings live in the same dedicated file:
+
+```yaml
+terminal_preflight:
+  enabled: true
+  mode: check_only
+  supported_agents:
+    codex: true
+    claude: true
+  repair:
+    create_backup: true
+    require_valid_guidance_config: true
+```
 
 The root config.yaml belongs to the target project. VibecodeLight must not create, read, write, or interpret <repo>/config.yaml as Vibecode settings. If root config.yaml appears in scans/context, it is only an ordinary target project file.
 

@@ -52,7 +52,7 @@
         id: 'terminal',
         label: 'Terminal',
         description:
-          'Terminal guidance injection is NOT implemented. Vibecode does not send hidden text into the PTY.',
+          'Terminal Agent Preflight checks supported agent MCP config when opening terminals, does not start agents, and does not send hidden text into the PTY.',
       }),
       Object.freeze({
         id: 'advanced',

@@ -31,6 +31,14 @@ implemented on top of MCP-2:
   use the repo-bound VibecodeMCP server. `apply --dry-run` previews and
   `apply --yes` writes only the MCP server config path already used by the
   agent installers. Existing MCP sessions may need restart/reconnect.
+- Terminal Agent Preflight runs when opening new Vibecode terminals and checks
+  that supported agents have VibecodeMCP configured according to the dedicated
+  Agent Guidance settings. In `auto_repair` mode it may update only the same
+  safe VibecodeMCP config used by `agent-guidance apply --yes`; user still
+  starts codex/claude manually. There is no Start Codex button, no Start Claude
+  button, no hidden PTY/stdin injection, no final_prompt.md mutation, and no
+  approval/permission mutation. Running agents may need restart/reconnect after
+  guidance changes.
 - `vibecode_workspace_status` performs read-only git inspection only
   (`git rev-parse`, `git status --porcelain=v1`); never mutates git.
 - `vibecode_project_instructions` reads only the strict allowlist of

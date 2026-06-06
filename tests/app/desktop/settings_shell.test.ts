@@ -22,13 +22,14 @@ describe('settings shell — tab definitions', () => {
     }
   });
 
-  test('Terminal tab description states hidden PTY injection is not implemented', () => {
+  test('Terminal tab description states preflight exists without hidden PTY injection', () => {
     const terminalTab = SettingsShell.SETTINGS_TABS.find(
       (t: { id: string }) => t.id === 'terminal',
     );
     expect(terminalTab).toBeTruthy();
-    expect(terminalTab?.description.toLowerCase()).toMatch(/not implemented/);
+    expect(terminalTab?.description.toLowerCase()).toMatch(/terminal agent preflight/);
     expect(terminalTab?.description.toLowerCase()).toMatch(/pty/);
+    expect(terminalTab?.description.toLowerCase()).toMatch(/does not start agents/);
   });
 });
 

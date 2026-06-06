@@ -42,7 +42,7 @@ describe('desktop preload bridge boundary', () => {
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
     expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'runs', 'skills', 'terminal', 'workspace']);
-    expect(Object.keys(api.terminal).sort()).toEqual(['close', 'list', 'onData', 'onExit', 'resize', 'start', 'write']);
+    expect(Object.keys(api.terminal).sort()).toEqual(['close', 'list', 'onData', 'onExit', 'onPreflight', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
     expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
@@ -55,6 +55,7 @@ describe('desktop preload bridge boundary', () => {
       'getAgentGuidanceIntegrationStatus',
       'getAgentGuidanceMcpTools',
       'getAgentGuidanceRuntimeStatus',
+      'getAgentGuidanceTerminalPreflightConfig',
       'getCodeGraphTransportSetting',
       'getDesktopAutoApproveEnabledSetting',
       'getDesktopCodeGraphModeSetting',
@@ -71,6 +72,7 @@ describe('desktop preload bridge boundary', () => {
       'resetDesktopCodeGraphModeSetting',
       'resetDesktopTaskNormalizerEnabledSetting',
       'setAgentGuidanceConfig',
+      'setAgentGuidanceTerminalPreflightConfig',
       'setCodeGraphTransportSetting',
       'setDesktopAutoApproveEnabledSetting',
       'setDesktopCodeGraphModeSetting',
@@ -359,6 +361,8 @@ describe('desktop preload bridge boundary', () => {
       getAgentGuidanceMcpTools: () => Promise<unknown>;
       getAgentGuidanceRuntimeStatus: () => Promise<unknown>;
       getAgentGuidanceIntegrationStatus: (agent: string) => Promise<unknown>;
+      getAgentGuidanceTerminalPreflightConfig: () => Promise<unknown>;
+      setAgentGuidanceTerminalPreflightConfig: (config: Record<string, unknown>) => Promise<unknown>;
       dryRunAgentGuidanceIntegration: (agent: string) => Promise<unknown>;
       applyAgentGuidanceIntegration: (agent: string, confirmed: boolean) => Promise<unknown>;
     };
@@ -372,6 +376,8 @@ describe('desktop preload bridge boundary', () => {
     await config.getAgentGuidanceMcpTools();
     await config.getAgentGuidanceRuntimeStatus();
     await config.getAgentGuidanceIntegrationStatus('codex');
+    await config.getAgentGuidanceTerminalPreflightConfig();
+    await config.setAgentGuidanceTerminalPreflightConfig({ enabled: true, mode: 'check_only' });
     await config.dryRunAgentGuidanceIntegration('claude');
     await config.applyAgentGuidanceIntegration('codex', true);
 
@@ -383,6 +389,8 @@ describe('desktop preload bridge boundary', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceMcpTools');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceRuntimeStatus');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceIntegrationStatus', 'codex');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceTerminalPreflightConfig');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setAgentGuidanceTerminalPreflightConfig', { enabled: true, mode: 'check_only' });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:dryRunAgentGuidanceIntegration', 'claude');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:applyAgentGuidanceIntegration', 'codex', true);
     expect(ipcRenderer.send).not.toHaveBeenCalled();
@@ -412,5 +420,27 @@ describe('desktop preload bridge boundary', () => {
     for (const key of forbiddenAgentGuidanceKeys) {
       expect(configKeys).not.toContain(key);
     }
+  });
+
+  test('terminal preflight status listener uses receive-only IPC and adds no terminal write channel', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const terminal = api.terminal as { onPreflight: (callback: (sessionId: string, result: unknown) => void) => void };
+    terminal.onPreflight(vi.fn());
+
+    expect(ipcRenderer.on).toHaveBeenCalledWith('terminal:preflight', expect.any(Function));
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
+    expect(Object.keys(api.terminal)).not.toContain('preflightWrite');
   });
 });

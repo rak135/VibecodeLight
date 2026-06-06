@@ -29,6 +29,77 @@
     var APPROVAL_BOUNDARY_LINE =
       'Vibecode does not manage agent approvals; approval/permission belongs to the MCP client/agent.';
     var FALLBACK_LINE = 'If MCP tools are unavailable, use equivalent Vibecode CLI commands.';
+    var TERMINAL_PREFLIGHT_COPY =
+      'Applies when opening new Vibecode terminals. It does not start agents and does not send text into the terminal. Start codex/claude manually as usual.';
+    var DEFAULT_TERMINAL_PREFLIGHT = Object.freeze({
+      enabled: true,
+      mode: 'check_only',
+      supported_agents: Object.freeze({ codex: true, claude: true }),
+      repair: Object.freeze({ create_backup: true, require_valid_guidance_config: true }),
+    });
+
+    function normalizeTerminalPreflight(raw) {
+      raw = raw && typeof raw === 'object' ? raw : {};
+      var supported = raw.supported_agents && typeof raw.supported_agents === 'object' ? raw.supported_agents : {};
+      var repair = raw.repair && typeof raw.repair === 'object' ? raw.repair : {};
+      return {
+        enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_TERMINAL_PREFLIGHT.enabled,
+        mode: raw.mode === 'auto_repair' || raw.mode === 'check_only' ? raw.mode : DEFAULT_TERMINAL_PREFLIGHT.mode,
+        supported_agents: {
+          codex: typeof supported.codex === 'boolean' ? supported.codex : DEFAULT_TERMINAL_PREFLIGHT.supported_agents.codex,
+          claude: typeof supported.claude === 'boolean' ? supported.claude : DEFAULT_TERMINAL_PREFLIGHT.supported_agents.claude,
+        },
+        repair: {
+          create_backup: typeof repair.create_backup === 'boolean' ? repair.create_backup : DEFAULT_TERMINAL_PREFLIGHT.repair.create_backup,
+          require_valid_guidance_config:
+            typeof repair.require_valid_guidance_config === 'boolean'
+              ? repair.require_valid_guidance_config
+              : DEFAULT_TERMINAL_PREFLIGHT.repair.require_valid_guidance_config,
+        },
+      };
+    }
+
+    function agentStatusText(agent) {
+      if (!agent) return 'unknown';
+      if (agent.error) return 'error';
+      if (agent.repaired) return 'repaired';
+      if (agent.stale) return 'stale';
+      if (agent.configured) return 'up-to-date';
+      return 'missing';
+    }
+
+    function buildTerminalPreflightView(opts) {
+      var config = normalizeTerminalPreflight(opts && opts.terminal_preflight);
+      var last = opts && opts.last_result ? opts.last_result : {};
+      var agents = Array.isArray(last.agents) ? last.agents : [];
+      function findAgent(name) {
+        for (var i = 0; i < agents.length; i += 1) {
+          if (agents[i].agent === name) return agents[i];
+        }
+        return null;
+      }
+      return {
+        title: 'Terminal Agent Preflight',
+        copy: TERMINAL_PREFLIGHT_COPY,
+        enabled: config.enabled,
+        mode: config.mode,
+        modeOptions: [
+          { value: 'check_only', label: 'Check only' },
+          { value: 'auto_repair', label: 'Auto repair safe MCP config' },
+        ],
+        agentToggles: [
+          { agent: 'codex', enabled: config.supported_agents.codex !== false },
+          { agent: 'claude', enabled: config.supported_agents.claude !== false },
+        ],
+        createBackup: config.repair.create_backup !== false,
+        statusRows: [
+          { label: 'last checked at', value: last.checked_at || 'not checked' },
+          { label: 'guidance hash', value: last.guidance_hash || '' },
+          { label: 'Codex', value: agentStatusText(findAgent('codex')) },
+          { label: 'Claude', value: agentStatusText(findAgent('claude')) },
+        ],
+      };
+    }
 
     function buildEffectivePreviewText(opts) {
       var config = opts && opts.config ? opts.config : null;
@@ -120,11 +191,13 @@
         setStatus: function () {},
         setMcpTools: function () {},
         setEffectiveGuidance: function () {},
+        setTerminalPreflight: function () {},
         setIntegrationStatus: function () {},
         setIntegrationPlan: function () {},
       };
       var lastConfig = null;
       var lastTools = defaultsFromTools();
+      var lastTerminalPreflight = normalizeTerminalPreflight(null);
 
       function renderEffective() {
         if (!lastConfig) return;
@@ -175,6 +248,31 @@
         }
       }
 
+      async function refreshTerminalPreflight() {
+        if (!api || typeof api.getAgentGuidanceTerminalPreflightConfig !== 'function') {
+          if (view.setTerminalPreflight) {
+            view.setTerminalPreflight(buildTerminalPreflightView({ terminal_preflight: lastTerminalPreflight }));
+          }
+          return;
+        }
+        try {
+          var resp = await api.getAgentGuidanceTerminalPreflightConfig();
+          if (resp && resp.terminal_preflight) {
+            lastTerminalPreflight = normalizeTerminalPreflight(resp.terminal_preflight);
+          }
+          if (view.setTerminalPreflight) {
+            view.setTerminalPreflight(buildTerminalPreflightView({
+              terminal_preflight: lastTerminalPreflight,
+              last_result: resp && resp.last_result,
+            }));
+          }
+        } catch (_err) {
+          if (view.setTerminalPreflight) {
+            view.setTerminalPreflight(buildTerminalPreflightView({ terminal_preflight: lastTerminalPreflight }));
+          }
+        }
+      }
+
       async function refresh() {
         if (!api) return;
         try {
@@ -198,6 +296,7 @@
           if (typeof api.getAgentGuidanceRuntimeStatus === 'function') {
             await api.getAgentGuidanceRuntimeStatus();
           }
+          await refreshTerminalPreflight();
           view.setStatus(buildStatusMessage({
             ok: configResp && configResp.ok !== false,
             source: configResp && configResp.source,
@@ -224,6 +323,21 @@
             return;
           }
           lastConfig = resp.config;
+          if (nextConfig && nextConfig.terminal_preflight && typeof api.setAgentGuidanceTerminalPreflightConfig === 'function') {
+            var preflightResp = await api.setAgentGuidanceTerminalPreflightConfig(normalizeTerminalPreflight(nextConfig.terminal_preflight));
+            if (preflightResp && preflightResp.ok === true && preflightResp.terminal_preflight) {
+              lastTerminalPreflight = normalizeTerminalPreflight(preflightResp.terminal_preflight);
+              if (view.setTerminalPreflight) {
+                view.setTerminalPreflight(buildTerminalPreflightView({ terminal_preflight: lastTerminalPreflight }));
+              }
+            } else if (preflightResp && preflightResp.ok === false) {
+              view.setStatus({
+                kind: 'error',
+                text: safeError(preflightResp.error || { code: 'TERMINAL_PREFLIGHT_WRITE_FAILED', message: 'could not save terminal preflight settings' }),
+              });
+              return;
+            }
+          }
           view.setConfig(resp.config);
           view.setStatus({ kind: 'ok', text: 'saved' });
           renderEffective();
@@ -319,10 +433,12 @@
       };
     }
 
-    return {
-      buildEffectivePreviewText: buildEffectivePreviewText,
-      buildStatusMessage: buildStatusMessage,
-      createController: createController,
-    };
+      return {
+        TERMINAL_PREFLIGHT_COPY: TERMINAL_PREFLIGHT_COPY,
+        buildEffectivePreviewText: buildEffectivePreviewText,
+        buildTerminalPreflightView: buildTerminalPreflightView,
+        buildStatusMessage: buildStatusMessage,
+        createController: createController,
+      };
   },
 );

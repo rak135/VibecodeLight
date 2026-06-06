@@ -15,6 +15,33 @@ export interface AgentGuidanceConfigView {
   scope: 'global';
   default_guidance: string;
   per_tool_notes: Record<string, string>;
+  terminal_preflight: TerminalPreflightConfigView;
+}
+
+export type TerminalPreflightModeView = 'check_only' | 'auto_repair';
+
+export interface TerminalPreflightConfigView {
+  enabled: boolean;
+  mode: TerminalPreflightModeView;
+  supported_agents: { codex: boolean; claude: boolean };
+  repair: { create_backup: boolean; require_valid_guidance_config: boolean };
+}
+
+export interface TerminalPreflightLastResultView {
+  checked_at?: string;
+  guidance_hash?: string;
+  agents?: Array<{ agent: 'codex' | 'claude' | string; configured?: boolean; stale?: boolean; repaired?: boolean; error?: string }>;
+}
+
+export interface TerminalPreflightViewModel {
+  title: 'Terminal Agent Preflight';
+  copy: string;
+  enabled: boolean;
+  mode: TerminalPreflightModeView;
+  modeOptions: Array<{ value: TerminalPreflightModeView; label: string }>;
+  agentToggles: Array<{ agent: 'codex' | 'claude'; enabled: boolean }>;
+  createBackup: boolean;
+  statusRows: Array<{ label: string; value: string }>;
 }
 
 export interface AgentGuidanceReadResponse {
@@ -100,6 +127,23 @@ export interface AgentGuidanceConfigApi {
   getAgentGuidanceMcpTools(): Promise<AgentGuidanceMcpToolsResponse>;
   getAgentGuidanceRuntimeStatus(): Promise<AgentGuidanceRuntimeStatusResponse>;
   getAgentGuidanceIntegrationStatus(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationStatusResponse>;
+  getAgentGuidanceTerminalPreflightConfig(): Promise<{
+    ok: boolean;
+    terminal_preflight?: TerminalPreflightConfigView;
+    configPath?: string;
+    guidance_hash?: string;
+    last_result?: TerminalPreflightLastResultView;
+    warnings?: string[];
+    error?: { code: string; message: string; details?: string[] };
+  }>;
+  setAgentGuidanceTerminalPreflightConfig(config: TerminalPreflightConfigView): Promise<{
+    ok: boolean;
+    terminal_preflight?: TerminalPreflightConfigView;
+    configPath?: string;
+    guidance_hash?: string;
+    warnings?: string[];
+    error?: { code: string; message: string; details?: string[] };
+  }>;
   dryRunAgentGuidanceIntegration(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationApplyResponse>;
   applyAgentGuidanceIntegration(agent: 'claude' | 'codex', confirmed: boolean): Promise<AgentGuidanceIntegrationApplyResponse>;
 }
@@ -120,6 +164,7 @@ export interface AgentGuidanceSettingsView {
   setStatus(status: AgentGuidanceStatus): void;
   setMcpTools(tools: AgentGuidanceMcpTool[]): void;
   setEffectiveGuidance(preview: AgentGuidancePreview): void;
+  setTerminalPreflight?(view: TerminalPreflightViewModel): void;
   setIntegrationStatus?(agent: 'claude' | 'codex', status: AgentGuidanceStatus & { hash?: string; expectedToolCount?: number }): void;
   setIntegrationPlan?(agent: 'claude' | 'codex', status: AgentGuidanceStatus & { hash?: string }): void;
 }
@@ -133,7 +178,12 @@ export interface AgentGuidanceSettingsController {
 }
 
 export interface AgentGuidanceSettingsModule {
+  TERMINAL_PREFLIGHT_COPY: string;
   buildEffectivePreviewText(opts: { config: AgentGuidanceConfigView; mcpTools: AgentGuidanceMcpTool[] }): string;
+  buildTerminalPreflightView(opts: {
+    terminal_preflight?: TerminalPreflightConfigView;
+    last_result?: TerminalPreflightLastResultView;
+  }): TerminalPreflightViewModel;
   buildStatusMessage(opts: {
     ok?: boolean;
     source?: 'default' | 'file';

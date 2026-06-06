@@ -114,4 +114,75 @@ describe('vibecode agent-guidance CLI commands', () => {
     expect(fs.existsSync(path.join(repoRoot, 'CLAUDE.md'))).toBe(false);
     expect(JSON.stringify(payload)).not.toMatch(/allowedTools|deniedTools|hooks/);
   });
+
+  test('preflight --terminal --json runs check-only by default and writes no agent config', async () => {
+    const result = await runCli(['agent-guidance', 'preflight', '--repo', repoRoot, '--terminal', '--json']);
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.logs[0]);
+    expect(payload.ok).toBe(true);
+    expect(payload.mode).toBe('check_only');
+    expect(payload.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(payload.no_pty_injection).toBe(true);
+    expect(payload.agents.map((a: { agent: string }) => a.agent).sort()).toEqual(['claude', 'codex']);
+    expect(fs.existsSync(path.join(codexHome, 'config.toml'))).toBe(false);
+  });
+
+  test('preflight --mode check_only performs no writes even when Codex is missing config', async () => {
+    const result = await runCli(['agent-guidance', 'preflight', '--repo', repoRoot, '--terminal', '--mode', 'check_only', '--json']);
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.logs[0]);
+    expect(payload.ok).toBe(true);
+    expect(payload.mode).toBe('check_only');
+    expect(payload.agents.find((a: { agent: string }) => a.agent === 'codex')).toMatchObject({
+      configured: false,
+      repaired: false,
+    });
+    expect(fs.existsSync(path.join(codexHome, 'config.toml'))).toBe(false);
+  });
+
+  test('preflight --mode auto_repair uses safe apply for enabled agents only', async () => {
+    const configPath = path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, [
+      'schema_version: 1',
+      'enabled: true',
+      'apply_to_terminal_agents: true',
+      'scope: global',
+      'default_guidance: "CLI preflight fixture"',
+      'per_tool_notes: {}',
+      'terminal_preflight:',
+      '  enabled: true',
+      '  mode: check_only',
+      '  supported_agents:',
+      '    claude: false',
+      '    codex: true',
+      '',
+    ].join('\n'), 'utf8');
+
+    const result = await runCli(['agent-guidance', 'preflight', '--repo', repoRoot, '--terminal', '--mode', 'auto_repair', '--json']);
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.logs[0]);
+    expect(payload.ok).toBe(true);
+    expect(payload.mode).toBe('auto_repair');
+    expect(payload.agents).toEqual([expect.objectContaining({ agent: 'codex', repaired: true })]);
+    expect(fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8')).toContain('mcp_servers.vibecode');
+    expect(fs.existsSync(path.join(repoRoot, 'AGENTS.md'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'CLAUDE.md'))).toBe(false);
+  });
+
+  test('preflight rejects invalid mode with a structured error', async () => {
+    const result = await runCli(['agent-guidance', 'preflight', '--repo', repoRoot, '--terminal', '--mode', 'repair_all', '--json']);
+    expect(result.exitCode).toBe(1);
+    const payload = JSON.parse(result.logs[0]);
+    expect(payload.ok).toBe(false);
+    expect(payload.error.code).toBe('INVALID_TERMINAL_PREFLIGHT_MODE');
+  });
+
+  test('preflight command does not spawn a terminal process or inject text', async () => {
+    const result = await runCli(['agent-guidance', 'preflight', '--repo', repoRoot, '--terminal', '--mode', 'check_only', '--json']);
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.logs[0]);
+    expect(payload.no_pty_injection).toBe(true);
+    expect(JSON.stringify(payload)).not.toMatch(/terminal:start|terminal:input|Start Codex|Start Claude/i);
+  });
 });

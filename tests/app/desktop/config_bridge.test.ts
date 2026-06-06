@@ -376,6 +376,57 @@ describe('desktop config bridge', () => {
     expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'config.yaml'))).toBe(false);
   });
 
+  test('config get/set Agent Guidance terminal preflight settings use the dedicated file only', async () => {
+    writeGlobal(true, false);
+    const beforeGlobal = fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8');
+    const ipc = register();
+
+    const initial = (await ipc.invoke('config:getAgentGuidanceTerminalPreflightConfig')) as {
+      ok: boolean;
+      terminal_preflight: { enabled: boolean; mode: string; supported_agents: { codex: boolean; claude: boolean } };
+      configPath: string;
+    };
+    expect(initial.ok).toBe(true);
+    expect(initial.terminal_preflight).toMatchObject({
+      enabled: true,
+      mode: 'check_only',
+      supported_agents: { codex: true, claude: true },
+    });
+
+    const written = (await ipc.invoke('config:setAgentGuidanceTerminalPreflightConfig', {
+      enabled: true,
+      mode: 'auto_repair',
+      supported_agents: { codex: true, claude: false, opencode: true },
+      repair: { create_backup: false, require_valid_guidance_config: true },
+      configPath: 'C:/other/path.yaml',
+    })) as {
+      ok: boolean;
+      terminal_preflight: { mode: string; supported_agents: { codex: boolean; claude: boolean }; repair: { create_backup: boolean } };
+      configPath: string;
+    };
+
+    expect(written.ok).toBe(true);
+    expect(written.terminal_preflight.mode).toBe('auto_repair');
+    expect(written.terminal_preflight.supported_agents).toEqual({ codex: true, claude: false });
+    expect(written.terminal_preflight.repair.create_backup).toBe(false);
+    expect(written.configPath).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
+    expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toBe(beforeGlobal);
+    expect(fs.existsSync(path.join(repoRoot, '.vibecode', 'config.yaml'))).toBe(false);
+  });
+
+  test('config rejects invalid terminal preflight mode and exposes no terminal-write channel', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('config:setAgentGuidanceTerminalPreflightConfig', {
+      enabled: true,
+      mode: 'repair_all',
+    })) as { ok: boolean; error?: { code: string } };
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('INVALID_TERMINAL_PREFLIGHT_MODE');
+    expect(ipc.handlers.has('terminal:input')).toBe(false);
+    expect(ipc.handlers.has('config:setAgentGuidanceTerminalPreflightPath')).toBe(false);
+  });
+
   test('config:resetAgentGuidanceConfig restores the default guidance text', async () => {
     const ipc = register();
     const initial = (await ipc.invoke('config:getAgentGuidanceConfig')) as { config: Record<string, unknown> };

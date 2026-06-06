@@ -217,6 +217,32 @@ export interface AgentGuidanceConfigIpc {
   scope: 'global';
   default_guidance: string;
   per_tool_notes: Record<string, string>;
+  terminal_preflight: AgentGuidanceTerminalPreflightConfigIpc;
+}
+
+export type AgentGuidanceTerminalPreflightModeIpc = 'check_only' | 'auto_repair';
+
+export interface AgentGuidanceTerminalPreflightConfigIpc {
+  enabled: boolean;
+  mode: AgentGuidanceTerminalPreflightModeIpc;
+  supported_agents: {
+    codex: boolean;
+    claude: boolean;
+  };
+  repair: {
+    create_backup: boolean;
+    require_valid_guidance_config: boolean;
+  };
+}
+
+export interface AgentGuidanceTerminalPreflightResponseIpc {
+  ok: boolean;
+  terminal_preflight?: AgentGuidanceTerminalPreflightConfigIpc;
+  configPath?: string;
+  guidance_hash?: string;
+  warnings?: string[];
+  last_result?: unknown;
+  error?: { code: string; message: string; details?: string[] };
 }
 
 export interface AgentGuidanceReadIpc {
@@ -401,6 +427,7 @@ export interface VibecodePreloadApi {
     list(): Promise<Array<{ sessionId: string; pid: number; cwd: string; shell: string }>>;
     onData(callback: (sessionId: string, data: string) => void): void;
     onExit(callback: (sessionId: string, code: number | undefined) => void): void;
+    onPreflight(callback: (sessionId: string, result: unknown) => void): void;
   };
   workspace: {
     getInfo(): Promise<{
@@ -451,6 +478,8 @@ export interface VibecodePreloadApi {
     getAgentGuidanceMcpTools(): Promise<AgentGuidanceMcpToolsIpc>;
     getAgentGuidanceRuntimeStatus(): Promise<AgentGuidanceRuntimeStatusIpc>;
     getAgentGuidanceIntegrationStatus(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationStatusIpc>;
+    getAgentGuidanceTerminalPreflightConfig(): Promise<AgentGuidanceTerminalPreflightResponseIpc>;
+    setAgentGuidanceTerminalPreflightConfig(config: AgentGuidanceTerminalPreflightConfigIpc): Promise<AgentGuidanceTerminalPreflightResponseIpc>;
     dryRunAgentGuidanceIntegration(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationApplyIpc>;
     applyAgentGuidanceIntegration(agent: 'claude' | 'codex', confirmed: boolean): Promise<AgentGuidanceIntegrationApplyIpc>;
   };
@@ -491,6 +520,9 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       onExit(callback: (sessionId: string, code: number | undefined) => void) {
         ipcRenderer.on('terminal:exit', (_event, sessionId: string, code: number | undefined) => callback(sessionId, code));
+      },
+      onPreflight(callback: (sessionId: string, result: unknown) => void) {
+        ipcRenderer.on('terminal:preflight', (_event, sessionId: string, result: unknown) => callback(sessionId, result));
       },
     },
     workspace: {
@@ -639,6 +671,12 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       getAgentGuidanceIntegrationStatus(agent: 'claude' | 'codex') {
         return ipcRenderer.invoke('config:getAgentGuidanceIntegrationStatus', agent) as Promise<AgentGuidanceIntegrationStatusIpc>;
+      },
+      getAgentGuidanceTerminalPreflightConfig() {
+        return ipcRenderer.invoke('config:getAgentGuidanceTerminalPreflightConfig') as Promise<AgentGuidanceTerminalPreflightResponseIpc>;
+      },
+      setAgentGuidanceTerminalPreflightConfig(config: AgentGuidanceTerminalPreflightConfigIpc) {
+        return ipcRenderer.invoke('config:setAgentGuidanceTerminalPreflightConfig', config) as Promise<AgentGuidanceTerminalPreflightResponseIpc>;
       },
       dryRunAgentGuidanceIntegration(agent: 'claude' | 'codex') {
         return ipcRenderer.invoke('config:dryRunAgentGuidanceIntegration', agent) as Promise<AgentGuidanceIntegrationApplyIpc>;

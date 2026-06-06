@@ -619,6 +619,25 @@ After editing Agent Guidance or applying MCP config, already running agent/MCP
 sessions may need restart/reconnect. Composer remains transparent:
 `output/final_prompt.md` is not mutated and no hidden PTY text is sent.
 
+## Terminal Agent Preflight
+
+Terminal Agent Preflight runs when opening new Vibecode terminals. It checks
+that supported agents have VibecodeMCP configured for the selected repo and,
+when Settings policy is `auto_repair`, may update only the same safe MCP server
+config used by `vibecode agent-guidance apply --yes`.
+
+The user still starts codex/claude manually. There is no Start Codex button, no
+Start Claude button, no hidden PTY/stdin injection, no Composer or
+`final_prompt.md` mutation, and no approval/permission mutation. Guidance
+applies to new MCP/agent sessions; already running agents may need
+restart/reconnect after guidance or MCP config changes.
+
+Smoke command:
+
+```text
+vibecode agent-guidance preflight --repo <path> --terminal --json
+```
+
 ### Codex MCP install
 
 Codex is the first managed MCP client. `vibecode mcp config --agent codex --repo <path> --print` prints the TOML block for `[mcp_servers.vibecode]`; `--json` returns the same data in a stable envelope. `vibecode mcp install --agent codex --repo <path> --dry-run` previews the change without writing, and `--yes` creates or updates only `[mcp_servers.vibecode]` in Codex `config.toml`, preserving unrelated settings and backing up existing config first. `vibecode mcp doctor --agent codex --repo <path>` checks the installed block and the expected read-only tool list.

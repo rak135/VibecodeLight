@@ -58,6 +58,7 @@
     const onCountChange = options.onCountChange || function () {};
     const onOpenComposer = options.onOpenComposer || function () {};
     const onSessionExit = options.onSessionExit || function () {};
+    const onPreflight = options.onPreflight || function () {};
     const buildKeyHandler = options.buildKeyHandler || null;
     const writeClipboard = options.writeClipboard || null;
     const readClipboard = options.readClipboard || null;
@@ -125,6 +126,13 @@
       onSessionExit(sessionId, code);
       onCountChange(tiles.size);
       ensurePlaceholder();
+    }
+
+    function dispatchPreflight(sessionId, result) {
+      const entry = tiles.get(sessionId);
+      if (!entry) return;
+      entry.info.preflight = result;
+      onPreflight(sessionId, result, entry.info);
     }
 
     function removeTile(sessionId) {
@@ -310,6 +318,9 @@
     // Wire up backend events once; controller dispatches by sessionId.
     api.onData((sessionId, data) => dispatchData(sessionId, data));
     api.onExit((sessionId, code) => dispatchExit(sessionId, code));
+    if (typeof api.onPreflight === 'function') {
+      api.onPreflight((sessionId, result) => dispatchPreflight(sessionId, result));
+    }
 
     ensurePlaceholder();
 
