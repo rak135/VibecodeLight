@@ -1063,11 +1063,13 @@ Full transcript is configurable.
 
 ---
 
-# CLI JSON Output
+# CLI JSON/output contract for agent fallback
 
-Agent-friendly CLI output is required.
+Agent-friendly CLI output is required for commands advertised as fallback tools
+for non-MCP agents.
 
-Commands with `--json` use a consistent response envelope.
+Agent-facing fallback commands should use the canonical JSON success envelope
+unless the command is explicitly documented and tested as an exception.
 
 Success:
 
@@ -1094,7 +1096,34 @@ Failure:
 }
 ```
 
-Human-readable output may be used by default, but JSON mode must be stable for agents.
+Human-readable output may be used by default, but JSON mode for advertised
+agent-facing fallback commands must be stable for agents.
+
+Not every `--json` command uses the canonical success envelope today. Some
+outputs are intentionally raw streams or stable tool-specific payloads.
+
+Accepted exceptions:
+
+- `vibecode runs show --artifact <name> --json` may stream raw artifact text or
+  bytes. This is useful for agents that need the exact artifact content, and raw
+  streaming is not deprecated.
+- `vibecode mcp serve` owns stdout as the MCP JSON-RPC stream. Human diagnostics
+  for that command go to stderr.
+- CodeGraph query commands (`vibecode codegraph search|context|files|callers|callees|impact --json`)
+  may return special query JSON that preserves `stdoutText`, `parsedJson`, logs,
+  command metadata, and query input fields instead of wrapping everything under
+  `data`.
+- MCP install/config/doctor and Agent Guidance setup/preflight commands may
+  return stable tool-specific JSON payloads because those commands model
+  external agent configuration state.
+- Debug/demo commands may return weaker or raw structured JSON and must not be
+  advertised as stable agent fallback commands until their contract is pinned.
+- `vibecode run create` is debug/internal; its current bare `run_id` behavior is
+  an accepted current behavior unless deliberately migrated later.
+
+Any future CLI fallback advertised to agents must either use the canonical
+envelope above or be explicitly documented and covered by characterization
+tests as an exception.
 
 ---
 
