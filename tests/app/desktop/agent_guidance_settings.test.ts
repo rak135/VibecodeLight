@@ -67,6 +67,51 @@ function makeApi(overrides: Partial<Record<string, unknown>> = {}) {
         },
       ],
     })),
+    getAgentGuidanceRuntimeStatus: vi.fn(async () => ({
+      ok: true,
+      enabled: true,
+      source: 'defaults' as const,
+      guidance_hash: 'a'.repeat(64),
+      config_path: 'C:/AppData/vibecodelight/agent-guidance-config.yaml',
+      expected_tool_count: 17,
+      warnings: [],
+    })),
+    getAgentGuidanceIntegrationStatus: vi.fn(async (agent: 'claude' | 'codex') => ({
+      ok: true,
+      agent,
+      configured: false,
+      up_to_date: false,
+      guidance: {
+        config_valid: true,
+        enabled: true,
+        source: 'defaults',
+        guidance_hash: 'a'.repeat(64),
+        config_path: 'C:/AppData/vibecodelight/agent-guidance-config.yaml',
+        warnings: [],
+      },
+      mcp: { expected_tool_count: 17, configured: false, up_to_date: false, status: 'not_configured' },
+      restart_required: true,
+      warnings: [],
+    })),
+    dryRunAgentGuidanceIntegration: vi.fn(async (agent: 'claude' | 'codex') => ({
+      ok: true,
+      agent,
+      dry_run: true,
+      guidance_hash: 'a'.repeat(64),
+      planned_action: agent + ' mcp install dry-run',
+      warnings: [],
+      restart_required: true,
+    })),
+    applyAgentGuidanceIntegration: vi.fn(async (agent: 'claude' | 'codex', confirmed: boolean) => ({
+      ok: confirmed,
+      agent,
+      dry_run: false,
+      guidance_hash: 'a'.repeat(64),
+      planned_action: agent + ' mcp install',
+      warnings: [],
+      restart_required: true,
+      error: confirmed ? undefined : { code: 'CONFIRMATION_REQUIRED', message: 'confirmation required' },
+    })),
     ...overrides,
   };
   return { api, calls };
@@ -78,6 +123,8 @@ interface ViewSpy {
   setStatus: ReturnType<typeof vi.fn>;
   setMcpTools: ReturnType<typeof vi.fn>;
   setEffectiveGuidance: ReturnType<typeof vi.fn>;
+  setIntegrationStatus: ReturnType<typeof vi.fn>;
+  setIntegrationPlan: ReturnType<typeof vi.fn>;
 }
 
 function makeView(): ViewSpy {
@@ -87,6 +134,8 @@ function makeView(): ViewSpy {
     setStatus: vi.fn(),
     setMcpTools: vi.fn(),
     setEffectiveGuidance: vi.fn(),
+    setIntegrationStatus: vi.fn(),
+    setIntegrationPlan: vi.fn(),
   };
 }
 
@@ -175,6 +224,9 @@ describe('agent guidance settings — controller', () => {
     expect(api.getAgentGuidanceConfig).toHaveBeenCalled();
     expect(api.getAgentGuidanceConfigPath).toHaveBeenCalled();
     expect(api.getAgentGuidanceMcpTools).toHaveBeenCalled();
+    expect(api.getAgentGuidanceRuntimeStatus).toHaveBeenCalled();
+    expect(api.getAgentGuidanceIntegrationStatus).toHaveBeenCalledWith('claude');
+    expect(api.getAgentGuidanceIntegrationStatus).toHaveBeenCalledWith('codex');
     expect(view.setConfig).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
     expect(view.setPath).toHaveBeenCalledWith(
       expect.objectContaining({ configPath: expect.stringMatching(/agent-guidance-config\.yaml$/) }),
@@ -231,5 +283,57 @@ describe('agent guidance settings — controller', () => {
     expect(lastStatus.text).toContain('AGENT_GUIDANCE_WRITE_FAILED');
     // Config should not have been re-rendered as the failed value.
     expect(view.setConfig.mock.calls.length).toBe(before);
+  });
+
+  test('Agent Integrations status renders Claude and Codex rows with hash and restart notice', async () => {
+    const view = makeView();
+    const { api } = makeApi();
+    const controller = AgentGuidanceSettings.createController({ api, view });
+    await controller.refresh();
+    expect(view.setIntegrationStatus).toHaveBeenCalledWith(
+      'claude',
+      expect.objectContaining({
+        text: expect.stringMatching(/restart|reconnect/i),
+        hash: 'a'.repeat(64),
+        expectedToolCount: 17,
+      }),
+    );
+    expect(view.setIntegrationStatus).toHaveBeenCalledWith(
+      'codex',
+      expect.objectContaining({
+        text: expect.stringMatching(/restart|reconnect/i),
+        hash: 'a'.repeat(64),
+        expectedToolCount: 17,
+      }),
+    );
+  });
+
+  test('dry-run apply displays planned action and apply requires confirmation', async () => {
+    const view = makeView();
+    const { api } = makeApi();
+    const controller = AgentGuidanceSettings.createController({ api, view });
+    await controller.refresh();
+    await controller.dryRunApply('claude');
+    expect(api.dryRunAgentGuidanceIntegration).toHaveBeenCalledWith('claude');
+    expect(view.setIntegrationPlan).toHaveBeenCalledWith(
+      'claude',
+      expect.objectContaining({ text: expect.stringMatching(/dry-run/i), hash: 'a'.repeat(64) }),
+    );
+
+    await controller.apply('codex', false);
+    expect(api.applyAgentGuidanceIntegration).not.toHaveBeenCalled();
+    expect(view.setIntegrationStatus).toHaveBeenCalledWith(
+      'codex',
+      expect.objectContaining({ kind: 'error', text: expect.stringMatching(/confirmation/i) }),
+    );
+  });
+
+  test('confirmed apply calls bridge and never exposes terminal injection path', async () => {
+    const view = makeView();
+    const { api } = makeApi();
+    const controller = AgentGuidanceSettings.createController({ api, view });
+    await controller.apply('codex', true);
+    expect(api.applyAgentGuidanceIntegration).toHaveBeenCalledWith('codex', true);
+    expect(Object.keys(api).join('\n')).not.toMatch(/terminal|pty|stdin|prompt/i);
   });
 });

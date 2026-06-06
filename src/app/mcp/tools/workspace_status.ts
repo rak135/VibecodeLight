@@ -26,6 +26,10 @@ import {
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
+import {
+  buildAgentGuidanceRuntime,
+  buildGuidanceStatusSummary,
+} from '../../../core/agent_guidance/agent_guidance_runtime.js';
 
 const TOOL_NAME = 'vibecode_workspace_status';
 const ALLOWED_KEYS = new Set<string>();
@@ -39,6 +43,8 @@ export interface WorkspaceStatusToolDeps {
   runner?: CodeGraphActionRunner;
   /** Test seam: override the binary resolution result. */
   binary?: CodeGraphBinaryResolution;
+  /** Test seam: override Agent Guidance config environment. */
+  env?: Record<string, string | undefined>;
 }
 
 interface CurrentRunSummary {
@@ -74,6 +80,7 @@ function renderText(data: {
   git: GitStatusResult;
   current_run: CurrentRunSummary | null;
   codegraph: { available: boolean; initialized: boolean };
+  guidance_status?: { enabled: boolean; source: string; guidance_hash: string };
 }): string {
   const lines: string[] = ['# Vibecode workspace status', ''];
   lines.push(`repo_root: ${data.repo_root}`);
@@ -110,6 +117,11 @@ function renderText(data: {
       data.codegraph.initialized ? 'yes' : 'no'
     }`,
   );
+  if (data.guidance_status) {
+    lines.push(
+      `guidance: enabled=${data.guidance_status.enabled ? 'yes' : 'no'} source=${data.guidance_status.source} hash=${data.guidance_status.guidance_hash}`,
+    );
+  }
   return lines.join('\n');
 }
 
@@ -175,6 +187,8 @@ export function buildWorkspaceStatusTool(deps: WorkspaceStatusToolDeps = {}): Mc
 
       const currentRun = currentRunSummary(input.context.repoRoot);
       if (!currentRun) warnings.push('NO_CURRENT_RUN: no .vibecode/current pointer — call vibecode prompt or vibecode context-build first.');
+      const runtime = input.context.agentGuidance ?? buildAgentGuidanceRuntime({ env: deps.env });
+      const guidanceStatus = buildGuidanceStatusSummary(runtime);
 
       const data = {
         repo_root: input.context.repoRoot,
@@ -192,6 +206,7 @@ export function buildWorkspaceStatusTool(deps: WorkspaceStatusToolDeps = {}): Mc
           initialized: status.initialized,
           version: status.version ?? null,
         },
+        guidance_status: guidanceStatus,
       };
 
       return formatSimpleSuccess({
@@ -202,6 +217,7 @@ export function buildWorkspaceStatusTool(deps: WorkspaceStatusToolDeps = {}): Mc
           git,
           current_run: currentRun,
           codegraph: data.codegraph,
+          guidance_status: guidanceStatus,
         }),
         data,
         warnings,

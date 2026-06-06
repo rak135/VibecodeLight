@@ -51,6 +51,46 @@ export interface AgentGuidanceMcpToolsResponse {
   tools: AgentGuidanceMcpTool[];
 }
 
+export interface AgentGuidanceRuntimeStatusResponse {
+  ok: boolean;
+  enabled: boolean;
+  source: 'defaults' | 'file' | 'invalid_file_with_defaults';
+  guidance_hash: string;
+  config_path: string;
+  expected_tool_count: number;
+  warnings: string[];
+}
+
+export interface AgentGuidanceIntegrationStatusResponse {
+  ok: boolean;
+  agent?: 'claude' | 'codex';
+  configured?: boolean;
+  up_to_date?: boolean;
+  guidance?: {
+    config_valid: boolean;
+    enabled: boolean;
+    source: string;
+    guidance_hash: string;
+    config_path: string;
+    warnings: string[];
+  };
+  mcp?: { expected_tool_count: number; configured: boolean; up_to_date: boolean; status: string };
+  restart_required?: boolean;
+  warnings: string[];
+  error?: { code: string; message: string; details?: string[] };
+}
+
+export interface AgentGuidanceIntegrationApplyResponse {
+  ok: boolean;
+  agent?: 'claude' | 'codex';
+  dry_run?: boolean;
+  guidance_hash?: string;
+  planned_action?: string;
+  restart_required?: boolean;
+  warnings: string[];
+  error?: { code: string; message: string; details?: string[] };
+}
+
 export interface AgentGuidanceConfigApi {
   getAgentGuidanceConfig(): Promise<AgentGuidanceReadResponse>;
   setAgentGuidanceConfig(config: AgentGuidanceConfigView): Promise<AgentGuidanceWriteResponse>;
@@ -58,6 +98,10 @@ export interface AgentGuidanceConfigApi {
   getAgentGuidanceDefaults(): Promise<AgentGuidanceDefaultsResponse>;
   getAgentGuidanceConfigPath(): Promise<AgentGuidanceConfigPathResponse>;
   getAgentGuidanceMcpTools(): Promise<AgentGuidanceMcpToolsResponse>;
+  getAgentGuidanceRuntimeStatus(): Promise<AgentGuidanceRuntimeStatusResponse>;
+  getAgentGuidanceIntegrationStatus(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationStatusResponse>;
+  dryRunAgentGuidanceIntegration(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationApplyResponse>;
+  applyAgentGuidanceIntegration(agent: 'claude' | 'codex', confirmed: boolean): Promise<AgentGuidanceIntegrationApplyResponse>;
 }
 
 export interface AgentGuidancePreview {
@@ -76,12 +120,16 @@ export interface AgentGuidanceSettingsView {
   setStatus(status: AgentGuidanceStatus): void;
   setMcpTools(tools: AgentGuidanceMcpTool[]): void;
   setEffectiveGuidance(preview: AgentGuidancePreview): void;
+  setIntegrationStatus?(agent: 'claude' | 'codex', status: AgentGuidanceStatus & { hash?: string; expectedToolCount?: number }): void;
+  setIntegrationPlan?(agent: 'claude' | 'codex', status: AgentGuidanceStatus & { hash?: string }): void;
 }
 
 export interface AgentGuidanceSettingsController {
   refresh(): Promise<void>;
   save(config: AgentGuidanceConfigView): Promise<void>;
   reset(): Promise<void>;
+  dryRunApply(agent: 'claude' | 'codex'): Promise<void>;
+  apply(agent: 'claude' | 'codex', confirmed: boolean): Promise<void>;
 }
 
 export interface AgentGuidanceSettingsModule {

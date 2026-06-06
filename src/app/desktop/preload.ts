@@ -259,6 +259,54 @@ export interface AgentGuidanceMcpToolsIpc {
   tools: AgentGuidanceMcpToolIpc[];
 }
 
+export interface AgentGuidanceRuntimeStatusIpc {
+  ok: boolean;
+  enabled: boolean;
+  apply_to_terminal_agents: boolean;
+  source: 'defaults' | 'file' | 'invalid_file_with_defaults';
+  config_valid: boolean;
+  guidance_hash: string;
+  config_path: string;
+  expected_tool_count: number;
+  warnings: string[];
+}
+
+export interface AgentGuidanceIntegrationStatusIpc {
+  ok: boolean;
+  agent?: 'claude' | 'codex';
+  configured?: boolean;
+  up_to_date?: boolean;
+  guidance?: {
+    config_valid: boolean;
+    enabled: boolean;
+    source: string;
+    guidance_hash: string;
+    config_path: string;
+    warnings: string[];
+  };
+  mcp?: {
+    expected_tool_count: number;
+    configured: boolean;
+    up_to_date: boolean;
+    status: string;
+  };
+  restart_required?: boolean;
+  warnings: string[];
+  error?: { code: string; message: string; details?: string[] };
+}
+
+export interface AgentGuidanceIntegrationApplyIpc {
+  ok: boolean;
+  agent?: 'claude' | 'codex';
+  dry_run?: boolean;
+  guidance_hash?: string;
+  guidance_config_path?: string;
+  planned_action?: string;
+  restart_required?: boolean;
+  warnings: string[];
+  error?: { code: string; message: string; details?: string[] };
+}
+
 /**
  * Mirror of the core `CodeGraphStatus` shape (detect-only, informational). The
  * renderer reads this from `runs:show`; it never parses external_tools.json or
@@ -401,6 +449,10 @@ export interface VibecodePreloadApi {
     getAgentGuidanceDefaults(): Promise<AgentGuidanceDefaultsIpc>;
     getAgentGuidanceConfigPath(): Promise<AgentGuidanceConfigPathIpc>;
     getAgentGuidanceMcpTools(): Promise<AgentGuidanceMcpToolsIpc>;
+    getAgentGuidanceRuntimeStatus(): Promise<AgentGuidanceRuntimeStatusIpc>;
+    getAgentGuidanceIntegrationStatus(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationStatusIpc>;
+    dryRunAgentGuidanceIntegration(agent: 'claude' | 'codex'): Promise<AgentGuidanceIntegrationApplyIpc>;
+    applyAgentGuidanceIntegration(agent: 'claude' | 'codex', confirmed: boolean): Promise<AgentGuidanceIntegrationApplyIpc>;
   };
   artifacts: {
     copyToClipboard(text: string): void;
@@ -581,6 +633,18 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       getAgentGuidanceMcpTools() {
         return ipcRenderer.invoke('config:getAgentGuidanceMcpTools') as Promise<AgentGuidanceMcpToolsIpc>;
+      },
+      getAgentGuidanceRuntimeStatus() {
+        return ipcRenderer.invoke('config:getAgentGuidanceRuntimeStatus') as Promise<AgentGuidanceRuntimeStatusIpc>;
+      },
+      getAgentGuidanceIntegrationStatus(agent: 'claude' | 'codex') {
+        return ipcRenderer.invoke('config:getAgentGuidanceIntegrationStatus', agent) as Promise<AgentGuidanceIntegrationStatusIpc>;
+      },
+      dryRunAgentGuidanceIntegration(agent: 'claude' | 'codex') {
+        return ipcRenderer.invoke('config:dryRunAgentGuidanceIntegration', agent) as Promise<AgentGuidanceIntegrationApplyIpc>;
+      },
+      applyAgentGuidanceIntegration(agent: 'claude' | 'codex', confirmed: boolean) {
+        return ipcRenderer.invoke('config:applyAgentGuidanceIntegration', agent, confirmed) as Promise<AgentGuidanceIntegrationApplyIpc>;
       },
     },
     artifacts: {

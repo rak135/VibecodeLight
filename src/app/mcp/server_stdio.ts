@@ -18,6 +18,10 @@ import {
   type McpServerContext,
   type McpToolDefinition,
 } from './tool_registry.js';
+import {
+  buildAgentGuidanceRuntime,
+  buildMcpServerInstructions,
+} from '../../core/agent_guidance/agent_guidance_runtime.js';
 
 /**
  * In-process VibecodeMCP stdio server. The server is repo-bound at startup;
@@ -108,14 +112,16 @@ function logToStderr(level: 'info' | 'warn', message: string, configuredLevel: M
  * in-memory transport pair; the production CLI command uses `StdioServerTransport`.
  */
 export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): VibecodeMcpServerHandle {
-  const tools = options.tools ?? buildVibecodeMcpTools();
+  const agentGuidance = options.context.agentGuidance ?? buildAgentGuidanceRuntime({ env: process.env });
+  const context: McpServerContext = Object.freeze({ ...options.context, agentGuidance });
+  const tools = options.tools ?? buildVibecodeMcpTools({ agentGuidance });
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const logLevel: McpLogLevel = options.logLevel ?? 'info';
   const log = options.log ?? ((level, message) => logToStderr(level, message, logLevel));
 
   const server = new Server(
     { name: VIBECODE_MCP_SERVER_NAME, version: VIBECODE_MCP_SERVER_VERSION },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: buildMcpServerInstructions(agentGuidance) },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -139,8 +145,8 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
     if (typeof name !== 'string' || name.length === 0) {
       const err = buildMcpError('INVALID_ARGUMENT', 'tools/call requires a non-empty tool name');
       const formatted = formatError({
-        tool: '(unknown)',
-        repoRoot: options.context.repoRoot,
+          tool: '(unknown)',
+          repoRoot: context.repoRoot,
         warnings: [],
         durationMs: 0,
         error: err,
@@ -153,12 +159,12 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
       const err = buildMcpError('UNSUPPORTED_TOOL', `tool not exposed by this server: ${name}`);
       const formatted = formatError({
         tool: name,
-        repoRoot: options.context.repoRoot,
+        repoRoot: context.repoRoot,
         warnings: [],
         durationMs: 0,
         error: err,
       });
-      logToolUsage(options.context.repoRoot, {
+      logToolUsage(context.repoRoot, {
         tool: name,
         requestId,
         inputSummary: pickInputSummary(args),
@@ -176,11 +182,11 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
     const started = Date.now();
     let formatted: McpToolFormattedResult;
     try {
-      formatted = await def.handler({ context: options.context, arguments: args, requestId });
+      formatted = await def.handler({ context, arguments: args, requestId });
     } catch (err) {
       formatted = formatError({
         tool: name,
-        repoRoot: options.context.repoRoot,
+          repoRoot: context.repoRoot,
         warnings: [],
         durationMs: Date.now() - started,
         error: buildMcpError(
@@ -188,7 +194,7 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
           err instanceof Error ? err.message : String(err),
         ),
       });
-      logToolUsage(options.context.repoRoot, {
+      logToolUsage(context.repoRoot, {
         tool: name,
         requestId,
         inputSummary: pickInputSummary(args),
@@ -203,7 +209,7 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
       return toCallToolResponse(formatted);
     }
 
-    logToolUsage(options.context.repoRoot, {
+    logToolUsage(context.repoRoot, {
       tool: name,
       requestId,
       inputSummary: pickInputSummary(args),
@@ -218,12 +224,13 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
     return toCallToolResponse(formatted);
   });
 
-  log('info', `bound to repo: ${options.context.repoRoot}`);
+  log('info', `bound to repo: ${context.repoRoot}; agent_guidance=${agentGuidance.enabled ? 'enabled' : 'disabled'} source=${agentGuidance.source} hash=${agentGuidance.guidance_hash.slice(0, 12)}`);
+  for (const warning of agentGuidance.warnings) log('warn', warning);
 
   return {
     server,
     tools,
-    context: options.context,
+    context,
     async connect(transport?: unknown) {
       // The SDK Transport interface is structurally typed; we accept any
       // value that quacks like a transport so tests can inject an

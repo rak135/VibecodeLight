@@ -331,6 +331,9 @@
           <div class="settings-tab-panel" data-tab-panel="mcp" id="settings-panel-mcp" hidden>
             <h3>MCP tools</h3>
             <p id="mcp-tools-summary" class="settings-note">Loading VibecodeMCP tool inventory…</p>
+            <ul class="settings-list" id="mcp-guidance-status">
+              <li>Loading Agent Guidance status…</li>
+            </ul>
             <ul class="settings-list" id="mcp-tools-list"></ul>
           </div>
 
@@ -361,6 +364,36 @@
             <div>
               <h4>Effective guidance preview</h4>
               <pre id="agc-effective-preview" style="white-space:pre-wrap;background:var(--surface-2,#111);padding:8px;border-radius:4px;font-size:12px"></pre>
+            </div>
+            <div>
+              <h4>Agent integrations</h4>
+              <ul class="settings-list agent-integration-list">
+                <li class="agent-integration-row" data-agent="claude">
+                  <div>
+                    <strong>Claude</strong>
+                    <div class="settings-note" id="agc-int-claude-status">Not checked</div>
+                    <div class="settings-note" id="agc-int-claude-plan"></div>
+                  </div>
+                  <div class="settings-row compact">
+                    <button id="agc-int-claude-status-btn" class="btn" type="button">Status</button>
+                    <button id="agc-int-claude-dry-run" class="btn" type="button">Dry-run Apply</button>
+                    <button id="agc-int-claude-apply" class="btn" type="button">Apply/Update</button>
+                  </div>
+                </li>
+                <li class="agent-integration-row" data-agent="codex">
+                  <div>
+                    <strong>Codex</strong>
+                    <div class="settings-note" id="agc-int-codex-status">Not checked</div>
+                    <div class="settings-note" id="agc-int-codex-plan"></div>
+                  </div>
+                  <div class="settings-row compact">
+                    <button id="agc-int-codex-status-btn" class="btn" type="button">Status</button>
+                    <button id="agc-int-codex-dry-run" class="btn" type="button">Dry-run Apply</button>
+                    <button id="agc-int-codex-apply" class="btn" type="button">Apply/Update</button>
+                  </div>
+                </li>
+              </ul>
+              <p class="settings-note">Changes apply to new agent/MCP sessions. Restart/reconnect the agent if already running.</p>
             </div>
             <div class="settings-row">
               <button id="agc-save" class="btn primary" type="button">Save</button>
@@ -2033,6 +2066,7 @@
       // ---- MCP tab (read-only inventory) ----
       const mcpSummaryEl = $('mcp-tools-summary');
       const mcpListEl = $('mcp-tools-list');
+      const mcpGuidanceStatusEl = $('mcp-guidance-status');
       let mcpToolsLoaded = false;
       async function loadMcpToolInventory() {
         if (mcpToolsLoaded) return;
@@ -2042,6 +2076,9 @@
         }
         try {
           const resp = await window.vibecodeAPI.config.getAgentGuidanceMcpTools();
+          const runtimeResp = typeof window.vibecodeAPI.config.getAgentGuidanceRuntimeStatus === 'function'
+            ? await window.vibecodeAPI.config.getAgentGuidanceRuntimeStatus()
+            : null;
           if (!resp || resp.ok !== true || !Array.isArray(resp.tools)) {
             if (mcpSummaryEl) mcpSummaryEl.textContent = 'MCP tool registry returned no tools.';
             return;
@@ -2049,7 +2086,28 @@
           mcpToolsLoaded = true;
           if (mcpSummaryEl) {
             mcpSummaryEl.textContent =
-              'VibecodeMCP tools (' + resp.tools.length + ') — read-only. Workspace orientation tools appear when MCP-3 is present on this branch.';
+              'VibecodeMCP tools actual=' + resp.tools.length +
+              ' expected=' + (runtimeResp && runtimeResp.expected_tool_count ? runtimeResp.expected_tool_count : resp.tools.length) +
+              ' — read-only. MCP exposes Agent Guidance to agents; no terminal text is injected.';
+          }
+          if (mcpGuidanceStatusEl && runtimeResp && runtimeResp.ok) {
+            mcpGuidanceStatusEl.innerHTML = '';
+            [
+              ['enabled', runtimeResp.enabled ? 'yes' : 'no'],
+              ['source', runtimeResp.source],
+              ['guidance_hash', runtimeResp.guidance_hash],
+              ['config_path', runtimeResp.config_path],
+            ].forEach((row) => {
+              const li = document.createElement('li');
+              const label = document.createElement('span');
+              label.className = 'label';
+              label.textContent = row[0] + ':';
+              li.appendChild(label);
+              const value = document.createElement('code');
+              value.textContent = String(row[1]);
+              li.appendChild(value);
+              mcpGuidanceStatusEl.appendChild(li);
+            });
           }
           if (mcpListEl) {
             mcpListEl.innerHTML = '';
@@ -2090,6 +2148,7 @@
       const agcStatusEl = $('agc-status');
       const agcSaveBtn = $('agc-save');
       const agcResetBtn = $('agc-reset');
+      const AGENT_INTEGRATION_IDS = ['claude', 'codex'];
       let agentGuidanceLastConfig = null;
       let agentGuidanceLastTools = [];
 
@@ -2169,6 +2228,22 @@
         setEffectiveGuidance(preview) {
           if (agcEffectivePreviewEl) agcEffectivePreviewEl.textContent = preview && preview.text ? preview.text : '';
         },
+        setIntegrationStatus(agent, status) {
+          const el = $('agc-int-' + agent + '-status');
+          if (!el || !status) return;
+          const hash = status.hash ? ' hash=' + status.hash : '';
+          const tools = status.expectedToolCount ? ' tools=' + status.expectedToolCount : '';
+          el.textContent = (status.text || '') + hash + tools;
+          el.classList.toggle('error', status.kind === 'error');
+          el.classList.toggle('ok', status.kind === 'ok');
+        },
+        setIntegrationPlan(agent, status) {
+          const el = $('agc-int-' + agent + '-plan');
+          if (!el || !status) return;
+          el.textContent = status.text || '';
+          el.classList.toggle('error', status.kind === 'error');
+          el.classList.toggle('ok', status.kind === 'ok');
+        },
       };
 
       function setupAgentGuidanceSettings() {
@@ -2179,6 +2254,19 @@
         });
         if (agcSaveBtn) agcSaveBtn.addEventListener('click', () => { void agentGuidanceController.save(collectAgentGuidanceConfig()); });
         if (agcResetBtn) agcResetBtn.addEventListener('click', () => { void agentGuidanceController.reset(); });
+        AGENT_INTEGRATION_IDS.forEach((agent) => {
+          const statusBtn = $('agc-int-' + agent + '-status-btn');
+          const dryRunBtn = $('agc-int-' + agent + '-dry-run');
+          const applyBtn = $('agc-int-' + agent + '-apply');
+          if (statusBtn) statusBtn.addEventListener('click', () => { void agentGuidanceController.refresh(); });
+          if (dryRunBtn) dryRunBtn.addEventListener('click', () => { void agentGuidanceController.dryRunApply(agent); });
+          if (applyBtn) {
+            applyBtn.addEventListener('click', () => {
+              const confirmed = window.confirm('Apply/update VibecodeMCP integration for ' + agent + '? This does not change approvals or inject terminal text.');
+              void agentGuidanceController.apply(agent, confirmed);
+            });
+          }
+        });
       }
 
       // ---- Boot: terminals + workspace ----

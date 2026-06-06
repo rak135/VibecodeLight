@@ -19,6 +19,10 @@ import {
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
+import {
+  buildAgentGuidanceRuntime,
+  buildGuidanceStatusSummary,
+} from '../../../core/agent_guidance/agent_guidance_runtime.js';
 
 const TOOL_NAME = 'vibecode_workspace_info';
 const ALLOWED_KEYS = new Set<string>();
@@ -68,6 +72,8 @@ export interface WorkspaceInfoToolDeps {
   runner?: CodeGraphActionRunner;
   /** Test seam: override the binary resolution result. */
   binary?: CodeGraphBinaryResolution;
+  /** Test seam: override Agent Guidance config environment. */
+  env?: Record<string, string | undefined>;
 }
 
 function safeCurrentRunSummary(repoRoot: string): { run_id: string; run_dir: string } | null {
@@ -89,6 +95,13 @@ function renderText(data: {
   codegraph: { available: boolean; initialized: boolean; version?: string | null };
   current_run: { run_id: string } | null;
   agent_guidance: readonly string[];
+  guidance_status?: {
+    enabled: boolean;
+    source: string;
+    guidance_hash: string;
+    config_path: string;
+    recommendation: string;
+  };
 }): string {
   const lines: string[] = ['# Vibecode workspace info', ''];
   lines.push(`repo_root: ${data.repo_root}`);
@@ -111,6 +124,15 @@ function renderText(data: {
   lines.push('');
   lines.push('agent_guidance:');
   for (const line of data.agent_guidance) lines.push(`  - ${line}`);
+  if (data.guidance_status) {
+    lines.push('');
+    lines.push('guidance_status:');
+    lines.push(`  enabled: ${data.guidance_status.enabled ? 'yes' : 'no'}`);
+    lines.push(`  source: ${data.guidance_status.source}`);
+    lines.push(`  guidance_hash: ${data.guidance_status.guidance_hash}`);
+    lines.push(`  config_path: ${data.guidance_status.config_path}`);
+    lines.push(`  recommendation: ${data.guidance_status.recommendation}`);
+  }
   return lines.join('\n');
 }
 
@@ -167,6 +189,8 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
       for (const w of status.warnings) warnings.push(w);
 
       const currentRun = safeCurrentRunSummary(input.context.repoRoot);
+      const runtime = input.context.agentGuidance ?? buildAgentGuidanceRuntime({ env: deps.env });
+      const guidanceStatus = buildGuidanceStatusSummary(runtime);
       const total =
         CODEGRAPH_TOOL_NAMES.length +
         RUNS_ARTIFACTS_TOOL_NAMES.length +
@@ -191,6 +215,7 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
         },
         current_run: currentRun,
         agent_guidance: [...AGENT_GUIDANCE],
+        guidance_status: guidanceStatus,
       };
 
       return formatSimpleSuccess({

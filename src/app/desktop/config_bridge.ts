@@ -26,6 +26,12 @@ import {
   type AgentGuidanceConfig,
 } from '../../core/config/index.js';
 import { buildAgentGuidanceMcpTools } from '../../core/config/agent_guidance_mcp_tools.js';
+import { buildAgentGuidanceRuntime } from '../../core/agent_guidance/agent_guidance_runtime.js';
+import {
+  applyAgentGuidanceIntegration,
+  getAgentGuidanceIntegrationStatus,
+  type AgentGuidanceIntegrationAgent,
+} from '../../core/agent_guidance/agent_guidance_apply.js';
 import { CODEGRAPH_TRANSPORT_VALUES, parseCodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
 
 interface IpcMainLike {
@@ -186,6 +192,22 @@ function agentGuidanceWritePayload(result: ReturnType<typeof writeAgentGuidanceC
     config: result.config,
     configPath: result.configPath,
     warnings: result.warnings,
+  };
+}
+
+function parseIntegrationAgent(raw: unknown): AgentGuidanceIntegrationAgent | null {
+  return raw === 'claude' || raw === 'codex' ? raw : null;
+}
+
+function invalidIntegrationAgentPayload(raw: unknown) {
+  return {
+    ok: false,
+    warnings: [],
+    error: {
+      code: 'INVALID_AGENT',
+      message: `Invalid agent: ${String(raw)}`,
+      details: ['Expected one of: claude, codex.'],
+    },
   };
 }
 
@@ -378,5 +400,63 @@ export function registerDesktopConfigIpcHandlers(ipcMain: IpcMainLike, options: 
       ok: true,
       tools: buildAgentGuidanceMcpTools(),
     };
+  });
+
+  ipcMain.handle('config:getAgentGuidanceRuntimeStatus', () => {
+    const runtime = buildAgentGuidanceRuntime({ env: process.env });
+    return {
+      ok: true,
+      enabled: runtime.enabled,
+      apply_to_terminal_agents: runtime.apply_to_terminal_agents,
+      source: runtime.source,
+      config_valid: runtime.config_valid,
+      guidance_hash: runtime.guidance_hash,
+      config_path: runtime.config_path,
+      expected_tool_count: buildAgentGuidanceMcpTools().length,
+      warnings: runtime.warnings,
+    };
+  });
+
+  ipcMain.handle('config:getAgentGuidanceIntegrationStatus', (_event, agentRaw: unknown) => {
+    const agent = parseIntegrationAgent(agentRaw);
+    if (!agent) return invalidIntegrationAgentPayload(agentRaw);
+    return getAgentGuidanceIntegrationStatus({
+      agent,
+      repoRoot: options.getRepoPath(),
+      env: process.env,
+    });
+  });
+
+  ipcMain.handle('config:dryRunAgentGuidanceIntegration', (_event, agentRaw: unknown) => {
+    const agent = parseIntegrationAgent(agentRaw);
+    if (!agent) return invalidIntegrationAgentPayload(agentRaw);
+    return applyAgentGuidanceIntegration({
+      agent,
+      repoRoot: options.getRepoPath(),
+      env: process.env,
+      dryRun: true,
+    });
+  });
+
+  ipcMain.handle('config:applyAgentGuidanceIntegration', (_event, agentRaw: unknown, confirmed: unknown) => {
+    const agent = parseIntegrationAgent(agentRaw);
+    if (!agent) return invalidIntegrationAgentPayload(agentRaw);
+    if (confirmed !== true) {
+      return {
+        ok: false,
+        warnings: [],
+        error: {
+          code: 'CONFIRMATION_REQUIRED',
+          message: 'Agent Guidance integration apply requires explicit confirmation. Run dry-run first.',
+          details: ['No terminal text, repo instruction file, approval setting, or permission setting was written.'],
+        },
+      };
+    }
+    return applyAgentGuidanceIntegration({
+      agent,
+      repoRoot: options.getRepoPath(),
+      env: process.env,
+      yes: true,
+    });
   });
 }

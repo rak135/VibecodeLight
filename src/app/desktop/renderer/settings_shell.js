@@ -46,7 +46,7 @@
         id: 'agent-guidance',
         label: 'Agent Guidance',
         description:
-          'Local Agent Guidance defaults and per-tool notes. Inspectable, editable, resettable. Not yet installed into Claude/Codex/OpenCode/Hermes.',
+          'Local Agent Guidance defaults and per-tool notes. Inspectable, editable, resettable, and exposed to Claude/Codex through VibecodeMCP.',
       }),
       Object.freeze({
         id: 'terminal',

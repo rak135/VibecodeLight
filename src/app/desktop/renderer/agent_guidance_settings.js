@@ -120,6 +120,8 @@
         setStatus: function () {},
         setMcpTools: function () {},
         setEffectiveGuidance: function () {},
+        setIntegrationStatus: function () {},
+        setIntegrationPlan: function () {},
       };
       var lastConfig = null;
       var lastTools = defaultsFromTools();
@@ -128,6 +130,49 @@
         if (!lastConfig) return;
         var preview = buildEffectivePreviewText({ config: lastConfig, mcpTools: lastTools });
         view.setEffectiveGuidance({ enabled: lastConfig.enabled !== false, text: preview });
+      }
+
+      function renderIntegrationStatus(agent, resp) {
+        if (!view.setIntegrationStatus) return;
+        if (!resp || resp.ok !== true) {
+          view.setIntegrationStatus(agent, {
+            kind: 'error',
+            text: safeError(resp && resp.error ? resp.error : { code: 'AGENT_GUIDANCE_STATUS_FAILED', message: 'status failed' }),
+          });
+          return;
+        }
+        var guidance = resp.guidance || {};
+        var mcp = resp.mcp || {};
+        var state = resp.up_to_date ? 'up to date' : resp.configured ? 'configured, update available' : 'not configured';
+        var hash = guidance.guidance_hash || '';
+        var tools = mcp.expected_tool_count || 0;
+        view.setIntegrationStatus(agent, {
+          kind: resp.up_to_date ? 'ok' : 'info',
+          text:
+            state +
+            '. Guidance ' +
+            (guidance.enabled === false ? 'disabled' : 'enabled') +
+            ', source=' +
+            (guidance.source || 'unknown') +
+            '. Changes apply to new agent/MCP sessions. Restart/reconnect the agent if already running.',
+          hash: hash,
+          expectedToolCount: tools,
+        });
+      }
+
+      async function refreshIntegrations() {
+        if (!api || typeof api.getAgentGuidanceIntegrationStatus !== 'function') return;
+        var agents = ['claude', 'codex'];
+        for (var i = 0; i < agents.length; i += 1) {
+          try {
+            var resp = await api.getAgentGuidanceIntegrationStatus(agents[i]);
+            renderIntegrationStatus(agents[i], resp);
+          } catch (err) {
+            if (view.setIntegrationStatus) {
+              view.setIntegrationStatus(agents[i], { kind: 'error', text: safeError(err) });
+            }
+          }
+        }
       }
 
       async function refresh() {
@@ -150,6 +195,9 @@
               view.setMcpTools(toolsResp.tools);
             }
           }
+          if (typeof api.getAgentGuidanceRuntimeStatus === 'function') {
+            await api.getAgentGuidanceRuntimeStatus();
+          }
           view.setStatus(buildStatusMessage({
             ok: configResp && configResp.ok !== false,
             source: configResp && configResp.source,
@@ -158,6 +206,7 @@
             error: configResp && configResp.error,
           }));
           renderEffective();
+          await refreshIntegrations();
         } catch (err) {
           view.setStatus({ kind: 'error', text: safeError(err) });
         }
@@ -203,10 +252,70 @@
         }
       }
 
+      async function dryRunApply(agent) {
+        if (!api || typeof api.dryRunAgentGuidanceIntegration !== 'function') return;
+        try {
+          var resp = await api.dryRunAgentGuidanceIntegration(agent);
+          if (view.setIntegrationPlan) {
+            if (resp && resp.ok) {
+              view.setIntegrationPlan(agent, {
+                kind: 'info',
+                text: 'dry-run: ' + (resp.planned_action || 'planned MCP update'),
+                hash: resp.guidance_hash || '',
+              });
+            } else {
+              view.setIntegrationPlan(agent, {
+                kind: 'error',
+                text: safeError(resp && resp.error ? resp.error : { code: 'AGENT_GUIDANCE_DRY_RUN_FAILED', message: 'dry-run failed' }),
+              });
+            }
+          }
+        } catch (err) {
+          if (view.setIntegrationPlan) view.setIntegrationPlan(agent, { kind: 'error', text: safeError(err) });
+        }
+      }
+
+      async function apply(agent, confirmed) {
+        if (confirmed !== true) {
+          if (view.setIntegrationStatus) {
+            view.setIntegrationStatus(agent, {
+              kind: 'error',
+              text: 'confirmation required before applying Agent Guidance integration',
+            });
+          }
+          return;
+        }
+        if (!api || typeof api.applyAgentGuidanceIntegration !== 'function') return;
+        try {
+          var resp = await api.applyAgentGuidanceIntegration(agent, true);
+          if (!resp || resp.ok !== true) {
+            if (view.setIntegrationStatus) {
+              view.setIntegrationStatus(agent, {
+                kind: 'error',
+                text: safeError(resp && resp.error ? resp.error : { code: 'AGENT_GUIDANCE_APPLY_FAILED', message: 'apply failed' }),
+              });
+            }
+            return;
+          }
+          if (view.setIntegrationStatus) {
+            view.setIntegrationStatus(agent, {
+              kind: 'ok',
+              text: 'applied. Changes apply to new agent/MCP sessions. Restart/reconnect the agent if already running.',
+              hash: resp.guidance_hash || '',
+            });
+          }
+          await refreshIntegrations();
+        } catch (err) {
+          if (view.setIntegrationStatus) view.setIntegrationStatus(agent, { kind: 'error', text: safeError(err) });
+        }
+      }
+
       return {
         refresh: refresh,
         save: save,
         reset: reset,
+        dryRunApply: dryRunApply,
+        apply: apply,
       };
     }
 

@@ -450,4 +450,81 @@ describe('desktop config bridge', () => {
     // The broken file is preserved untouched for user inspection.
     expect(fs.readFileSync(configPath, 'utf8')).toBe(broken);
   });
+
+  test('config:getAgentGuidanceRuntimeStatus returns hash, source, expected tools, and no secret values', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('config:getAgentGuidanceRuntimeStatus')) as {
+      ok: boolean;
+      enabled: boolean;
+      source: string;
+      guidance_hash: string;
+      config_path: string;
+      expected_tool_count: number;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.enabled).toBe(true);
+    expect(result.source).toBe('defaults');
+    expect(result.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.config_path).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
+    expect(result.expected_tool_count).toBe(17);
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  test('config:getAgentGuidanceIntegrationStatus is repo-bound and supports Claude/Codex only', async () => {
+    const ipc = register();
+    const codex = (await ipc.invoke('config:getAgentGuidanceIntegrationStatus', 'codex')) as {
+      ok: boolean;
+      agent: string;
+      guidance: { guidance_hash: string };
+      mcp: { expected_tool_count: number };
+    };
+    const claude = (await ipc.invoke('config:getAgentGuidanceIntegrationStatus', 'claude')) as {
+      ok: boolean;
+      agent: string;
+    };
+    const invalid = (await ipc.invoke('config:getAgentGuidanceIntegrationStatus', 'opencode')) as {
+      ok: boolean;
+      error?: { code: string };
+    };
+    expect(codex.ok).toBe(true);
+    expect(codex.agent).toBe('codex');
+    expect(codex.guidance.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(codex.mcp.expected_tool_count).toBe(17);
+    expect(claude.ok).toBe(true);
+    expect(claude.agent).toBe('claude');
+    expect(invalid.ok).toBe(false);
+    expect(invalid.error?.code).toBe('INVALID_AGENT');
+  });
+
+  test('config:dryRunAgentGuidanceIntegration previews without writing and apply requires confirmation', async () => {
+    const ipc = register();
+    const dryRun = (await ipc.invoke('config:dryRunAgentGuidanceIntegration', 'codex')) as {
+      ok: boolean;
+      dry_run: boolean;
+      guidance_hash: string;
+    };
+    expect(dryRun.ok).toBe(true);
+    expect(dryRun.dry_run).toBe(true);
+    expect(dryRun.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
+
+    const refused = (await ipc.invoke('config:applyAgentGuidanceIntegration', 'codex', false)) as {
+      ok: boolean;
+      error?: { code: string; message: string };
+    };
+    expect(refused.ok).toBe(false);
+    expect(refused.error?.message).toMatch(/confirm|--yes|dry-run/i);
+    expect(fs.existsSync(path.join(appData, 'vibecodelight', 'config.toml'))).toBe(false);
+  });
+
+  test('agent guidance integration bridge exposes no terminal write or arbitrary path input', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('config:dryRunAgentGuidanceIntegration', 'codex', 'C:/other/repo')) as {
+      ok: boolean;
+      dry_run: boolean;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.dry_run).toBe(true);
+    expect(ipc.handlers.has('terminal:input')).toBe(false);
+    expect(ipc.handlers.has('config:writeAgentGuidancePath')).toBe(false);
+  });
 });

@@ -17,6 +17,11 @@ import {
   buildCodeGraphCalleesTool,
   buildCodeGraphImpactTool,
 } from './tools/codegraph_symbol.js';
+import {
+  appendAgentGuidanceToToolDescription,
+  buildAgentGuidanceRuntime,
+  type AgentGuidanceRuntime,
+} from '../../core/agent_guidance/agent_guidance_runtime.js';
 import type { McpToolFormattedResult } from './format.js';
 import type { JsonSchema } from './schemas.js';
 
@@ -31,6 +36,8 @@ export interface McpServerContext {
   readonly codegraphBinary?: string;
   /** Optional override for the persisted CodeGraph transport. */
   readonly codegraphTransport?: 'cli' | 'mcp' | 'auto';
+  /** Effective Agent Guidance loaded at server startup for this MCP session. */
+  readonly agentGuidance?: AgentGuidanceRuntime;
 }
 
 export interface McpToolHandlerInput {
@@ -49,6 +56,11 @@ export interface McpToolDefinition {
   handler: (input: McpToolHandlerInput) => Promise<McpToolFormattedResult>;
 }
 
+export interface BuildVibecodeMcpToolsOptions {
+  agentGuidance?: AgentGuidanceRuntime;
+  agentGuidanceEnv?: Record<string, string | undefined>;
+}
+
 /**
  * Build the canonical tool set: seven read-only CodeGraph tools (Phase MCP-1),
  * five read-only run/artifact tools (Phase MCP-2), and five read-only
@@ -60,8 +72,10 @@ export interface McpToolDefinition {
  * should fall back to the equivalent `vibecode codegraph …` / `vibecode runs …`
  * CLI commands.
  */
-export function buildVibecodeMcpTools(): McpToolDefinition[] {
-  return [
+export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}): McpToolDefinition[] {
+  const runtime = options.agentGuidance ??
+    (options.agentGuidanceEnv ? buildAgentGuidanceRuntime({ env: options.agentGuidanceEnv }) : undefined);
+  const tools = [
     buildCodeGraphStatusTool(),
     buildCodeGraphSearchTool(),
     buildCodeGraphContextTool(),
@@ -82,6 +96,11 @@ export function buildVibecodeMcpTools(): McpToolDefinition[] {
     buildProjectInstructionsTool(),
     buildArtifactsListTool(),
   ];
+  if (!runtime) return tools;
+  return tools.map((tool) => ({
+    ...tool,
+    description: appendAgentGuidanceToToolDescription(tool.description, tool.name, runtime),
+  }));
 }
 
 /** Canonical list of tool names exposed by the server (MCP-1 + MCP-2 + MCP-3). */

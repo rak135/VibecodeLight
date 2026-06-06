@@ -47,10 +47,14 @@ describe('desktop preload bridge boundary', () => {
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
     expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
     expect(Object.keys(api.config).sort()).toEqual([
+      'applyAgentGuidanceIntegration',
+      'dryRunAgentGuidanceIntegration',
       'getAgentGuidanceConfig',
       'getAgentGuidanceConfigPath',
       'getAgentGuidanceDefaults',
+      'getAgentGuidanceIntegrationStatus',
       'getAgentGuidanceMcpTools',
+      'getAgentGuidanceRuntimeStatus',
       'getCodeGraphTransportSetting',
       'getDesktopAutoApproveEnabledSetting',
       'getDesktopCodeGraphModeSetting',
@@ -353,6 +357,10 @@ describe('desktop preload bridge boundary', () => {
       getAgentGuidanceDefaults: () => Promise<unknown>;
       getAgentGuidanceConfigPath: () => Promise<unknown>;
       getAgentGuidanceMcpTools: () => Promise<unknown>;
+      getAgentGuidanceRuntimeStatus: () => Promise<unknown>;
+      getAgentGuidanceIntegrationStatus: (agent: string) => Promise<unknown>;
+      dryRunAgentGuidanceIntegration: (agent: string) => Promise<unknown>;
+      applyAgentGuidanceIntegration: (agent: string, confirmed: boolean) => Promise<unknown>;
     };
 
     const payload = { schema_version: 1, enabled: false, default_guidance: 'x' };
@@ -362,6 +370,10 @@ describe('desktop preload bridge boundary', () => {
     await config.getAgentGuidanceDefaults();
     await config.getAgentGuidanceConfigPath();
     await config.getAgentGuidanceMcpTools();
+    await config.getAgentGuidanceRuntimeStatus();
+    await config.getAgentGuidanceIntegrationStatus('codex');
+    await config.dryRunAgentGuidanceIntegration('claude');
+    await config.applyAgentGuidanceIntegration('codex', true);
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceConfig');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:setAgentGuidanceConfig', payload);
@@ -369,6 +381,10 @@ describe('desktop preload bridge boundary', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceDefaults');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceConfigPath');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceMcpTools');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceRuntimeStatus');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:getAgentGuidanceIntegrationStatus', 'codex');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:dryRunAgentGuidanceIntegration', 'claude');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('config:applyAgentGuidanceIntegration', 'codex', true);
     expect(ipcRenderer.send).not.toHaveBeenCalled();
   });
 

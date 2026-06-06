@@ -20,6 +20,17 @@ implemented on top of MCP-2:
   `resolveRunDir`); no shell-out, no CLI text parsing.
 - `vibecode_workspace_info` and `vibecode_workspace_status` are designed
   as the **first calls an MCP-capable agent makes when entering a repo**.
+- `vibecode_mcp_guidance` now returns the effective editable Agent Guidance
+  from `%LOCALAPPDATA%/vibecodelight/agent-guidance-config.yaml` (or
+  defaults/invalid-file fallback), including source, config path,
+  `guidance_hash`, bounded per-tool notes, CLI fallback guidance, and the
+  approval boundary. MCP server instructions and bounded tool-description
+  suffixes point agents at this tool.
+- `vibecode agent-guidance status|apply --agent claude|codex --repo <path>`
+  reports guidance validity/hash and safely ensures the agent is configured to
+  use the repo-bound VibecodeMCP server. `apply --dry-run` previews and
+  `apply --yes` writes only the MCP server config path already used by the
+  agent installers. Existing MCP sessions may need restart/reconnect.
 - `vibecode_workspace_status` performs read-only git inspection only
   (`git rev-parse`, `git status --porcelain=v1`); never mutates git.
 - `vibecode_project_instructions` reads only the strict allowlist of
@@ -31,6 +42,9 @@ implemented on top of MCP-2:
   as `vibecode_artifact_read` and never returns artifact content.
 - No write tools. No shell exec. No terminal write. No git mutation. No
   arbitrary file reads. No agent-lane coordination.
+- No hidden PTY injection. No `final_prompt.md` mutation. No root
+  `config.yaml`, `.vibecode/config.yaml`, `AGENTS.md`, or `CLAUDE.md` write for
+  Agent Guidance.
 - Approvals / permission settings remain owned by the MCP client / agent
   (Codex `/mcp`, Claude managed approvals UI). Vibecode does not install
   a permission profile, allow/deny list, or any approval mutation.

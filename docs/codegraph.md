@@ -562,9 +562,9 @@ Per-call usage is recorded as bounded, secret-free JSONL at `<repo>/.vibecode/lo
 
 Phase MCP-3 makes VibecodeMCP the first read-only orientation point an MCP-capable agent should call when entering a repo. Five additional read-only tools live next to MCP-1 and MCP-2 in the same `vibecode mcp serve` process:
 
-- `vibecode_workspace_info` — bound repo path, MCP server identity, the available VibecodeMCP tool groups (`codegraph`, `runs_artifacts`, `workspace_orientation`), CodeGraph status summary, current run id (if any), and short agent guidance pointing to the right path (MCP first, CLI fallback, `rg`/`grep` for exact text);
-- `vibecode_workspace_status` — read-only git inspection (branch, head, dirty flag, bounded changed-file summary with `modified` / `staged` / `untracked` counts and at most 10 first paths; no diff, never mutates git), the current run/artifact availability summary, and the CodeGraph status summary;
-- `vibecode_mcp_guidance` — compact static cheat sheet: when to use VibecodeMCP, when to call the CLI, when to use `rg`/`grep`, and the reminder that Vibecode does not manage approvals;
+- `vibecode_workspace_info` — bound repo path, MCP server identity, the available VibecodeMCP tool groups (`codegraph`, `runs_artifacts`, `workspace_orientation`), CodeGraph status summary, current run id (if any), short agent guidance, and compact Agent Guidance status (`enabled`, source, `guidance_hash`, config path, and recommendation to call `vibecode_mcp_guidance`);
+- `vibecode_workspace_status` — read-only git inspection (branch, head, dirty flag, bounded changed-file summary with `modified` / `staged` / `untracked` counts and at most 10 first paths; no diff, never mutates git), the current run/artifact availability summary, the CodeGraph status summary, and compact Agent Guidance status;
+- `vibecode_mcp_guidance` — effective user-editable Agent Guidance loaded from `%LOCALAPPDATA%/vibecodelight/agent-guidance-config.yaml` (or defaults/invalid-file fallback), including `enabled`, `apply_to_terminal_agents`, source, config path, `guidance_hash`, general guidance, bounded per-tool notes, MCP tool groups, CLI fallback guidance, and the reminder that Vibecode does not manage approvals;
 - `vibecode_project_instructions` — bounded excerpts of the allowlisted instruction set (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `docs/codegraph.md`); when `include_docs: true`, also bounded architecture docs (`docs/ARCHITECTURE.md`, `docs/ARCHITECTURE_DECISIONS.md`, `docs/IMPLEMENTATION_MAP.md`, `docs/codegraph.md`); prefers the current run's `scan/repo_instructions.json` artifact when present, otherwise reads directly from the strict repo allowlist; never reads source files or arbitrary paths;
 - `vibecode_artifacts_list` — enumerates which allowlisted run artifacts exist (with `exists`, `size_bytes`, `group`, `recommended_for_agent`, short description), backed by the same allowlist `vibecode_artifact_read` uses; defaults to `latest`/`current`; returns no artifact content.
 
@@ -610,8 +610,14 @@ The following are not part of the current implementation:
 - mutation of Claude/Codex approvals, permissions, allowedTools/deniedTools,
   hooks, or permission profiles from the Settings → Agent Guidance tab
 - agent-native install/apply of the Agent Guidance config into CLAUDE.md,
-  AGENTS.md, Codex prompts, or any other agent config (Agent Guidance v1
-  stores and previews only; see `%LOCALAPPDATA%/vibecodelight/agent-guidance-config.yaml`)
+  AGENTS.md, Codex prompts, or any other instruction file. Agent Guidance is
+  exposed through VibecodeMCP; `vibecode agent-guidance apply` only updates the
+  safe repo-bound MCP server config so new MCP sessions can call
+  `vibecode_mcp_guidance`.
+
+After editing Agent Guidance or applying MCP config, already running agent/MCP
+sessions may need restart/reconnect. Composer remains transparent:
+`output/final_prompt.md` is not mutated and no hidden PTY text is sent.
 
 ### Codex MCP install
 
