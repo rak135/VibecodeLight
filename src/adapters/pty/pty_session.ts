@@ -99,9 +99,17 @@ function shellForSpawn(shell: string): string {
   return shell;
 }
 
+const POSIX_SHELL_CANDIDATES: readonly string[] = [
+  '/bin/bash',
+  '/usr/bin/bash',
+  '/bin/sh',
+  '/usr/bin/sh',
+];
+
 export function detectDefaultShell(
   platform: typeof process.platform = process.platform,
   exists: (command: string) => boolean = (command) => commandExists(command, platform),
+  env: Record<string, string | undefined> = process.env,
 ): string {
   if (platform === 'win32') {
     if (exists('pwsh')) {
@@ -113,7 +121,21 @@ export function detectDefaultShell(
     throw new PtyError('SHELL_NOT_FOUND', 'PowerShell shell not found; tried pwsh then powershell.exe');
   }
 
-  return process.env.SHELL || 'bash';
+  const shellEnv = env.SHELL?.trim();
+  if (shellEnv && exists(shellEnv)) {
+    return shellEnv;
+  }
+
+  const attempted: string[] = shellEnv ? [shellEnv] : [];
+  for (const candidate of POSIX_SHELL_CANDIDATES) {
+    attempted.push(candidate);
+    if (exists(candidate)) {
+      return candidate;
+    }
+  }
+
+  const tried = attempted.length > 0 ? ` tried ${attempted.join(', ')}` : '';
+  throw new PtyError('SHELL_NOT_FOUND', `no shell found;${tried}`);
 }
 
 class NodePtySession implements ResolvedPtySession {

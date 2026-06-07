@@ -1,6 +1,7 @@
 import path from 'path';
 
 import { PtyError } from '../../adapters/pty/index.js';
+import { buildGitStatusCommand, buildMarkerCommand } from './platform.js';
 import { closeSession, startTerminalSession, TerminalSession, writeAndWait } from './session.js';
 
 export interface TerminalDemoResult {
@@ -20,8 +21,8 @@ export interface TerminalDemoOptions {
   json?: boolean;
 }
 
-const DEFAULT_COMMAND = 'Write-Output "VIBECODE_PTY_OK"';
 const DEFAULT_MARKER = 'VIBECODE_PTY_OK';
+const DEFAULT_COMMAND = buildMarkerCommand(DEFAULT_MARKER);
 const COMMAND_TIMEOUT_MS = 15_000;
 
 function terminalError(error: unknown): { code: string; message: string } {
@@ -41,13 +42,15 @@ async function runPrimaryCommand(session: TerminalSession, command: string | und
   }
 
   const marker = `VIBECODE_PTY_COMMAND_DONE_${Date.now()}`;
-  await writeAndWait(session, `${command}; Write-Output "${marker}"`, marker, COMMAND_TIMEOUT_MS);
+  const echoCmd = buildMarkerCommand(marker);
+  const chain = process.platform === 'win32' ? ';' : '&&';
+  await writeAndWait(session, `${command}${chain} ${echoCmd}`, marker, COMMAND_TIMEOUT_MS);
 }
 
 async function runGitStatus(session: TerminalSession, warnings: string[]): Promise<void> {
   const marker = `VIBECODE_GIT_STATUS_DONE_${Date.now()}`;
   try {
-    await writeAndWait(session, `git status --short; Write-Output "${marker}"`, marker, COMMAND_TIMEOUT_MS);
+    await writeAndWait(session, buildGitStatusCommand(marker), marker, COMMAND_TIMEOUT_MS);
   } catch (error) {
     const diagnostic = terminalError(error);
     warnings.push(`git status demo did not complete: ${diagnostic.message}`);

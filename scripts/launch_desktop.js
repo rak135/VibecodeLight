@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -8,7 +8,7 @@ const rendererOutput = path.join(repoRoot, 'dist-desktop', 'app', 'desktop', 're
 const xtermSource = path.join(repoRoot, 'node_modules', '@xterm', 'xterm');
 const xtermVendorOutput = path.join(rendererOutput, 'vendor', 'xterm');
 
-execSync('npx tsc --project tsconfig.desktop.json', { stdio: 'inherit' });
+execFileSync('npx', ['tsc', '--project', 'tsconfig.desktop.json'], { stdio: 'inherit' });
 fs.rmSync(rendererOutput, { recursive: true, force: true });
 fs.cpSync(rendererSource, rendererOutput, { recursive: true });
 
@@ -34,7 +34,11 @@ if (!fs.existsSync(canvasAddonSrc)) {
 }
 fs.copyFileSync(canvasAddonSrc, path.join(xtermVendorOutput, 'addon-canvas.js'));
 
-execSync('electron dist-desktop/app/desktop/main.js', {
+const electronBin = process.platform === 'win32'
+  ? path.join(repoRoot, 'node_modules', '.bin', 'electron.cmd')
+  : path.join(repoRoot, 'node_modules', '.bin', 'electron');
+
+execFileSync(electronBin, ['dist-desktop/app/desktop/main.js'], {
   stdio: 'inherit',
   env: { ...process.env, VIBECODE_REPO: process.env.VIBECODE_REPO || repoRoot },
 });

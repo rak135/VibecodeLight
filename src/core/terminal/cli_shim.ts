@@ -51,7 +51,7 @@ function toShellPath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
-function posixShimContent(appCliPath: string): string {
+export function posixShimContent(appCliPath: string): string {
   const shellPath = toShellPath(appCliPath);
   return `#!/usr/bin/env sh\nexec node "${shellPath}" "$@"\n`;
 }

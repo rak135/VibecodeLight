@@ -1,0 +1,91 @@
+/**
+ * Tests for the platform-aware marker command builder.
+ *
+ * Protected invariant:
+ * - Windows platforms must produce Write-Output commands.
+ * - POSIX platforms (linux/darwin) must produce printf commands.
+ * - The marker value is preserved in the generated command.
+ * - git marker command also respects platform selection.
+ */
+import { describe, expect, test } from 'vitest';
+
+import {
+  buildMarkerCommand,
+  buildGitStatusCommand,
+  platformEchoMarker,
+} from '../../../src/core/terminal/platform.js';
+
+describe('platform marker commands', () => {
+  describe('buildMarkerCommand', () => {
+    test('win32 produces Write-Output command', () => {
+      const cmd = buildMarkerCommand('VIBECODE_OK', 'win32');
+      expect(cmd).toBe('Write-Output "VIBECODE_OK"');
+    });
+
+    test('linux produces printf command', () => {
+      const cmd = buildMarkerCommand('VIBECODE_OK', 'linux');
+      expect(cmd).toBe('printf "VIBECODE_OK\\n"');
+    });
+
+    test('darwin produces printf command', () => {
+      const cmd = buildMarkerCommand('VIBECODE_OK', 'darwin');
+      expect(cmd).toBe('printf "VIBECODE_OK\\n"');
+    });
+
+    test('marker value is preserved in the output', () => {
+      const marker = 'MY_UNIQUE_MARKER_42';
+      const winCmd = buildMarkerCommand(marker, 'win32');
+      const linuxCmd = buildMarkerCommand(marker, 'linux');
+
+      expect(winCmd).toContain(marker);
+      expect(linuxCmd).toContain(marker);
+    });
+
+    test('marker with special characters is quoted', () => {
+      const marker = 'hello world';
+      const winCmd = buildMarkerCommand(marker, 'win32');
+      const linuxCmd = buildMarkerCommand(marker, 'linux');
+
+      expect(winCmd).toContain(`"${marker}"`);
+      expect(linuxCmd).toContain(`"${marker}`);
+    });
+
+    test('defaults to process.platform when platform not provided', () => {
+      const cmd = buildMarkerCommand('VIBECODE_OK');
+      expect(typeof cmd).toBe('string');
+      expect(cmd.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('buildGitStatusCommand', () => {
+    test('win32 uses semicolon to chain commands', () => {
+      const cmd = buildGitStatusCommand('GIT_MARKER', 'win32');
+      expect(cmd).toContain(';');
+      expect(cmd).toContain('Write-Output');
+      expect(cmd).toContain('git status --short');
+    });
+
+    test('linux uses && to chain commands', () => {
+      const cmd = buildGitStatusCommand('GIT_MARKER', 'linux');
+      expect(cmd).toContain('&&');
+      expect(cmd).toContain('printf');
+      expect(cmd).toContain('git status --short');
+    });
+  });
+
+  describe('platformEchoMarker', () => {
+    test('win32 returns Write-Output variant', () => {
+      const marker = platformEchoMarker('win32');
+      expect(marker.command).toContain('Write-Output');
+      expect(marker.command).toContain(marker.marker);
+      expect(marker.newline).toBe('\r');
+    });
+
+    test('linux returns printf variant with LF newline', () => {
+      const marker = platformEchoMarker('linux');
+      expect(marker.command).toContain('printf');
+      expect(marker.command).toContain(marker.marker);
+      expect(marker.newline).toBe('\n');
+    });
+  });
+});

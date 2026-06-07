@@ -60,4 +60,55 @@ describe('PTY session adapter', () => {
     expect(detectDefaultShell('win32', (command: string) => command === 'pwsh')).toBe('pwsh');
     expect(detectDefaultShell('win32', (command: string) => command === 'powershell.exe')).toBe('powershell.exe');
   });
+
+  test('shell detection on posix prefers valid SHELL env, falls back through /bin/bash, /usr/bin/bash, /bin/sh, /usr/bin/sh', async () => {
+    const { detectDefaultShell } = await import('../../src/adapters/pty/pty_session.js');
+
+    // When SHELL env points to a valid binary, prefer it.
+    expect(detectDefaultShell('linux', (cmd) => cmd === '/bin/zsh', { SHELL: '/bin/zsh' })).toBe('/bin/zsh');
+
+    // When SHELL env is set but binary is not executable, fall back.
+    expect(detectDefaultShell('linux', (cmd) => cmd === '/bin/bash', { SHELL: '/bin/notfound' })).toBe('/bin/bash');
+    expect(detectDefaultShell('linux', (cmd) => cmd === '/usr/bin/bash', { SHELL: '/bin/notfound' })).toBe('/usr/bin/bash');
+  });
+
+  test('shell detection falls back through ordered candidates on linux', async () => {
+    const { detectDefaultShell } = await import('../../src/adapters/pty/pty_session.js');
+
+    // /bin/bash first
+    const binBashExists = (cmd: string) => cmd === '/bin/bash';
+    expect(detectDefaultShell('linux', binBashExists)).toBe('/bin/bash');
+
+    // /usr/bin/bash next
+    const usrBashExists = (cmd: string) => cmd === '/usr/bin/bash';
+    expect(detectDefaultShell('linux', usrBashExists)).toBe('/usr/bin/bash');
+
+    // /bin/sh next
+    const binShExists = (cmd: string) => cmd === '/bin/sh';
+    expect(detectDefaultShell('linux', binShExists)).toBe('/bin/sh');
+
+    // /usr/bin/sh last
+    const usrShExists = (cmd: string) => cmd === '/usr/bin/sh';
+    expect(detectDefaultShell('linux', usrShExists)).toBe('/usr/bin/sh');
+  });
+
+  test('shell detection throws SHELL_NOT_FOUND when no candidate works', async () => {
+    const { detectDefaultShell, PtyError } = await import('../../src/adapters/pty/pty_session.js');
+
+    const nothingExists = (_cmd: string) => false;
+    expect(() => detectDefaultShell('linux', nothingExists)).toThrow(PtyError);
+    try {
+      detectDefaultShell('linux', nothingExists);
+    } catch (error) {
+      expect(error).toBeInstanceOf(PtyError);
+      expect((error as InstanceType<typeof PtyError>).code).toBe('SHELL_NOT_FOUND');
+    }
+  });
+
+  test('darwin follows the same fallback logic as linux', async () => {
+    const { detectDefaultShell } = await import('../../src/adapters/pty/pty_session.js');
+
+    expect(detectDefaultShell('darwin', (cmd) => cmd === '/bin/zsh', { SHELL: '/bin/zsh' })).toBe('/bin/zsh');
+    expect(detectDefaultShell('darwin', (cmd) => cmd === '/bin/bash', { SHELL: '/bin/notfound' })).toBe('/bin/bash');
+  });
 });

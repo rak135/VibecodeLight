@@ -2,6 +2,7 @@ import path from 'path';
 import { clearInterval, clearTimeout, setInterval, setTimeout } from 'timers';
 
 import { createPtySession } from '../../adapters/pty/index.js';
+import { buildMarkerCommand } from '../../core/terminal/platform.js';
 import { DesktopTerminalService } from './terminal_bridge.js';
 
 const DEFAULT_MARKER = 'VIBECODE_ELECTRON_PTY_OK';
@@ -65,7 +66,7 @@ export async function runDesktopSmoke(options: DesktopSmokeOptions = {}): Promis
         resolve(false);
       }, timeoutMs);
 
-      service.writeInput(metadata.sessionId, `Write-Output "${marker}"${newline()}`);
+      service.writeInput(metadata.sessionId, `${buildMarkerCommand(marker)}${newline()}`);
     });
 
     return {

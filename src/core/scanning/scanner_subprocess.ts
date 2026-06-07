@@ -8,6 +8,7 @@ export interface ScanInvokeOptions {
   scannerDir: string;
   config: ScannerConfig;
   repoRoot: string;
+  env?: Record<string, string | undefined>;
 }
 
 export interface ScannerSpawnResult {
@@ -16,6 +17,20 @@ export interface ScannerSpawnResult {
   stdout?: string;
   stderr?: string;
   error?: Error | null;
+}
+
+export function resolvePythonCommand(
+  opts: Pick<ScanInvokeOptions, 'pythonPath'>,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  if (opts.pythonPath) {
+    return opts.pythonPath;
+  }
+  const fromEnv = env.VIBECODE_PYTHON?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  return 'python3';
 }
 
 function tailLines(value: string | undefined, maxLines: number): string {
@@ -28,23 +43,28 @@ export function formatScannerFailureDiagnostic(opts: {
   cwd: string;
   repoRoot: string;
   result: ScannerSpawnResult;
+  attemptedCommands?: string[];
 }): string {
   const stderrTail = tailLines(opts.result.stderr, 10);
   const stdoutTail = tailLines(opts.result.stdout, 5);
   const spawnError = opts.result.error ? ` spawnError=${opts.result.error.message}` : '';
+  const attempted = opts.attemptedCommands?.length
+    ? `\nattempted: ${opts.attemptedCommands.join(', ')}`
+    : '';
 
   return (
     `SCANNER_FAILED: exitCode=${opts.result.status} signal=${opts.result.signal ?? 'none'}` +
     spawnError +
     `\ncwd=${opts.cwd}` +
     `\nrepoRoot=${opts.repoRoot}` +
+    attempted +
     (stderrTail ? `\nstderr:\n${stderrTail}` : '') +
     (stdoutTail ? `\nstdout:\n${stdoutTail}` : '')
   );
 }
 
 export function buildArgs(opts: ScanInvokeOptions): string[] {
-  const pythonPath = opts.pythonPath ?? 'python';
+  const pythonPath = resolvePythonCommand(opts, opts.env ?? process.env);
   const paths = getScannerConfigPaths(opts.repoRoot, opts.config.run_id);
   return [
     pythonPath,
@@ -68,7 +88,14 @@ export async function invokeScan(opts: ScanInvokeOptions): Promise<void> {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error(formatScannerFailureDiagnostic({ cwd: opts.scannerDir, repoRoot: opts.repoRoot, result }));
+    throw new Error(
+      formatScannerFailureDiagnostic({
+        cwd: opts.scannerDir,
+        repoRoot: opts.repoRoot,
+        result,
+        attemptedCommands: [cmd, 'python3', 'python'],
+      }),
+    );
   }
 }
 
