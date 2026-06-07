@@ -60,6 +60,7 @@ export function registerCoordinationCommands(
         last_updated: result.last_updated,
         summary: result.summary,
         agents: result.agents,
+        evidence: result.evidence,
       };
 
       if (options.json) {
@@ -72,6 +73,9 @@ export function registerCoordinationCommands(
       console.log(`version: ${data.version}`);
       console.log(
         `agents=${data.summary.agents} claims=${data.summary.claims} conflicts=${data.summary.conflicts} handoffs=${data.summary.handoffs}`,
+      );
+      console.log(
+        `evidence: recent=${data.evidence.recent_count} warnings=${data.evidence.warning_count} high=${data.evidence.high_count} last=${data.evidence.last_event_at ?? '(none)'}`,
       );
     });
 }

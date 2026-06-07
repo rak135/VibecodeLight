@@ -29,6 +29,7 @@ function renderMcpTools(): string[] {
     '- Before editing a file, claim it with vibecode_claim_add; check a path with vibecode_claim_status and list claims with vibecode_claims_list.',
     '- If vibecode_claim_add returns CLAIM_DENIED: do not edit the file. Inspect the blocking claims, then wait, choose another file, or retry as shared only if the existing claim is compatible.',
     '- Before your final report, run vibecode_finalize_check (pass your agent_id, or run_id) to confirm every changed file is covered by your active claims; resolve any blocked or unclaimed file it reports.',
+    '- Review watcher evidence with vibecode_evidence_list, or record it for the current changes with vibecode_evidence_scan.',
     '- Before your final report, list and release the claims you no longer need with vibecode_claim_release.',
   ];
 }
@@ -48,6 +49,7 @@ function renderCliCommands(agentId: string, mode: CoordinationPromptContext['age
     '- Check a path / list claims: vibecode claims status --repo <path> --path <path> --json — vibecode claims list --repo <path> --json',
     '- If a claim is denied (CLAIM_DENIED): do not edit the file. Inspect the blocking claims, then wait, choose another file, or retry with --mode shared only if compatible.',
     `- Before your final report, run the finalize check: vibecode finalize check --repo <path> --agent ${agentId} --json (add --run <run_id> if you have one); resolve any blocked or unclaimed file it reports.`,
+    '- Review watcher evidence: vibecode evidence list --repo <path> --json — or record it for the current changes: vibecode evidence scan --repo <path> --json',
     '- Before your final report, release claims you no longer need: vibecode claims release --repo <path> --claim <claim_id> --json',
   );
   return lines;
@@ -99,6 +101,7 @@ export function renderCoordinationSection(ctx: CoordinationPromptContext): strin
     `- If the task asks you to commit, create the scoped commit with the Vibecode commit guard (CLI): vibecode commit guard --repo <path> --agent ${agentId} --json (add --run <run_id> if you have one). It commits only files you claimed that the finalize check approved.`,
     '- Never use git add -A or broad git staging; let the commit guard stage only your claimed files.',
     '- Coordination is advisory. Finalize check and a scoped commit guard are available (claims-only; never broad git staging).',
+    '- A watcher may record advisory evidence when changed files do not match active claims. This evidence is informational only — it does not block, stage, or revert anything. Review it (command/tool below) if a change looks unexpected.',
     '- Handoffs are not implemented yet. Do not invent handoff commands.',
     '- Final report: Report which claims you created, retained, released, or could not obtain.',
     '',

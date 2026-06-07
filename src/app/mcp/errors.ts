@@ -55,7 +55,10 @@ export type McpErrorCode =
   | 'CLAIM_STATUS_FAILED'
   | 'CLAIM_RELEASE_FAILED'
   // Phase Coordination-4A: read-only finalize check.
-  | 'FINALIZE_CHECK_FAILED';
+  | 'FINALIZE_CHECK_FAILED'
+  // Phase Coordination-4C: watcher evidence tools.
+  | 'EVIDENCE_LIST_FAILED'
+  | 'EVIDENCE_SCAN_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -220,6 +223,16 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'Pass agent_id or run_id. The check is read-only; blocked results are returned as ok=true with status="blocked", not as this error. Retry only if the failure is transient.',
+  },
+  EVIDENCE_LIST_FAILED: {
+    retryable: true,
+    suggestion:
+      'Listing evidence is read-only and degrades to an empty list on a missing log. Retry only if the failure is transient (e.g. a filesystem error).',
+  },
+  EVIDENCE_SCAN_FAILED: {
+    retryable: true,
+    suggestion:
+      'Scan reads the git working tree and writes only generated evidence state. Verify the bound path is a git repository, then retry if the failure is transient.',
   },
 };
 

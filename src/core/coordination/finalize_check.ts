@@ -2,10 +2,10 @@ import { LlmAdapterError } from '../../adapters/llm/errors.js';
 import { listAgents } from './agents.js';
 import { readAgentBinding } from './agent_binding.js';
 import { listFileClaims } from './claims.js';
+import { classifyChangedPath } from './path_classification.js';
 import { resolveExplicitRunDir } from '../runs/run_resolver.js';
 import {
   getGitChangedFiles,
-  isGeneratedOrIgnoredRuntimePath,
   type GitChangedFile,
 } from '../workspace/git_changed_files.js';
 import type { AgentSession, FileClaim } from './types.js';
@@ -101,11 +101,6 @@ function toIso(now: Date | string | undefined): string {
   if (typeof now === 'string') return now;
   if (now instanceof Date) return now.toISOString();
   return new Date().toISOString();
-}
-
-/** Repo-relative POSIX path overlap: equal, or one is a directory prefix of the other. */
-function pathsOverlap(a: string, b: string): boolean {
-  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
 function emptySummary(): FinalizeCheckSummary {
@@ -263,82 +258,87 @@ function classifyFile(
     untracked: changed.untracked,
   };
 
-  if (isGeneratedOrIgnoredRuntimePath(changed.path)) {
-    return {
-      file: {
-        ...base,
-        classification: 'generated_or_ignored',
-        reason: 'Generated/ignored Vibecode runtime path; not subject to advisory claims.',
-      },
-    };
-  }
+  // Delegate the actual classification to the shared primitive so finalize and
+  // the watcher evidence layer never diverge on the rules.
+  const classified = classifyChangedPath({
+    path: changed.path,
+    agentId,
+    activeClaims,
+    staleClaims,
+    agentNames,
+  });
 
-  const ownClaim = activeClaims.find(
-    (claim) => claim.agent_id === agentId && pathsOverlap(claim.path, changed.path),
-  );
-  if (ownClaim) {
-    return {
-      file: {
-        ...base,
-        classification: 'claimed_by_agent',
-        owning_claim_id: ownClaim.claim_id,
-        owning_agent_id: agentId,
-        owning_agent_name: agentNames.get(agentId) ?? agentId,
-        reason: `Covered by this agent's active claim on ${ownClaim.path}.`,
-      },
-    };
+  switch (classified.classification) {
+    case 'generated_or_ignored':
+      return {
+        file: {
+          ...base,
+          classification: 'generated_or_ignored',
+          reason: 'Generated/ignored Vibecode runtime path; not subject to advisory claims.',
+        },
+      };
+    case 'claimed_by_agent':
+      return {
+        file: {
+          ...base,
+          classification: 'claimed_by_agent',
+          owning_claim_id: classified.owning_claim_id,
+          owning_agent_id: classified.owning_agent_id,
+          owning_agent_name: classified.owning_agent_name,
+          reason: `Covered by this agent's active claim (${classified.owning_claim_id}).`,
+        },
+      };
+    case 'claimed_by_other_active_agent': {
+      const ownerName = classified.owning_agent_name ?? classified.owning_agent_id ?? 'another agent';
+      return {
+        file: {
+          ...base,
+          classification: 'claimed_by_other_active_agent',
+          owning_claim_id: classified.owning_claim_id,
+          owning_agent_id: classified.owning_agent_id,
+          owning_agent_name: ownerName,
+          reason: `Covered by an active claim held by another agent (${ownerName}).`,
+        },
+        block: {
+          code: 'FILE_CLAIMED_BY_OTHER_AGENT',
+          severity: 'block',
+          message: `Changed file ${changed.path} is claimed by another active agent (${ownerName}).`,
+          path: changed.path,
+          details: { owning_agent_id: classified.owning_agent_id, owning_claim_id: classified.owning_claim_id },
+        },
+      };
+    }
+    default: {
+      // Unclaimed. A stale claim may overlap it — surface that as a warning, but
+      // it never authorizes finalize.
+      const result: { file: FinalizeChangedFile; block?: FinalizeIssue; warning?: FinalizeIssue } = {
+        file: {
+          ...base,
+          classification: 'unclaimed',
+          reason: 'No active claim covers this changed file.',
+        },
+        block: {
+          code: 'UNCLAIMED_CHANGED_FILE',
+          severity: 'block',
+          message: `Changed file ${changed.path} is not covered by an active claim for this agent.`,
+          path: changed.path,
+        },
+      };
+      if (classified.stale_overlap_claim_id) {
+        result.warning = {
+          code: 'STALE_AGENT_CLAIM',
+          severity: 'warning',
+          message: `A stale claim (${classified.stale_overlap_claim_id}) overlaps ${changed.path} but does not authorize finalize.`,
+          path: changed.path,
+          details: {
+            stale_claim_id: classified.stale_overlap_claim_id,
+            stale_agent_id: classified.stale_overlap_agent_id,
+          },
+        };
+      }
+      return result;
+    }
   }
-
-  const otherClaim = activeClaims.find(
-    (claim) => claim.agent_id !== agentId && pathsOverlap(claim.path, changed.path),
-  );
-  if (otherClaim) {
-    const ownerName = agentNames.get(otherClaim.agent_id) ?? otherClaim.agent_id;
-    return {
-      file: {
-        ...base,
-        classification: 'claimed_by_other_active_agent',
-        owning_claim_id: otherClaim.claim_id,
-        owning_agent_id: otherClaim.agent_id,
-        owning_agent_name: ownerName,
-        reason: `Covered by an active claim held by another agent (${ownerName}).`,
-      },
-      block: {
-        code: 'FILE_CLAIMED_BY_OTHER_AGENT',
-        severity: 'block',
-        message: `Changed file ${changed.path} is claimed by another active agent (${ownerName}).`,
-        path: changed.path,
-        details: { owning_agent_id: otherClaim.agent_id, owning_claim_id: otherClaim.claim_id },
-      },
-    };
-  }
-
-  // Unclaimed. A stale claim may overlap it — surface that as a warning, but it
-  // never authorizes finalize.
-  const staleOverlap = staleClaims.find((claim) => pathsOverlap(claim.path, changed.path));
-  const result: { file: FinalizeChangedFile; block?: FinalizeIssue; warning?: FinalizeIssue } = {
-    file: {
-      ...base,
-      classification: 'unclaimed',
-      reason: 'No active claim covers this changed file.',
-    },
-    block: {
-      code: 'UNCLAIMED_CHANGED_FILE',
-      severity: 'block',
-      message: `Changed file ${changed.path} is not covered by an active claim for this agent.`,
-      path: changed.path,
-    },
-  };
-  if (staleOverlap) {
-    result.warning = {
-      code: 'STALE_AGENT_CLAIM',
-      severity: 'warning',
-      message: `A stale claim (${staleOverlap.claim_id}) overlaps ${changed.path} but does not authorize finalize.`,
-      path: changed.path,
-      details: { stale_claim_id: staleOverlap.claim_id, stale_agent_id: staleOverlap.agent_id },
-    };
-  }
-  return result;
 }
 
 /**

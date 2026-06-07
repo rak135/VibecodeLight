@@ -24,6 +24,9 @@ function renderText(result: CoordinationStatusResult): string {
   lines.push(
     `agents=${result.summary.agents} claims=${result.summary.claims} conflicts=${result.summary.conflicts} handoffs=${result.summary.handoffs}`,
   );
+  lines.push(
+    `evidence: recent=${result.evidence.recent_count} warnings=${result.evidence.warning_count} high=${result.evidence.high_count} last=${result.evidence.last_event_at ?? '(none)'}`,
+  );
   for (const agent of result.agents) {
     lines.push(`  - ${agent.agent_id} ${agent.agent_name} (${agent.agent_type}) status=${agent.status}`);
   }
@@ -85,6 +88,7 @@ export function buildCoordinationStatusTool(): McpToolDefinition {
         last_updated: result.last_updated,
         summary: result.summary,
         agents: result.agents,
+        evidence: result.evidence,
       };
 
       return formatSimpleSuccess({

@@ -67,6 +67,12 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     );
     // Phase 4A: MCP agents are told to run the finalize check tool before the final report.
     expect(content).toContain('vibecode_finalize_check');
+    // Phase 4C: watcher evidence is mentioned (MCP tools) and described as advisory,
+    // never as an enforcement gate.
+    expect(content).toContain('vibecode_evidence_list');
+    expect(content).toContain('vibecode_evidence_scan');
+    expect(content.toLowerCase()).toContain('advisory');
+    expect(content).not.toMatch(/watcher (blocks|enforces|prevents)/i);
     // Phase 4B: the scoped commit guard is CLI-only, so even MCP agents are pointed at it;
     // finalize check is mentioned before the commit guard, and broad staging is forbidden.
     expect(content).toContain('vibecode commit guard --repo <path> --agent agent-1');
@@ -97,6 +103,10 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     expect(content).toContain('Handoffs are not implemented yet. Do not invent handoff commands.');
     // Phase 4A: CLI agents are told to run the finalize check CLI command.
     expect(content).toContain('vibecode finalize check --repo <path> --agent agent-1');
+    // Phase 4C: watcher evidence CLI commands are mentioned as advisory.
+    expect(content).toContain('vibecode evidence list --repo <path>');
+    expect(content).toContain('vibecode evidence scan --repo <path>');
+    expect(content).not.toMatch(/watcher (blocks|enforces|prevents)/i);
     // Phase 4B: the scoped commit guard CLI command and the git add -A prohibition.
     expect(content).toContain('vibecode commit guard --repo <path> --agent agent-1');
     expect(content).toContain('git add -A');

@@ -8,6 +8,7 @@ import { registerAgent } from '../../../src/core/coordination/agents.js';
 import { addFileClaim } from '../../../src/core/coordination/claims.js';
 import { initializeCoordinationState, getCoordinationPaths } from '../../../src/core/coordination/state.js';
 import { getCoordinationStatus } from '../../../src/core/coordination/status.js';
+import { recordFileChangeEvidence } from '../../../src/core/coordination/watcher.js';
 
 function makeRepo(prefix: string): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -53,5 +54,26 @@ describe('getCoordinationStatus (shared core service)', () => {
 
     expect(result.summary).toEqual({ agents: 1, claims: 1, conflicts: 0, handoffs: 0 });
     expect(fs.readFileSync(getCoordinationPaths(repo.repoRoot).stateFile, 'utf8')).toBe(before);
+  });
+
+  test('includes a compact evidence summary and never dumps the full event log', () => {
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    recordFileChangeEvidence({ repoRoot: repo.repoRoot, path: 'src/a.ts', agent_id: 'agent-a' });
+
+    const result = getCoordinationStatus(repo.repoRoot);
+    expect(result.evidence.recent_count).toBe(1);
+    expect(result.evidence.warning_count).toBe(1);
+    expect(result.evidence.high_count).toBe(0);
+    expect(typeof result.evidence.last_event_at).toBe('string');
+    // The status surface must not carry the full event log.
+    expect(Object.keys(result.evidence).sort()).toEqual(
+      ['high_count', 'last_event_at', 'recent_count', 'warning_count'],
+    );
+    expect((result as unknown as { events?: unknown }).events).toBeUndefined();
+  });
+
+  test('empty repo reports a zeroed evidence summary', () => {
+    const result = getCoordinationStatus(repo.repoRoot, { now: '2026-06-06T00:00:00.000Z' });
+    expect(result.evidence).toEqual({ recent_count: 0, warning_count: 0, high_count: 0, last_event_at: null });
   });
 });

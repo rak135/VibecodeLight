@@ -299,6 +299,27 @@ export const FINALIZE_CHECK_INPUT_SCHEMA: JsonSchema = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Phase Coordination-4C: watcher evidence input schemas
+// ---------------------------------------------------------------------------
+
+export const EVIDENCE_LIST_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    limit: { ...POSITIVE_INT, description: 'Return only the newest <limit> evidence events.' },
+  },
+};
+
+export const EVIDENCE_SCAN_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Coordinating agent id for the scan context.' },
+    run_id: { type: 'string', description: 'Run id whose agent_binding.json resolves the agent context.' },
+  },
+};
+
 /** Helper for tool handlers: verify a positive integer or return undefined. */
 export function validatePositiveInteger(
   value: unknown,

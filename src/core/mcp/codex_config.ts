@@ -56,6 +56,12 @@ export const CODEX_MCP_ENABLED_TOOLS = [
   // Read-only; classifies the working tree against advisory claims. Never
   // touches source files, the shell, git mutation, or the terminal.
   'vibecode_finalize_check',
+  // Phase Coordination-4C: watcher evidence.
+  // list is read-only; scan writes ONLY generated advisory state
+  // (.vibecode/coordination/events.jsonl). Neither touches source files, the
+  // shell, git mutation, or the terminal.
+  'vibecode_evidence_list',
+  'vibecode_evidence_scan',
 ] as const;
 
 export type CodexMcpToolName = typeof CODEX_MCP_ENABLED_TOOLS[number];

@@ -1190,6 +1190,34 @@ for agent sessions, heartbeats, and advisory claims. MCP agents run the read-onl
 finalize check via `vibecode_finalize_check` and then invoke the CLI
 `vibecode commit guard` only when the task explicitly asks for a commit.
 
+Watcher evidence tools (Phase Coordination-4C):
+
+```text
+vibecode_evidence_list
+vibecode_evidence_scan
+```
+
+These provide an **advisory, non-enforcing** evidence layer for early visibility
+into suspicious edits. `vibecode_evidence_scan` reads the dirty git working tree
+(read-only) and appends one evidence event per changed file to the generated
+`.vibecode/coordination/events.jsonl` log; `vibecode_evidence_list` reads that
+log back. Each event classifies a changed path relative to the active advisory
+claims (`claimed_by_agent`, `claimed_by_other_active_agent`, `unclaimed`,
+`generated_or_ignored`) with an advisory severity. Because all agents share one
+working tree, evidence never asserts which agent physically edited a file — it
+records that a file *changed* while/without a matching active claim. The
+equivalent CLI commands are `vibecode evidence list|scan --repo <path> --json`;
+both surfaces call the same shared core service. Evidence is **not** enforcement:
+it never blocks writes, never mutates source files, and never stages, commits, or
+reverts. Enforcement remains with advisory claims, the finalize check, and the
+CLI-only commit guard. `scan` writes only generated `.vibecode/coordination/`
+state — it adds no git or source mutation, consistent with the other generated-
+state MCP coordination tools. Phase 4C ships the evidence foundation plus a
+manual scan; a live filesystem watcher is deferred to a later phase. Coordination
+status (`vibecode coordination status` / `vibecode_coordination_status`) now also
+reports a compact evidence summary (recent/warning/high counts and the last event
+timestamp) without dumping the full event log.
+
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
 not add a permission profile, an allow/deny list, or any approval mutation. MCP-2

@@ -94,9 +94,11 @@ describe('Coordination Phase 4B scope boundary', () => {
 
   test('commit guard is CLI-only: VibecodeMCP exposes no commit/mutation tool', () => {
     const tools = buildVibecodeMcpTools();
-    // The read-only registry is unchanged by Phase 4B.
-    expect(tools).toHaveLength(27);
-    expect(VIBECODE_MCP_TOOL_NAMES).toHaveLength(27);
+    // Phase 4B added no MCP tool (commit guard is CLI-only). The registry has
+    // since grown with Phase 4C watcher evidence tools (29), but it still
+    // exposes NO commit/guard mutation tool — which is what this pins.
+    expect(tools).toHaveLength(29);
+    expect(VIBECODE_MCP_TOOL_NAMES).toHaveLength(29);
     for (const name of VIBECODE_MCP_TOOL_NAMES) {
       expect(name).not.toMatch(/commit|guard/i);
     }

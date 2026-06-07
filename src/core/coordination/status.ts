@@ -1,5 +1,6 @@
 import { getCoordinationPaths, loadCoordinationState } from './state.js';
 import { HEARTBEAT_TTL_MS, computeAgentStatus } from './heartbeat.js';
+import { summarizeRecentEvidence, type EvidenceSummary } from './watcher.js';
 import type { AgentSession, WorkspaceCoordinationState } from './types.js';
 import fs from 'fs';
 
@@ -36,6 +37,12 @@ export interface CoordinationStatusResult {
   summary: CoordinationStatusSummary;
   /** Registered agents, each with its computed (stale-aware) status. */
   agents: AgentSession[];
+  /**
+   * Compact summary of recent watcher evidence (advisory, non-enforcing). The
+   * full event log is intentionally NOT included here — read it with
+   * `listCoordinationEvidence` / the evidence CLI/MCP surfaces.
+   */
+  evidence: EvidenceSummary;
   /** The full coordination state (stored statuses, not stale-overlaid). */
   state: WorkspaceCoordinationState;
 }
@@ -70,6 +77,7 @@ export function getCoordinationStatus(
       handoffs: state.handoffs.length,
     },
     agents,
+    evidence: summarizeRecentEvidence(repoRoot),
     state,
   };
 }

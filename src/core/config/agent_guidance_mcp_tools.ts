@@ -43,6 +43,8 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_claim_status',
     'vibecode_claim_release',
     'vibecode_finalize_check',
+    'vibecode_evidence_list',
+    'vibecode_evidence_scan',
   ]),
 });
 
@@ -74,6 +76,8 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_claim_status: 'Return advisory claim status for one repository-relative path.',
   vibecode_claim_release: 'Release an advisory file claim.',
   vibecode_finalize_check: 'Read-only finalize check: classify the dirty working tree against an agent’s active advisory claims (not a commit guard).',
+  vibecode_evidence_list: 'List watcher evidence events (advisory; non-enforcing). Read-only.',
+  vibecode_evidence_scan: 'Scan the dirty git working tree into advisory evidence (writes only generated coordination state; no git/source mutation).',
 });
 
 /**
