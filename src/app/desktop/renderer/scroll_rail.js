@@ -26,6 +26,11 @@
     var totalRows = buffer.length;
     var baseY = buffer.baseY;
     var viewportY = buffer.viewportY;
+    // xterm.js keeps NO scrollback for the alternate screen buffer: a
+    // full-screen TUI (vim, htop, Bubble-Tea apps such as OpenCode) redraws
+    // the same viewport every frame, so there is no history to scroll. We
+    // surface this so the rail can degrade visibly instead of pretending.
+    var isAlt = buffer.type === 'alternate';
 
     var isAtBottom = viewportY >= baseY;
     var thumbRatio = totalRows <= viewportRows ? 1 : viewportRows / totalRows;
@@ -38,6 +43,7 @@
     if (thumbPosition < 0) thumbPosition = 0;
 
     return {
+      isAlt: isAlt,
       isAtBottom: isAtBottom,
       thumbRatio: thumbRatio,
       thumbPosition: thumbPosition,
@@ -45,6 +51,7 @@
       viewportRows: viewportRows,
       baseY: baseY,
       viewportY: viewportY,
+      hasNewOutput: false,
     };
   }
 
@@ -55,17 +62,48 @@
   function createScrollRailController(terminal) {
     var listeners = [];
     var disposed = false;
+    // Sticky "new output arrived while scrolled up" flag. xterm fires onScroll
+    // when the buffer grows (ybase increases) even if the viewport stays put,
+    // which is how we detect output below the fold without yanking the view.
+    var hasNewOutput = false;
+    var lastLength = terminal.buffer.active.length;
+
+    // Recompute the flag from the latest buffer state. Growth while parked
+    // above the bottom raises the flag; reaching the bottom clears it; the
+    // alternate screen never raises it (no scrollback there).
+    function refreshNewOutput(state) {
+      if (state.isAlt) {
+        hasNewOutput = false;
+      } else {
+        if (state.totalRows > lastLength && !state.isAtBottom) hasNewOutput = true;
+        if (state.isAtBottom) hasNewOutput = false;
+      }
+      lastLength = state.totalRows;
+      state.hasNewOutput = hasNewOutput;
+      return state;
+    }
 
     function getState() {
-      return computeScrollState(terminal.buffer.active, terminal.rows);
+      var state = computeScrollState(terminal.buffer.active, terminal.rows);
+      state.hasNewOutput = hasNewOutput;
+      return state;
     }
 
     function scrollToBottom() {
+      hasNewOutput = false;
       terminal.scrollToBottom();
     }
 
     function scrollLines(n) {
       terminal.scrollLines(n);
+    }
+
+    function pageUp() {
+      terminal.scrollLines(-terminal.rows);
+    }
+
+    function pageDown() {
+      terminal.scrollLines(terminal.rows);
     }
 
     function scrollToRatio(ratio) {
@@ -86,7 +124,7 @@
 
     function notifyListeners() {
       if (disposed) return;
-      var state = getState();
+      var state = refreshNewOutput(computeScrollState(terminal.buffer.active, terminal.rows));
       for (var i = 0; i < listeners.length; i++) {
         try { listeners[i](state); } catch (_e) { /* best-effort */ }
       }
@@ -108,6 +146,8 @@
       getState: getState,
       scrollToBottom: scrollToBottom,
       scrollLines: scrollLines,
+      pageUp: pageUp,
+      pageDown: pageDown,
       scrollToRatio: scrollToRatio,
       onStateChange: onStateChange,
       dispose: dispose,
@@ -149,6 +189,22 @@
     var jumpBtn = elements.jumpBtn;
     var rail = elements.rail;
 
+    // Alternate-screen / full-screen TUI: scrollback is not available. Show a
+    // dimmed, non-interactive marker (CSS) instead of vanishing, so the user
+    // can see the limitation rather than wondering if the rail is broken.
+    if (state.isAlt) {
+      rail.classList.remove('scroll-rail-active');
+      rail.classList.add('scroll-rail-alt');
+      rail.title = 'Scrollback is unavailable while a full-screen (alt-screen) program is running';
+      thumb.style.height = '100%';
+      thumb.style.top = '0';
+      jumpBtn.style.display = 'none';
+      jumpBtn.classList.remove('scroll-rail-jump-new');
+      return;
+    }
+    rail.classList.remove('scroll-rail-alt');
+    rail.removeAttribute('title');
+
     // Hide rail entirely when there's no scrollback
     var hasScrollback = state.thumbRatio < 1;
     rail.classList.toggle('scroll-rail-active', hasScrollback);
@@ -157,19 +213,21 @@
       thumb.style.height = '100%';
       thumb.style.top = '0';
       jumpBtn.style.display = 'none';
+      jumpBtn.classList.remove('scroll-rail-jump-new');
       return;
     }
 
     // Thumb size and position
-    var thumbPct = Math.max(state.thumbRatio * 100, 5); // min 5% so it's grabbable
+    var thumbPct = Math.max(state.thumbRatio * 100, 6); // min height so it stays grabbable
     var maxTop = 100 - thumbPct;
     var topPct = state.thumbPosition * maxTop;
 
     thumb.style.height = thumbPct + '%';
     thumb.style.top = topPct + '%';
 
-    // Jump-to-bottom visibility
+    // Jump-to-bottom visibility + "new output below" emphasis.
     jumpBtn.style.display = state.isAtBottom ? 'none' : 'flex';
+    jumpBtn.classList.toggle('scroll-rail-jump-new', !state.isAtBottom && !!state.hasNewOutput);
   }
 
   // Wire mouse interactions on a rail to a controller
@@ -187,14 +245,15 @@
       controller.scrollToBottom();
     });
 
-    // Track click — page up/down
+    // Track click — page towards the click, like a native scrollbar gutter:
+    // clicking above the thumb pages up, below it pages down.
     track.addEventListener('mousedown', function (e) {
       if (e.target === thumb || thumb.contains(e.target)) return; // thumb drag handled separately
       e.stopPropagation();
       e.preventDefault();
-      var rect = track.getBoundingClientRect();
-      var clickRatio = (e.clientY - rect.top) / rect.height;
-      controller.scrollToRatio(clickRatio);
+      var thumbRect = thumb.getBoundingClientRect();
+      if (e.clientY < thumbRect.top) controller.pageUp();
+      else controller.pageDown();
     });
 
     // Thumb drag

@@ -14,6 +14,7 @@ interface FakeBufferOptions {
   baseY?: number;
   viewportY?: number;
   length?: number;
+  type?: 'normal' | 'alternate';
 }
 
 function fakeBuffer(opts: FakeBufferOptions = {}) {
@@ -21,6 +22,7 @@ function fakeBuffer(opts: FakeBufferOptions = {}) {
     baseY: opts.baseY ?? 0,
     viewportY: opts.viewportY ?? 0,
     length: opts.length ?? 24,
+    type: opts.type ?? 'normal',
   };
 }
 
@@ -197,5 +199,101 @@ describe('per-session isolation', () => {
 
     ctrlA.dispose();
     ctrlB.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Alternate-screen (full-screen TUI) detection
+// ---------------------------------------------------------------------------
+// Protected invariant: the rail must KNOW when the active buffer is the
+// alternate screen, because xterm.js keeps no scrollback there. Callers use
+// this to degrade gracefully (visible-but-disabled) instead of pretending to
+// scroll a buffer that has no history.
+
+describe('alternate-screen detection', () => {
+  test('normal buffer reports isAlt false', () => {
+    const state = ScrollRail.computeScrollState(fakeBuffer({ baseY: 50, viewportY: 0, length: 74 }), 24);
+    expect(state.isAlt).toBe(false);
+  });
+
+  test('alternate buffer reports isAlt true', () => {
+    const state = ScrollRail.computeScrollState(
+      fakeBuffer({ baseY: 0, viewportY: 0, length: 24, type: 'alternate' }),
+      24,
+    );
+    expect(state.isAlt).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "New output below" indicator
+// ---------------------------------------------------------------------------
+// Protected invariant: when output arrives while the user is scrolled up, the
+// terminal must NOT yank to the bottom, but the rail must signal that there is
+// new content below. Returning to the bottom clears the signal.
+
+describe('new output below indicator', () => {
+  test('defaults to no new output', () => {
+    const term = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 0, length: 124 } });
+    const ctrl = ScrollRail.createScrollRailController(term);
+    expect(ctrl.getState().hasNewOutput).toBe(false);
+    ctrl.dispose();
+  });
+
+  test('buffer growth while scrolled up sets hasNewOutput', () => {
+    const term = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 0, length: 124 } });
+    const ctrl = ScrollRail.createScrollRailController(term);
+    // More output streams in, but the viewport stays parked at the top.
+    term.buffer.active.length = 140;
+    term.buffer.active.baseY = 116;
+    term._fireScroll(0);
+    expect(ctrl.getState().hasNewOutput).toBe(true);
+    ctrl.dispose();
+  });
+
+  test('returning to the bottom clears hasNewOutput', () => {
+    const term = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 0, length: 124 } });
+    const ctrl = ScrollRail.createScrollRailController(term);
+    term.buffer.active.length = 140;
+    term.buffer.active.baseY = 116;
+    term._fireScroll(0);
+    expect(ctrl.getState().hasNewOutput).toBe(true);
+    term.buffer.active.viewportY = 116;
+    term._fireScroll(116);
+    expect(ctrl.getState().hasNewOutput).toBe(false);
+    ctrl.dispose();
+  });
+
+  test('alternate screen never reports new output', () => {
+    const term = fakeTerminal({ rows: 24, buffer: { baseY: 0, viewportY: 0, length: 24, type: 'alternate' } });
+    const ctrl = ScrollRail.createScrollRailController(term);
+    term.buffer.active.length = 80;
+    term._fireScroll(0);
+    expect(ctrl.getState().hasNewOutput).toBe(false);
+    ctrl.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Page scrolling
+// ---------------------------------------------------------------------------
+// Protected invariant: page up/down move the real terminal viewport by a
+// screenful via the xterm scroll API, not by scrolling a DOM wrapper.
+
+describe('page scrolling', () => {
+  test('pageUp scrolls the terminal up by one viewport', () => {
+    const term = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 50, length: 124 } });
+    const ctrl = ScrollRail.createScrollRailController(term);
+    ctrl.pageUp();
+    expect(term.scrollLines).toHaveBeenCalledWith(-24);
+    ctrl.dispose();
+  });
+
+  test('pageDown scrolls the terminal down by one viewport', () => {
+    const term = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 50, length: 124 } });
+    const ctrl = ScrollRail.createScrollRailController(term);
+    ctrl.pageDown();
+    expect(term.scrollLines).toHaveBeenCalledWith(24);
+    ctrl.dispose();
   });
 });

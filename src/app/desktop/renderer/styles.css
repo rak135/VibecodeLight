@@ -404,14 +404,18 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .term-surface .xterm { height: 100%; }
 
-/* ------------- Per-terminal scroll rail ------------- */
+/* ------------- Per-terminal scroll rail -------------
+   A browser-like vertical scrollbar bound to the real xterm scrollback buffer
+   (see scroll_rail.js). One rail per terminal tile, on the right edge. It is
+   hidden until there is scrollback, then stays clearly visible (a faint groove
+   plus a draggable thumb) and brightens on hover. */
 .scroll-rail {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 12px;
-  z-index: 3;
+  width: 14px;
+  z-index: 6;
   display: flex;
   flex-direction: column;
   opacity: 0;
@@ -419,12 +423,13 @@ input, textarea, select { font: inherit; color: inherit; }
   pointer-events: none;
 }
 .scroll-rail.scroll-rail-active {
-  opacity: 0.45;
+  opacity: 1;
   pointer-events: auto;
 }
-.term:hover .scroll-rail.scroll-rail-active,
-.scroll-rail.scroll-rail-active:hover {
-  opacity: 1;
+.scroll-rail.scroll-rail-active .scroll-rail-track {
+  /* Visible groove so the user can tell the terminal is scrollable. */
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.04) 40%);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.05);
 }
 .scroll-rail-track {
   flex: 1;
@@ -433,26 +438,30 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .scroll-rail-thumb {
   position: absolute;
-  left: 2px;
+  left: 3px;
   right: 2px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.32);
   transition: background var(--tx-fast);
   cursor: grab;
-  min-height: 8px;
+  min-height: 18px;
 }
-.scroll-rail-thumb:hover,
+.scroll-rail.scroll-rail-active:hover .scroll-rail-thumb,
+.scroll-rail-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
 .scroll-rail-thumb:active {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.62);
+  cursor: grabbing;
 }
 .scroll-rail-jump {
   flex: none;
   width: 100%;
-  height: 20px;
+  height: 22px;
   display: none;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--text-2);
@@ -463,6 +472,38 @@ input, textarea, select { font: inherit; color: inherit; }
 .scroll-rail-jump:hover {
   background: var(--accent-soft);
   color: var(--accent-text);
+}
+/* New output arrived below the fold while scrolled up: pulse the jump button
+   and tint it with the accent so the user notices without being yanked down. */
+.scroll-rail-jump.scroll-rail-jump-new {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  animation: scrollRailPulse 1.6s ease-out infinite;
+}
+@keyframes scrollRailPulse {
+  0% { box-shadow: inset 0 0 0 0 color-mix(in oklab, var(--accent) 55%, transparent); }
+  70% { box-shadow: inset 0 0 0 12px transparent; }
+  100% { box-shadow: inset 0 0 0 0 transparent; }
+}
+/* Alternate-screen / full-screen TUI: xterm keeps no scrollback, so the rail
+   cannot scroll history. Show a thin dimmed marker (non-interactive) rather
+   than disappearing, so the limitation is visible and honest. */
+.scroll-rail.scroll-rail-alt {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.scroll-rail.scroll-rail-alt .scroll-rail-track {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.06) 0,
+    rgba(255, 255, 255, 0.06) 3px,
+    transparent 3px,
+    transparent 7px
+  );
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.04);
+}
+.scroll-rail.scroll-rail-alt .scroll-rail-thumb {
+  display: none;
 }
 
 /* ------------- Right rail ------------- */
