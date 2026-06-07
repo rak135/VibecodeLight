@@ -7,7 +7,7 @@ vi.mock('child_process', () => ({
   spawnSync: vi.fn(),
 }));
 
-import { buildArgs, buildSpawnEnv, formatScannerFailureDiagnostic, invokeScan, resolvePythonCommand, ScannerSubprocess } from '../../src/core/scanning/scanner_subprocess';
+import { buildArgs, buildSpawnEnv, formatScannerFailureDiagnostic, invokeScan, isInterpreterUnavailable, resolvePythonCommand, ScannerSubprocess } from '../../src/core/scanning/scanner_subprocess';
 import { buildScannerConfig } from '../../src/core/scanning/scanner_config';
 
 const mockedSpawnSync = vi.mocked(spawnSync);
@@ -295,6 +295,46 @@ describe('invokeScan fallback', () => {
     expect(mockedSpawnSync).toHaveBeenCalledTimes(2);
   });
 
+  test('falls back on POSIX exit code 127 (command not found) without spawn error', async () => {
+    let callIndex = 0;
+    mockedSpawnSync.mockImplementation(() => {
+      callIndex++;
+      if (callIndex === 1) {
+        return {
+          status: 127,
+          signal: null,
+          stdout: '',
+          stderr: 'python3: command not found',
+          pid: 100,
+          output: ['', '', ''],
+        } as unknown as ReturnType<typeof spawnSync>;
+      }
+      return {
+        status: 0,
+        signal: null,
+        stdout: '',
+        stderr: '',
+        pid: 101,
+        output: ['', '', ''],
+      } as unknown as ReturnType<typeof spawnSync>;
+    });
+
+    await expect(invokeScan({
+      scannerDir: '/scanner',
+      config: buildScannerConfig({
+        run_id: 'run-posix-127',
+        task: 'test',
+        repo_root: '/repo',
+        out_dir: 'scan',
+      }),
+      repoRoot: '/repo',
+    })).resolves.toBeUndefined();
+
+    expect(mockedSpawnSync).toHaveBeenCalledTimes(2);
+    expect(mockedSpawnSync.mock.calls[0][0]).toBe('python3');
+    expect(mockedSpawnSync.mock.calls[1][0]).toBe('python');
+  });
+
   test('does not attempt python when explicit pythonPath is provided', async () => {
     mockedSpawnSync.mockReturnValue({
       status: 1,
@@ -347,5 +387,31 @@ describe('invokeScan fallback', () => {
     const spawnEnv = mockedSpawnSync.mock.calls[0][2]?.env as Record<string, string>;
     expect(spawnEnv.CUSTOM_SCANNER_VAR).toBe('test123');
     expect(spawnEnv.PATH).toBeDefined();
+  });
+});
+
+describe('isInterpreterUnavailable', () => {
+  test('ENOENT spawn error → true', () => {
+    expect(isInterpreterUnavailable({ status: null, error: new Error('spawn ENOENT') })).toBe(true);
+  });
+
+  test('EACCES spawn error → true', () => {
+    expect(isInterpreterUnavailable({ status: null, error: new Error('spawn EACCES') })).toBe(true);
+  });
+
+  test('exit code 127 → true', () => {
+    expect(isInterpreterUnavailable({ status: 127 })).toBe(true);
+  });
+
+  test('exit code 9009 → true', () => {
+    expect(isInterpreterUnavailable({ status: 9009 })).toBe(true);
+  });
+
+  test('signal kill with no spawn error → false', () => {
+    expect(isInterpreterUnavailable({ status: null, signal: 'SIGKILL' })).toBe(false);
+  });
+
+  test('normal scanner runtime failure exit 1 → false', () => {
+    expect(isInterpreterUnavailable({ status: 1 })).toBe(false);
   });
 });
