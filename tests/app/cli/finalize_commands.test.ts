@@ -179,4 +179,36 @@ describe('vibecode finalize check (CLI)', () => {
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('INVALID_ARGUMENT');
   });
+
+  test('file claimed by another active agent is a warning not a block', async () => {
+    const repo = makeRepo('vibecode-cli-fc-otherwarn-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/b.ts', mode: 'exclusive' });
+    write(repo, 'src/b.ts');
+
+    const result = await runCli(['finalize', 'check', '--agent', a.agent_id, '--repo', repo, '--json']);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).toBe('warning');
+    expect(env.data?.blocks.find((bl) => bl.path === 'src/b.ts')).toBeUndefined();
+    expect(env.data?.warnings.find((w) => (w as { code: string }).code === 'FILE_CLAIMED_BY_OTHER_AGENT')).toBeDefined();
+  });
+
+  test('parallel non-overlapping: Agent A finalize is not blocked by Agent B file', async () => {
+    const repo = makeRepo('vibecode-cli-fc-parallel-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
+    write(repo, 'src/alpha.ts');
+    write(repo, 'src/beta.ts');
+
+    const result = await runCli(['finalize', 'check', '--agent', a.agent_id, '--repo', repo, '--json']);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).not.toBe('blocked');
+    expect(env.data?.changed_files.find((f) => f.path === 'src/alpha.ts')?.classification).toBe('claimed_by_agent');
+    expect(env.data?.changed_files.find((f) => f.path === 'src/beta.ts')?.classification).toBe('claimed_by_other_active_agent');
+  });
 });

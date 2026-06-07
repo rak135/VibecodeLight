@@ -202,4 +202,32 @@ describe('vibecode commit guard (CLI)', () => {
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('INVALID_ARGUMENT');
   });
+
+  test('parallel non-overlapping: Agent A commits only its claimed file via CLI', async () => {
+    const repo = makeRepo('vibecode-cli-cg-parallel-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
+    write(repo, 'src/alpha.ts');
+    write(repo, 'src/beta.ts');
+    const before = git(['rev-parse', 'HEAD'], repo).stdout.trim();
+
+    const result = await runCli(['commit', 'guard', '--agent', a.agent_id, '--repo', repo, '--json']);
+    expect(result.exitCode).toBe(0);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).toBe('committed');
+    expect(env.data?.committed_files).toEqual(['src/alpha.ts']);
+    expect(env.data?.commit_hash).not.toBe(before);
+
+    // Only src/alpha.ts in the commit
+    const committed = git(['show', '--name-only', '--format=', 'HEAD'], repo).stdout
+      .split(/\r?\n/)
+      .filter((l) => l.trim().length > 0);
+    expect(committed).toEqual(['src/alpha.ts']);
+
+    // src/beta.ts remains dirty
+    expect(git(['status', '--porcelain=v1'], repo).stdout).toContain('src/beta.ts');
+  });
 });

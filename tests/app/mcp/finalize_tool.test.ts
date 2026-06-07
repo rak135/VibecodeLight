@@ -9,6 +9,7 @@ import { buildFinalizeCheckTool } from '../../../src/app/mcp/tools/finalize_chec
 import { VIBECODE_MCP_TOOL_NAMES } from '../../../src/app/mcp/index.js';
 import { getFinalizeCheck } from '../../../src/core/coordination/finalize_check.js';
 import { registerAgent } from '../../../src/core/coordination/agents.js';
+import { addFileClaim } from '../../../src/core/coordination/claims.js';
 import type { McpServerContext } from '../../../src/app/mcp/index.js';
 
 function ctx(repoRoot: string): McpServerContext {
@@ -107,5 +108,29 @@ describe('VibecodeMCP finalize check tool', () => {
     expect(schema.type).toBe('object');
     expect(schema.additionalProperties).toBe(false);
     expect(Object.keys(schema.properties ?? {}).sort()).toEqual(['agent_id', 'run_id']);
+  });
+
+  test('file claimed by another active agent is a warning not a block', async () => {
+    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
+    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'codex' });
+    addFileClaim(repo.repoRoot, { agent_id: b.agent_id, path: 'src/b.ts', mode: 'exclusive' });
+    fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo.repoRoot, 'src/b.ts'), 'x\n', 'utf8');
+
+    const tool = buildFinalizeCheckTool();
+    const result = await tool.handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: a.agent_id },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      status: string;
+      blocks: Array<{ code: string; path?: string }>;
+      warnings: Array<{ code: string; path?: string }>;
+    };
+    expect(data.status).toBe('warning');
+    expect(data.blocks.find((bl) => bl.path === 'src/b.ts')).toBeUndefined();
+    expect(data.warnings.find((w) => w.code === 'FILE_CLAIMED_BY_OTHER_AGENT')?.path).toBe('src/b.ts');
   });
 });

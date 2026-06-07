@@ -297,12 +297,12 @@ function classifyFile(
           owning_claim_id: classified.owning_claim_id,
           owning_agent_id: classified.owning_agent_id,
           owning_agent_name: ownerName,
-          reason: `Covered by an active claim held by another agent (${ownerName}).`,
+          reason: `Covered by an active claim held by another agent (${ownerName}). Will not be committed by this agent.`,
         },
-        block: {
+        warning: {
           code: 'FILE_CLAIMED_BY_OTHER_AGENT',
-          severity: 'block',
-          message: `Changed file ${changed.path} is claimed by another active agent (${ownerName}).`,
+          severity: 'warning',
+          message: `Changed file ${changed.path} is claimed by another active agent (${ownerName}). It will not be committed by this agent.`,
           path: changed.path,
           details: { owning_agent_id: classified.owning_agent_id, owning_claim_id: classified.owning_claim_id },
         },

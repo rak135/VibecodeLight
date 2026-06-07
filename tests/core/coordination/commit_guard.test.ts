@@ -82,7 +82,7 @@ describe('runCommitGuard — gating on finalize check', () => {
     expect(porcelain(repo)).toContain('src/a.ts');
   });
 
-  test('file claimed by another active agent → commit denied', () => {
+  test('file claimed by another active agent (no own claims) → commit denied NO_COMMITTABLE_FILES', () => {
     const repo = makeRepo('vibecode-cg-other-');
     const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
     const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
@@ -91,8 +91,47 @@ describe('runCommitGuard — gating on finalize check', () => {
     const before = head(repo);
     const result = runCommitGuard({ repoRoot: repo, agent_id: a.agent_id });
     expect(result.status).toBe('blocked');
-    expect(result.finalize_check.status).toBe('blocked');
+    expect(result.finalize_check.status).toBe('warning');
+    expect(result.blocks.map((b) => b.code)).toContain('NO_COMMITTABLE_FILES');
     expect(head(repo)).toBe(before);
+  });
+
+  test('non-overlapping parallel: Agent A commits only its claimed file while Agent B file remains dirty', () => {
+    const repo = makeRepo('vibecode-cg-parallel-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
+    write(repo, 'src/alpha.ts', 'alpha\n');
+    write(repo, 'src/beta.ts', 'beta\n');
+    const before = head(repo);
+
+    const resultA = runCommitGuard({ repoRoot: repo, agent_id: a.agent_id });
+    expect(resultA.status).toBe('committed');
+    expect(resultA.committed_files).toEqual(['src/alpha.ts']);
+    expect(resultA.commit_hash).toMatch(/^[0-9a-f]{40}$/);
+    expect(resultA.commit_hash).not.toBe(before);
+    expect(resultA.skipped_files.find((f) => f.path === 'src/beta.ts')?.reason).toBe('claimed_by_other_agent');
+
+    // Commit contains only src/alpha.ts
+    const committed = git(['show', '--name-only', '--format=', 'HEAD'], repo).stdout
+      .split(/\r?\n/)
+      .filter((l) => l.trim().length > 0);
+    expect(committed).toEqual(['src/alpha.ts']);
+
+    // src/beta.ts remains dirty
+    expect(porcelain(repo)).toContain('src/beta.ts');
+
+    // Agent B can now commit src/beta.ts
+    const resultB = runCommitGuard({ repoRoot: repo, agent_id: b.agent_id });
+    expect(resultB.status).toBe('committed');
+    expect(resultB.committed_files).toEqual(['src/beta.ts']);
+    expect(resultB.commit_hash).not.toBe(resultA.commit_hash);
+
+    // Both committed, clean tree
+    const finalPorcelain = porcelain(repo);
+    expect(finalPorcelain).not.toContain('src/alpha.ts');
+    expect(finalPorcelain).not.toContain('src/beta.ts');
   });
 });
 

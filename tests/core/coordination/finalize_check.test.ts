@@ -199,7 +199,7 @@ describe('getFinalizeCheck — changed file classification', () => {
     expect(result.summary.unclaimed_count).toBe(1);
   });
 
-  test('a file claimed by another active agent is blocked FILE_CLAIMED_BY_OTHER_AGENT', () => {
+  test('a file claimed by another active agent is a warning FILE_CLAIMED_BY_OTHER_AGENT (not a block)', () => {
     const repo = makeRepo('vibecode-fc-other-');
     const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
     const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
@@ -207,13 +207,62 @@ describe('getFinalizeCheck — changed file classification', () => {
     write(repo, 'src/b.ts');
 
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: a.agent_id });
-    expect(result.status).toBe('blocked');
+    expect(result.status).toBe('warning');
     const f = file(result, 'src/b.ts');
     expect(f.classification).toBe('claimed_by_other_active_agent');
     expect(f.owning_agent_id).toBe(b.agent_id);
-    const block = result.blocks.find((bl) => bl.path === 'src/b.ts');
-    expect(block?.code).toBe('FILE_CLAIMED_BY_OTHER_AGENT');
+    expect(result.blocks.find((bl) => bl.path === 'src/b.ts')).toBeUndefined();
+    const warning = result.warnings.find((w) => w.path === 'src/b.ts');
+    expect(warning?.code).toBe('FILE_CLAIMED_BY_OTHER_AGENT');
     expect(result.summary.other_claimed_count).toBe(1);
+  });
+
+  test('non-overlapping parallel: Agent A finalize is not blocked by Agent B claimed file', () => {
+    const repo = makeRepo('vibecode-fc-parallel-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
+    write(repo, 'src/alpha.ts');
+    write(repo, 'src/beta.ts');
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: a.agent_id });
+    expect(result.status).not.toBe('blocked');
+    expect(file(result, 'src/alpha.ts').classification).toBe('claimed_by_agent');
+    expect(file(result, 'src/beta.ts').classification).toBe('claimed_by_other_active_agent');
+    expect(result.blocks.map((b) => b.code)).not.toContain('FILE_CLAIMED_BY_OTHER_AGENT');
+    expect(result.warnings.find((w) => w.code === 'FILE_CLAIMED_BY_OTHER_AGENT')?.path).toBe('src/beta.ts');
+    expect(result.summary.allowed_count).toBe(1);
+    expect(result.summary.other_claimed_count).toBe(1);
+  });
+
+  test('unclaimed dirty file still blocks even when other-agent file is a warning', () => {
+    const repo = makeRepo('vibecode-fc-mixed-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
+    write(repo, 'src/alpha.ts');
+    write(repo, 'src/beta.ts');
+    write(repo, 'src/unclaimed.ts');
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: a.agent_id });
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.find((bl) => bl.code === 'UNCLAIMED_CHANGED_FILE')?.path).toBe('src/unclaimed.ts');
+    expect(result.warnings.find((w) => w.code === 'FILE_CLAIMED_BY_OTHER_AGENT')?.path).toBe('src/beta.ts');
+  });
+
+  test('stale agent claim does not downgrade to warning (remains unclaimed block)', () => {
+    const repo = makeRepo('vibecode-fc-stale-other-');
+    const stale = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' }, { now: T0 });
+    addFileClaim(repo, { agent_id: stale.agent_id, path: 'src/b.ts', mode: 'exclusive' }, { now: T0 });
+    const active = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { now: T_LATER });
+    write(repo, 'src/b.ts');
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: active.agent_id, now: T_LATER });
+    expect(result.status).toBe('blocked');
+    expect(file(result, 'src/b.ts').classification).toBe('unclaimed');
+    expect(result.blocks.find((b) => b.path === 'src/b.ts')?.code).toBe('UNCLAIMED_CHANGED_FILE');
   });
 
   test('a changed .vibecode runtime file is generated_or_ignored and does not block', () => {
