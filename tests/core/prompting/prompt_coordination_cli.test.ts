@@ -70,6 +70,15 @@ describe('prompt coordination binding (CLI)', () => {
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
     expect(content).toMatch(/^# Multi-Agent Coordination$/m);
     expect(content).toContain('vibecode_claim_add');
+
+    // The convenience mirror written by the real CLI --agent path must be a
+    // byte-for-byte copy of the canonical run artifact (no hidden mutation,
+    // no separate rendering path for current/).
+    const currentPrompt = fs.readFileSync(
+      path.join(tmpRepo, '.vibecode', 'current', 'final_prompt.md'),
+      'utf8',
+    );
+    expect(currentPrompt).toBe(content);
   });
 
   test('invalid agent_id returns a structured error and does not render', () => {
@@ -114,6 +123,7 @@ describe('prompt coordination binding (CLI)', () => {
     expect(fs.existsSync(bindingPath(pipelineRunDir))).toBe(true);
     const content = fs.readFileSync(path.join(pipelineRunDir, 'output', 'final_prompt.md'), 'utf8');
     expect(content).toMatch(/^# Multi-Agent Coordination$/m);
-    expect(content).toContain('vibecode claims add --agent');
+    expect(content).toContain('vibecode claims add --repo <path> --agent');
+    expect(content).toContain('--mode exclusive');
   });
 });

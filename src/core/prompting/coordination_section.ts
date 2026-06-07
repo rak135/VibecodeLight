@@ -22,26 +22,31 @@ const MODE_LABELS = {
 
 function renderMcpTools(): string[] {
   return [
-    'You have MCP coordination tools. Use them:',
-    '- vibecode_claim_add — claim a file before editing it',
-    '- vibecode_claims_list — list current claims',
-    '- vibecode_claim_status — check a path before editing',
-    '- vibecode_claim_release — release a claim when you are done',
+    'You have MCP coordination tools. Use them in this order:',
+    '- Inspect current state first with vibecode_coordination_status or vibecode_agents_list.',
+    '- If you are not already registered, register with vibecode_agent_register.',
+    '- During long work, keep your session alive with vibecode_agent_heartbeat.',
+    '- Before editing a file, claim it with vibecode_claim_add; check a path with vibecode_claim_status and list claims with vibecode_claims_list.',
+    '- If vibecode_claim_add returns CLAIM_DENIED: do not edit the file. Inspect the blocking claims, then wait, choose another file, or retry as shared only if the existing claim is compatible.',
+    '- Before your final report, list and release the claims you no longer need with vibecode_claim_release.',
   ];
 }
 
 function renderCliCommands(agentId: string, mode: CoordinationPromptContext['agent_mode']): string[] {
   const lines: string[] = [];
   if (mode === 'unknown') {
-    lines.push('Agent tooling is unknown; use the Vibecode CLI commands as the safe default:');
+    lines.push('Agent tooling is unknown; use the Vibecode CLI commands as the safe default (pass --repo <path> to target this repository):');
   } else {
-    lines.push('Use the Vibecode CLI for coordination:');
+    lines.push('Use the Vibecode CLI for coordination (pass --repo <path> to target this repository):');
   }
   lines.push(
-    `- vibecode claims add --agent ${agentId} --path <path> --type exclusive --json`,
-    '- vibecode claims list --json',
-    '- vibecode claims status --path <path> --json',
-    '- vibecode claims release --claim <claim_id> --json',
+    '- Inspect current state first: vibecode agents list --repo <path> --json',
+    '- If you are not already registered: vibecode agents register --repo <path> --name <name> --type <type> --json',
+    `- During long work, keep your session alive: vibecode agents heartbeat --repo <path> --agent ${agentId} --json`,
+    `- Before editing a file, claim it: vibecode claims add --repo <path> --agent ${agentId} --path <path> --mode exclusive --json`,
+    '- Check a path / list claims: vibecode claims status --repo <path> --path <path> --json — vibecode claims list --repo <path> --json',
+    '- If a claim is denied (CLAIM_DENIED): do not edit the file. Inspect the blocking claims, then wait, choose another file, or retry with --mode shared only if compatible.',
+    '- Before your final report, release claims you no longer need: vibecode claims release --repo <path> --claim <claim_id> --json',
   );
   return lines;
 }
@@ -89,6 +94,8 @@ export function renderCoordinationSection(ctx: CoordinationPromptContext): strin
     '- Do not edit files claimed by other active agents.',
     '- Release your claims when you finish with them.',
     '- Coordination is advisory; finalize/commit guards are not active in this phase.',
+    '- Handoffs are not implemented yet. Do not invent handoff commands.',
+    '- Final report: Report which claims you created, retained, released, or could not obtain.',
     '',
   );
 

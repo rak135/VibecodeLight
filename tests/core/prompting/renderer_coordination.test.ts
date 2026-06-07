@@ -44,31 +44,49 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test('renders an MCP coordination block with MCP tool names', () => {
+  test('renders an MCP coordination block with MCP tool names and protocol guidance', () => {
     const runDir = makeRunDir(tmpDir);
     const result = renderFinalPrompt(runDir, { coordination: mcpContext });
     expect(result.ok).toBe(true);
     const content = readPrompt(runDir);
     expect(content).toMatch(/^# Multi-Agent Coordination$/m);
     expect(content).toContain('MCP-capable');
+    // Status / register / heartbeat / claim / release tool guidance.
+    expect(content).toMatch(/vibecode_coordination_status|vibecode_agents_list/);
+    expect(content).toContain('vibecode_agent_register');
+    expect(content).toContain('vibecode_agent_heartbeat');
     expect(content).toContain('vibecode_claim_add');
     expect(content).toContain('vibecode_claims_list');
     expect(content).toContain('vibecode_claim_status');
     expect(content).toContain('vibecode_claim_release');
+    // CLAIM_DENIED handling and final-report guidance.
+    expect(content).toContain('CLAIM_DENIED');
+    expect(content).toContain('Handoffs are not implemented yet. Do not invent handoff commands.');
+    expect(content).toContain(
+      'Report which claims you created, retained, released, or could not obtain.',
+    );
     // MCP agents are not told to shell out to the CLI claims commands.
-    expect(content).not.toContain('vibecode claims add --agent');
+    expect(content).not.toContain('vibecode claims add');
   });
 
-  test('renders a CLI coordination block with CLI claim commands', () => {
+  test('renders a CLI coordination block with canonical CLI claim commands', () => {
     const runDir = makeRunDir(tmpDir);
     const cli: CoordinationPromptContext = { ...mcpContext, agent_mode: 'cli' };
     renderFinalPrompt(runDir, { coordination: cli });
     const content = readPrompt(runDir);
     expect(content).toContain('CLI-only');
-    expect(content).toContain('vibecode claims add --agent agent-1 --path');
-    expect(content).toContain('vibecode claims list --json');
-    expect(content).toContain('vibecode claims status --path');
-    expect(content).toContain('vibecode claims release --claim');
+    expect(content).toContain('vibecode agents list');
+    expect(content).toContain('vibecode agents register');
+    expect(content).toContain('vibecode agents heartbeat');
+    expect(content).toContain('vibecode claims add --repo <path> --agent agent-1 --path');
+    expect(content).toContain('vibecode claims list --repo <path> --json');
+    expect(content).toContain('vibecode claims status --repo <path> --path');
+    expect(content).toContain('vibecode claims release --repo <path> --claim');
+    // Canonical --mode, never the --type alias.
+    expect(content).toContain('--mode exclusive');
+    expect(content).not.toContain('--type exclusive');
+    expect(content).toContain('CLAIM_DENIED');
+    expect(content).toContain('Handoffs are not implemented yet. Do not invent handoff commands.');
     expect(content).not.toContain('vibecode_claim_add');
   });
 
@@ -78,7 +96,8 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     renderFinalPrompt(runDir, { coordination: unknown });
     const content = readPrompt(runDir);
     expect(content).toMatch(/^# Multi-Agent Coordination$/m);
-    expect(content).toContain('vibecode claims add --agent agent-1 --path');
+    expect(content).toContain('vibecode claims add --repo <path> --agent agent-1 --path');
+    expect(content).toContain('--mode exclusive');
     expect(content).not.toContain('vibecode_claim_add');
   });
 

@@ -188,6 +188,63 @@ repo-bound (they never accept a repo argument) and never shell out to the CLI.
 
 ---
 
+## Phase 3B: run/agent binding and the visible coordination block
+
+Phase 3B lets a prompt run be optionally associated with a coordinating agent
+and renders a **visible** coordination block into `final_prompt.md`. It is
+advisory-only and adds no enforcement.
+
+- **Per-run binding artifact.** The binding is a separate generated artifact,
+  never merged into `run_manifest.json`:
+
+  ```text
+  .vibecode/runs/<run_id>/coordination/agent_binding.json
+  ```
+
+  It records `agent_id`, `terminal_session_id`, `agent_mode`, and
+  `coordination_enabled`. Reads are resilient: a missing or malformed file
+  yields no coordination block. The binding module only ever writes this one
+  file under the run dir — it never touches source files and never creates lock
+  files.
+
+- **CLI flags.** `vibecode prompt` and `vibecode prompt render` accept optional
+  coordination flags:
+
+  ```text
+  --agent <agent_id>            bind the run to a registered agent
+  --terminal-session <id>       record the owning terminal session
+  --agent-mode mcp|cli|unknown  tailor the rendered instructions (default: unknown)
+  ```
+
+  The agent id is validated against live coordination state before rendering; an
+  unknown agent or invalid mode returns a structured error and renders nothing.
+  When no coordination flag is supplied, no binding is written and no block is
+  added.
+
+- **Visible block in `output/final_prompt.md`.** When a run is bound, the
+  renderer emits a compact `# Multi-Agent Coordination` section listing the bound
+  agent, the claims it holds, the files claimed by other active agents
+  (off-limits), and short advisory instructions. The section is mode-aware: it
+  shows MCP coordination tools for `mcp` agents and the equivalent
+  `vibecode agents` / `vibecode claims` CLI commands (canonical `--mode`, with
+  `--repo <path>`) for `cli`/`unknown` agents.
+
+- **Advisory-only semantics.** The block tells agents to claim before editing,
+  respect other agents' active claims, handle `CLAIM_DENIED` by not editing, and
+  report which claims they created/retained/released/could not obtain. It is
+  guidance, not enforcement.
+
+- **No hidden prompt injection.** The block is part of the saved
+  `final_prompt.md` (the truth). The `.vibecode/current/final_prompt.md`
+  convenience mirror is written as a byte-for-byte copy of the run artifact;
+  nothing is appended to the terminal after preview.
+
+- **No guard, no handoffs yet.** Phase 3B adds no finalize guard, no commit
+  guard, and no handoff workflow. The block explicitly states that handoffs are
+  not implemented and instructs agents not to invent handoff commands.
+
+---
+
 ## Not yet implemented
 
 The following are specified in `docs/MULTI_AGENT_CONFLICT_DESIGN.md` and
