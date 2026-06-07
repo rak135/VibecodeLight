@@ -1,3 +1,4 @@
+import * as os from 'os';
 import * as path from 'path';
 
 import { createPtySession } from '../../adapters/pty/index.js';
@@ -240,6 +241,28 @@ export interface DesktopIpcRegistrationOptions {
   getRepoPath?: () => string;
 }
 
+/**
+ * Windows PTY hint for xterm.js. node-pty uses the ConPTY backend on modern
+ * Windows; xterm.js can use this to apply ConPTY-specific scrollback / reflow
+ * heuristics during the initial fit and later resizes.
+ * Returns undefined on non-Windows so callers leave the option unset.
+ */
+export interface WindowsPtyInfo {
+  backend: 'conpty';
+  buildNumber?: number;
+}
+
+export function resolveWindowsPtyInfo(
+  platform: typeof process.platform = process.platform,
+  release: string = os.release(),
+): WindowsPtyInfo | undefined {
+  if (platform !== 'win32') return undefined;
+  const build = Number.parseInt(release.split('.')[2] ?? '', 10);
+  return Number.isFinite(build)
+    ? { backend: 'conpty', buildNumber: build }
+    : { backend: 'conpty' };
+}
+
 export function registerDesktopTerminalIpcHandlers(
   ipcMain: IpcMainLike,
   options: DesktopIpcRegistrationOptions,
@@ -265,6 +288,10 @@ export function registerDesktopTerminalIpcHandlers(
     await service.closeSession(String(sessionId));
   });
   ipcMain.handle('terminal:list', () => service.listSessions());
+  ipcMain.handle('terminal:getPtyInfo', () => ({
+    platform: process.platform,
+    windowsPty: resolveWindowsPtyInfo() ?? null,
+  }));
   ipcMain.handle('workspace:info', () => ({
     repoPath: options.getRepoPath?.() ?? process.env.VIBECODE_REPO ?? process.cwd(),
   }));

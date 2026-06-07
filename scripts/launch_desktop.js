@@ -28,6 +28,12 @@ if (!fs.existsSync(fitAddonSrc)) {
 }
 fs.copyFileSync(fitAddonSrc, path.join(xtermVendorOutput, 'addon-fit.js'));
 
+const canvasAddonSrc = path.join(repoRoot, 'node_modules', '@xterm', 'addon-canvas', 'lib', 'addon-canvas.js');
+if (!fs.existsSync(canvasAddonSrc)) {
+  throw new Error(`addon-canvas.js missing under ${canvasAddonSrc}; run "pnpm install" to restore @xterm/addon-canvas`);
+}
+fs.copyFileSync(canvasAddonSrc, path.join(xtermVendorOutput, 'addon-canvas.js'));
+
 execSync('electron dist-desktop/app/desktop/main.js', {
   stdio: 'inherit',
   env: { ...process.env, VIBECODE_REPO: process.env.VIBECODE_REPO || repoRoot },

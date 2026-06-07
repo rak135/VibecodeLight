@@ -42,7 +42,7 @@ describe('desktop preload bridge boundary', () => {
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
     expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'runs', 'skills', 'terminal', 'workspace']);
-    expect(Object.keys(api.terminal).sort()).toEqual(['close', 'list', 'onData', 'onExit', 'onPreflight', 'resize', 'start', 'write']);
+    expect(Object.keys(api.terminal).sort()).toEqual(['close', 'getPtyInfo', 'list', 'onData', 'onExit', 'onPreflight', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
     expect(Object.keys(api.runs).sort()).toEqual(['list', 'show']);
@@ -100,6 +100,29 @@ describe('desktop preload bridge boundary', () => {
     expect(collectKeys(api)).not.toEqual(
       expect.arrayContaining(['require', 'eval', 'spawn', 'fs', 'child_process', 'readFile', 'writeFile']),
     );
+  });
+
+  test('terminal.getPtyInfo invokes the read-only PTY metadata IPC channel only', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ platform: 'win32', windowsPty: { backend: 'conpty', buildNumber: 26200 } }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const terminal = api.terminal as { getPtyInfo: () => Promise<unknown> };
+    await terminal.getPtyInfo();
+
+    // Protected invariant: the renderer may read PTY metadata for xterm's
+    // Windows ConPTY hint, but it must not gain direct process access.
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('terminal:getPtyInfo');
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
   });
 
   test('composer.generatePreview invokes composer:generatePreview IPC channel only', async () => {

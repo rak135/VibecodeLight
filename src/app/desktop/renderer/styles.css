@@ -389,10 +389,20 @@ input, textarea, select { font: inherit; color: inherit; }
   min-height: 0;
   background: var(--term-bg);
   padding: 8px 10px;
+  display: flex;
   overflow: hidden;
   position: relative;
 }
-.term .xterm { height: 100%; }
+
+.term-surface {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.term-surface .xterm { height: 100%; }
 
 /* ------------- Right rail ------------- */
 .right-rail {

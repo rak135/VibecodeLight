@@ -425,6 +425,7 @@ export interface VibecodePreloadApi {
     resize(sessionId: string, cols: number, rows: number): void;
     close(sessionId?: string): Promise<void>;
     list(): Promise<Array<{ sessionId: string; pid: number; cwd: string; shell: string }>>;
+    getPtyInfo(): Promise<{ platform: string; windowsPty: { backend: 'conpty'; buildNumber?: number } | null }>;
     onData(callback: (sessionId: string, data: string) => void): void;
     onExit(callback: (sessionId: string, code: number | undefined) => void): void;
     onPreflight(callback: (sessionId: string, result: unknown) => void): void;
@@ -514,6 +515,9 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       list() {
         return ipcRenderer.invoke('terminal:list') as Promise<Array<{ sessionId: string; pid: number; cwd: string; shell: string }>>;
+      },
+      getPtyInfo() {
+        return ipcRenderer.invoke('terminal:getPtyInfo') as Promise<{ platform: string; windowsPty: { backend: 'conpty'; buildNumber?: number } | null }>;
       },
       onData(callback: (sessionId: string, data: string) => void) {
         ipcRenderer.on('terminal:data', (_event, sessionId: string, data: string) => callback(sessionId, data));

@@ -31,7 +31,7 @@
       +     '</button>'
       +   '</div>'
       + '</div>'
-      + '<div class="term tile-term"></div>';
+      + '<div class="term tile-term-shell"><div class="term-surface tile-term"></div></div>';
     return tile;
   }
 
@@ -64,6 +64,11 @@
     const readClipboard = options.readClipboard || null;
     const TerminalCtor = options.TerminalCtor || window.Terminal;
     const FitAddonCtor = options.FitAddonCtor || null;
+    const CanvasAddonCtor = options.CanvasAddonCtor || null;
+    // Windows ConPTY hint for xterm.js. When set, xterm applies the ConPTY
+    // scrollback/reflow heuristics that prevent stale rows from being left
+    // behind when the terminal grows. Null on non-Windows.
+    const windowsPty = options.windowsPty || null;
 
     const tiles = new Map(); // sessionId -> { tile, term, fitAddon, resizeObserver, name, statusEl, statusTextEl, nameEl, info }
     let nextLocalIndex = 0;
@@ -113,7 +118,16 @@
     function dispatchData(sessionId, data) {
       const entry = tiles.get(sessionId);
       if (!entry) return;
-      entry.term.write(data);
+      // Diff-based TUIs (e.g. opencode) perform many small surgical cell updates
+      // per frame (cursor-forward skips + erase-character), and xterm.js's render
+      // dirty-tracking can leave stale cells painted on screen even though the
+      // logical buffer is correct (verified by replaying the raw stream into a
+      // headless xterm — the buffer matches; only the on-screen paint drifts).
+      // Forcing a full viewport refresh after each write makes the screen match
+      // the buffer. The write callback guarantees the buffer is updated first.
+      entry.term.write(data, () => {
+        try { entry.term.refresh(0, entry.term.rows - 1); } catch (_e) { /* best-effort */ }
+      });
     }
 
     function dispatchExit(sessionId, code) {
@@ -181,15 +195,22 @@
       const openComposerBtn = tileEl.querySelector('.tile-open-composer');
       grid.appendChild(tileEl);
 
-      const term = new TerminalCtor({
+      const termOptions = {
         cols,
         rows,
         cursorBlink: true,
-        convertEol: true,
-        fontFamily: 'Cascadia Code, Consolas, ui-monospace, monospace',
-        fontSize: 12.5,
+        fontFamily: 'Consolas, "Cascadia Mono", "Cascadia Code", ui-monospace, monospace',
+        fontSize: 13,
         theme: { background: '#0c0c0e', foreground: '#d8d8de' },
-      });
+      };
+      if (windowsPty) termOptions.windowsPty = windowsPty;
+      const term = new TerminalCtor(termOptions);
+
+      let canvasAddon = null;
+      if (CanvasAddonCtor) {
+        canvasAddon = new CanvasAddonCtor();
+        term.loadAddon(canvasAddon);
+      }
 
       let fitAddon = null;
       if (FitAddonCtor) {

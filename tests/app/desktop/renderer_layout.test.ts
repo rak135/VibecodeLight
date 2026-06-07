@@ -205,4 +205,49 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(js).toMatch(/fitAddon\.fit\(\)/);
     expect(js).toMatch(/ResizeObserver/);
   });
+
+  test('keeps the xterm render target unpadded so cell geometry matches the viewport', () => {
+    const css = fs.readFileSync(stylesCss, 'utf8');
+    const js = fs.readFileSync(path.join(rendererDir, 'terminals.js'), 'utf8');
+
+    // Protected invariant: xterm/addon-fit measures the parent of the .xterm
+    // element. If that same element owns decorative padding, cols/rows and
+    // renderer dirty rectangles can diverge from the visible cell grid.
+    expect(js).toMatch(/term-surface tile-term/);
+
+    const shellRule = css.match(/\.term\s*\{[^}]*\}/);
+    expect(shellRule).not.toBeNull();
+    expect(shellRule![0]).toMatch(/padding:\s*8px 10px/);
+    expect(shellRule![0]).toMatch(/display:\s*flex/);
+
+    const surfaceRule = css.match(/\.term-surface\s*\{[^}]*\}/);
+    expect(surfaceRule).not.toBeNull();
+    expect(surfaceRule![0]).toMatch(/flex:\s*1/);
+    expect(surfaceRule![0]).toMatch(/overflow:\s*hidden/);
+    expect(surfaceRule![0]).not.toMatch(/padding:/);
+  });
+
+  test('uses PTY-safe xterm options for diff-based TUIs', () => {
+    const js = fs.readFileSync(path.join(rendererDir, 'terminals.js'), 'utf8');
+
+    // Protected invariant: PTY streams already contain terminal newlines and
+    // cursor movement. convertEol mutates that stream, while fractional font
+    // sizes create unstable renderer rounding on HiDPI displays.
+    expect(js).not.toMatch(/convertEol:\s*true/);
+    expect(js).toMatch(/fontFamily:\s*'Consolas, "Cascadia Mono", "Cascadia Code", ui-monospace, monospace'/);
+    expect(js).toMatch(/fontSize:\s*13\b/);
+  });
+
+  test('loads the canvas renderer addon for embedded terminal repaint stability', () => {
+    const html = readHtml();
+    const js = fs.readFileSync(path.join(rendererDir, 'terminals.js'), 'utf8');
+
+    // Protected invariant: opencode's diff renderer exposes stale DOM-renderer
+    // cells; canvas plus a full viewport refresh is the selected render path.
+    expect(html).toMatch(/vendor\/xterm\/addon-canvas\.js/);
+    expect(html).toMatch(/CanvasAddonCtor/);
+    expect(js).toMatch(/CanvasAddonCtor/);
+    expect(js).toMatch(/new CanvasAddonCtor\(\)/);
+    expect(js).toMatch(/loadAddon\(canvasAddon\)/);
+  });
 });

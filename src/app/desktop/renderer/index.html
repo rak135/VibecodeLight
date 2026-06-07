@@ -465,6 +465,7 @@
     <!-- Local xterm assets are copied from node_modules/@xterm by scripts/launch_desktop.js. -->
     <script src="vendor/xterm/xterm.js"></script>
     <script src="vendor/xterm/addon-fit.js"></script>
+    <script src="vendor/xterm/addon-canvas.js"></script>
     <script src="flash_settings.js"></script>
     <script src="settings_shell.js"></script>
     <script src="agent_guidance_settings.js"></script>
@@ -2389,13 +2390,28 @@
         sessionState.cwd = workspace.repoPath;
         crumbSession.textContent = sessionState.name;
 
+        // Ask the main process whether the PTY is hosted on Windows ConPTY so
+        // xterm.js can apply the matching scrollback/reflow heuristics. Without
+        // this, growing the terminal on the first fit leaves stale rows behind.
+        let windowsPty = null;
+        try {
+          if (window.vibecodeAPI.terminal.getPtyInfo) {
+            const ptyInfo = await window.vibecodeAPI.terminal.getPtyInfo();
+            if (ptyInfo && ptyInfo.windowsPty) windowsPty = ptyInfo.windowsPty;
+          }
+        } catch (_e) {
+          // best-effort: fall back to default (non-Windows) behavior
+        }
+
         terminals = window.VibecodeTerminals.createMultiTerminalController({
           grid,
           api: window.vibecodeAPI.terminal,
           cols,
           rows,
           repoPath: workspace.repoPath,
+          windowsPty,
           FitAddonCtor: window.FitAddon && window.FitAddon.FitAddon ? window.FitAddon.FitAddon : null,
+          CanvasAddonCtor: window.CanvasAddon && window.CanvasAddon.CanvasAddon ? window.CanvasAddon.CanvasAddon : null,
           buildKeyHandler: window.VibecodeTerminalKeys
             ? window.VibecodeTerminalKeys.createTerminalKeyHandler
             : null,
