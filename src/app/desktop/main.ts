@@ -12,6 +12,15 @@ import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 import { registerCodeGraphBridge } from './codegraph_bridge.js';
 import { registerDesktopSkillsIpcHandlers } from './skills_bridge.js';
 
+// Defensive: the embedded xterm.js terminal is repainted by Chromium's GPU
+// compositor, whose behaviour varies across Windows GPU/driver combinations.
+// The actual fix for the stale/overlapping terminal glyphs was the renderer
+// surface/geometry change (unpadded host + integer font metrics + canvas
+// renderer); this line is a belt-and-suspenders measure that keeps terminal
+// rasterization on the CPU so the result does not depend on the local GPU
+// driver. Must run before app `ready`.
+app.disableHardwareAcceleration();
+
 let mainWindow: BrowserWindow | undefined;
 let ipcRegistered = false;
 
