@@ -74,7 +74,12 @@ export function getCoordinationStatus(
   const staleClaims = state.claims.filter(
     (claim) => claim.status !== 'released' && staleAgentIds.has(claim.agent_id),
   );
-  const conflicts = state.conflicts as readonly ConflictRecord[];
+  // Generated conflict state is trusted but not schema-enforced on load
+  // (see state.ts `normalize`); guard against malformed entries so status
+  // reporting never crashes on bad state.
+  const conflicts = (state.conflicts as readonly unknown[]).filter(
+    (c): c is ConflictRecord => !!c && typeof c === 'object',
+  );
   const unresolvedConflicts = conflicts.filter((c) => c.status === 'detected');
 
   return {

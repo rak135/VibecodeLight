@@ -334,6 +334,50 @@ export interface AgentGuidanceIntegrationApplyIpc {
 }
 
 /**
+ * Read-only coordination overview IPC shapes (Phase 5A). These mirror the core
+ * `CoordinationOverview` DTO; the renderer only ever reads this summary and has
+ * no coordination mutation channel.
+ */
+export interface CoordinationOverviewAgentItemIpc {
+  agent_id: string;
+  name: string;
+  type: string;
+  status: string;
+  last_heartbeat_at?: string;
+}
+
+export interface CoordinationOverviewClaimItemIpc {
+  claim_id: string;
+  path: string;
+  mode: string;
+  status: string;
+  agent_id: string;
+  agent_name?: string;
+}
+
+export interface CoordinationOverviewConflictItemIpc {
+  conflict_id: string;
+  conflict_type: string;
+  severity: string;
+  status: string;
+  involved_files: string[];
+  detected_at: string;
+}
+
+export interface CoordinationOverviewIpc {
+  agents: { total: number; active: number; stale: number; terminated: number; items: CoordinationOverviewAgentItemIpc[] };
+  claims: { total: number; active: number; stale: number; released: number; items: CoordinationOverviewClaimItemIpc[] };
+  conflicts: { unresolved: number; recent: CoordinationOverviewConflictItemIpc[] };
+  evidence: { recent_count: number; warning_count: number; high_count: number; last_event_at: string | null };
+}
+
+export interface CoordinationOverviewResultIpc {
+  ok: boolean;
+  overview?: CoordinationOverviewIpc;
+  error?: { code: string; message: string; details: string[] };
+}
+
+/**
  * Mirror of the core `CodeGraphStatus` shape (detect-only, informational). The
  * renderer reads this from `runs:show`; it never parses external_tools.json or
  * runs detection itself.
@@ -495,6 +539,10 @@ export interface VibecodePreloadApi {
     init(): Promise<CodeGraphActionIpcResult>;
     sync(): Promise<CodeGraphActionIpcResult>;
     reindex(): Promise<CodeGraphActionIpcResult>;
+  };
+  coordination: {
+    /** Read-only: fetch the compact coordination overview. No mutation channel exists. */
+    getOverview(): Promise<CoordinationOverviewResultIpc>;
   };
 }
 
@@ -715,6 +763,11 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       reindex() {
         return ipcRenderer.invoke('codegraph:reindex') as Promise<CodeGraphActionIpcResult>;
+      },
+    },
+    coordination: {
+      getOverview() {
+        return ipcRenderer.invoke('coordination:getOverview') as Promise<CoordinationOverviewResultIpc>;
       },
     },
   };

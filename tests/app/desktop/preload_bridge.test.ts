@@ -6,6 +6,7 @@ type ExposedApi = {
   config: Record<string, unknown>;
   artifacts: Record<string, unknown>;
   codegraph: Record<string, unknown>;
+  coordination: Record<string, unknown>;
 };
 
 function collectKeys(value: unknown): string[] {
@@ -41,7 +42,8 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'runs', 'skills', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'coordination', 'runs', 'skills', 'terminal', 'workspace']);
+    expect(Object.keys(api.coordination).sort()).toEqual(['getOverview']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'getPtyInfo', 'list', 'onData', 'onExit', 'onPreflight', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
@@ -359,6 +361,30 @@ describe('desktop preload bridge boundary', () => {
     await runs.show('2026-05-20_001');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('runs:show', '2026-05-20_001');
+  });
+
+  test('coordination.getOverview invokes the read-only coordination:getOverview channel only', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true, overview: {} }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const coordination = api.coordination as { getOverview: () => Promise<unknown> };
+    await coordination.getOverview();
+
+    // Protected invariant: the renderer reads coordination state only; it gets
+    // exactly one read-only channel and no mutation channel.
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('coordination:getOverview');
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
+    expect(Object.keys(api.coordination)).toEqual(['getOverview']);
   });
 
   test('config agent guidance methods invoke only safe config IPC channels', async () => {

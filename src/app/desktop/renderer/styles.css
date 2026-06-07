@@ -581,6 +581,31 @@ input, textarea, select { font: inherit; color: inherit; }
 .rp-list-item .meta { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); flex: none; }
 .rp-empty { padding: 10px; font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
 
+/* Read-only coordination observability panel (Phase 5A). Compact, informational
+   only — there are no interactive/mutation controls in this surface. */
+.coord-panel { display: flex; flex-direction: column; gap: 10px; }
+.coord-empty { padding: 10px; font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); line-height: 1.5; }
+.coord-section { display: flex; flex-direction: column; gap: 4px; }
+.coord-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.coord-sec-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
+.coord-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.coord-chip {
+  font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 1px 5px; white-space: nowrap;
+}
+.coord-chip.coord-warn { color: var(--warn); border-color: var(--warn); }
+.coord-row {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 3px 6px; border-left: 2px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px;
+}
+.coord-row.coord-warn { border-left-color: var(--warn); }
+.coord-row .coord-name { color: var(--text); word-break: break-all; flex: 1 1 auto; }
+.coord-row .coord-meta { color: var(--muted); font-size: 10px; }
+.coord-row .coord-status { color: var(--text-2); font-size: 10px; flex: none; }
+.coord-note { font-size: 10px; color: var(--muted); font-style: italic; padding-top: 2px; }
+
 /* Optional CodeGraph detection status — neutral/informational, never an error. */
 .cg-status {
   display: flex; flex-direction: column; gap: 3px;

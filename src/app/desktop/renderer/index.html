@@ -283,6 +283,11 @@
         <button class="rail-btn" data-panel="artifacts" type="button" title="artifacts">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 5l5-2.5L13 5v6l-5 2.5L3 11V5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M3 5l5 2.5L13 5M8 7.5v6" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
+        <!-- Read-only multi-agent coordination observability (Phase 5A). This
+             panel only displays coordination state; it has no mutation controls. -->
+        <button class="rail-btn" data-panel="coordination" type="button" title="coordination">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2"/><circle cx="12" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="12" r="1.8" stroke="currentColor" stroke-width="1.2"/><path d="M5.3 5.2L7 10.4M10.7 5.2L9 10.4M5.6 4h4.8" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
       </aside>
     </div>
 
@@ -472,6 +477,7 @@
     <script src="composer_steps.js"></script>
     <script src="terminal_keys.js"></script>
     <script src="scroll_rail.js"></script>
+    <script src="coordination_panel.js"></script>
     <script src="terminals.js"></script>
     <script>
       'use strict';
@@ -1012,12 +1018,15 @@
         rpTitle.textContent = which.charAt(0).toUpperCase() + which.slice(1);
         rightRail.querySelectorAll('.rail-btn').forEach((b) => b.classList.toggle('active', b.getAttribute('data-panel') === which));
         renderPanel(which);
+        if (which === 'coordination') startCoordinationPolling();
+        else stopCoordinationPolling();
       }
       function closePanel() {
         activePanel = null;
         rightPanel.classList.remove('open');
         rightPanel.setAttribute('aria-hidden', 'true');
         rightRail.querySelectorAll('.rail-btn').forEach((b) => b.classList.remove('active'));
+        stopCoordinationPolling();
       }
       rightRail.addEventListener('click', (e) => {
         const btn = e.target.closest('.rail-btn');
@@ -1057,6 +1066,10 @@
         }
         if (which === 'context') {
           renderContextPanel();
+          return;
+        }
+        if (which === 'coordination') {
+          void renderCoordinationPanel();
           return;
         }
         // artifacts (real once a run exists)
@@ -1192,6 +1205,63 @@
         html += '</div>';
         target.innerHTML = html;
         bindArtifactOpeners(target);
+      }
+
+      // ---- Coordination observability (read-only) ----
+      // Renders the compact coordination overview via the read-only
+      // coordination:getOverview bridge. There are NO mutation controls here:
+      // no claim release, conflict resolve, stale-claim reap, scoped commit, or
+      // watcher start/stop. While the panel is open it polls periodically so the
+      // user can watch multiple terminal agents work; this is a simple poll, not
+      // a live event bus.
+      const COORDINATION_POLL_MS = 4000;
+      let coordinationPollTimer = null;
+
+      async function renderCoordinationPanel() {
+        const renderHtml = window.VibecodeCoordinationPanel && window.VibecodeCoordinationPanel.renderCoordinationOverviewHtml;
+        if (!window.vibecodeAPI || !window.vibecodeAPI.coordination || !renderHtml) {
+          rpBody.innerHTML = '<div class="rp-section"><h4>Coordination</h4><div class="rp-empty">Coordination overview is unavailable.</div></div>';
+          return;
+        }
+        // Only paint the loading state on the first render so polling does not flicker.
+        if (!rpBody.querySelector('.coord-panel') && !rpBody.querySelector('.coord-empty')) {
+          rpBody.innerHTML = '<div class="rp-section"><h4>Coordination</h4><div class="rp-empty">Loading…</div></div>';
+        }
+        let result;
+        try {
+          result = await window.vibecodeAPI.coordination.getOverview();
+        } catch (error) {
+          if (activePanel !== 'coordination') return;
+          rpBody.innerHTML = '<div class="rp-section"><h4>Coordination</h4><div class="rp-empty">' +
+            escapeHtml(error instanceof Error ? error.message : String(error)) + '</div></div>';
+          return;
+        }
+        if (activePanel !== 'coordination') return;
+        if (!result || result.ok !== true || !result.overview) {
+          const err = (result && result.error) || { message: 'coordination overview unavailable' };
+          rpBody.innerHTML = '<div class="rp-section"><h4>Coordination</h4><div class="rp-empty">' +
+            escapeHtml(err.message || 'coordination overview unavailable') + '</div></div>';
+          return;
+        }
+        rpBody.innerHTML = '<div class="rp-section"><h4>Coordination</h4>' + renderHtml(result.overview) + '</div>';
+      }
+
+      function startCoordinationPolling() {
+        stopCoordinationPolling();
+        coordinationPollTimer = setInterval(() => {
+          if (activePanel === 'coordination') {
+            void renderCoordinationPanel();
+          } else {
+            stopCoordinationPolling();
+          }
+        }, COORDINATION_POLL_MS);
+      }
+
+      function stopCoordinationPolling() {
+        if (coordinationPollTimer != null) {
+          clearInterval(coordinationPollTimer);
+          coordinationPollTimer = null;
+        }
       }
 
       // Neutral, informational CodeGraph status block. Missing CodeGraph is shown

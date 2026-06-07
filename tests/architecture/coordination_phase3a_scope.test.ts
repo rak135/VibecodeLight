@@ -84,11 +84,25 @@ describe('Coordination Phase 3A scope boundary', () => {
     expect(violations).toEqual([]);
   });
 
-  test('Phase 3A does not add a desktop coordination or claims panel', () => {
+  test('only the Phase 5A read-only observability surface references coordination on the desktop', () => {
+    // Phase 3A forbade ANY desktop coordination/claims surface. Phase 5A
+    // intentionally introduces a READ-ONLY coordination observability panel
+    // (visibility only — no claim add/release/reap, conflict resolve, commit,
+    // git, or watcher control), so the original "no panel" rule is narrowed
+    // rather than dropped: the only desktop files that may reference
+    // coordination/claims are the known read-only Phase 5A set below. The
+    // read-only scope of those files is pinned by
+    // tests/app/desktop/coordination_scope.test.ts.
+    const allowed = new Set([
+      'src/app/desktop/coordination_bridge.ts',
+      'src/app/desktop/preload.ts',
+      'src/app/desktop/renderer/coordination_panel.d.ts',
+    ]);
     const desktopFiles = collectFiles(path.join(repoRoot, 'src', 'app', 'desktop'));
     const offenders = desktopFiles
       .filter((file) => /\bcoordination\b|\bclaim(s)?\b/i.test(read(file)))
-      .map(repoPath);
+      .map(repoPath)
+      .filter((rel) => !allowed.has(rel));
     expect(offenders).toEqual([]);
   });
 });

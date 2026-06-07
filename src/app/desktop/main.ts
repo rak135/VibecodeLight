@@ -10,6 +10,7 @@ import { registerDesktopConfigIpcHandlers } from './config_bridge.js';
 import { registerDesktopRunsIpcHandlers } from './runs_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 import { registerCodeGraphBridge } from './codegraph_bridge.js';
+import { registerDesktopCoordinationIpcHandlers } from './coordination_bridge.js';
 import { registerDesktopSkillsIpcHandlers } from './skills_bridge.js';
 
 // Defensive: the embedded xterm.js terminal is repainted by Chromium's GPU
@@ -67,6 +68,7 @@ function createWindow(): void {
     registerDesktopConfigIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopRunsIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopArtifactIpcHandlers(ipcMain, { getRepoPath });
+    registerDesktopCoordinationIpcHandlers(ipcMain, { getRepoPath });
     registerCodeGraphBridge(ipcMain, {
       getRepoRoot: async () => {
         const root = getRepoPath();
