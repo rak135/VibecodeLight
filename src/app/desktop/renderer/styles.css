@@ -404,6 +404,67 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .term-surface .xterm { height: 100%; }
 
+/* ------------- Per-terminal scroll rail ------------- */
+.scroll-rail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transition: opacity var(--tx-fast);
+  pointer-events: none;
+}
+.scroll-rail.scroll-rail-active {
+  opacity: 0.45;
+  pointer-events: auto;
+}
+.term:hover .scroll-rail.scroll-rail-active,
+.scroll-rail.scroll-rail-active:hover {
+  opacity: 1;
+}
+.scroll-rail-track {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+.scroll-rail-thumb {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.22);
+  transition: background var(--tx-fast);
+  cursor: grab;
+  min-height: 8px;
+}
+.scroll-rail-thumb:hover,
+.scroll-rail-thumb:active {
+  background: rgba(255, 255, 255, 0.4);
+}
+.scroll-rail-jump {
+  flex: none;
+  width: 100%;
+  height: 20px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--tx-fast), color var(--tx-fast);
+}
+.scroll-rail-jump:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
 /* ------------- Right rail ------------- */
 .right-rail {
   width: var(--rail-w);

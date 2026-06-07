@@ -70,7 +70,9 @@
     // behind when the terminal grows. Null on non-Windows.
     const windowsPty = options.windowsPty || null;
 
-    const tiles = new Map(); // sessionId -> { tile, term, fitAddon, resizeObserver, name, statusEl, statusTextEl, nameEl, info }
+    const ScrollRail = window.VibecodeScrollRail || null;
+
+    const tiles = new Map(); // sessionId -> { tile, term, fitAddon, resizeObserver, scrollRail, name, statusEl, statusTextEl, nameEl, info }
     let nextLocalIndex = 0;
     let focusedSessionId = null;
     let placeholderEl = null;
@@ -152,6 +154,10 @@
     function removeTile(sessionId) {
       const entry = tiles.get(sessionId);
       if (!entry) return;
+      if (entry.scrollRail) {
+        try { if (entry.scrollRail._controller) entry.scrollRail._controller.dispose(); } catch (_e) { /* best-effort */ }
+        try { entry.scrollRail.dispose(); } catch (_e) { /* best-effort */ }
+      }
       if (entry.resizeObserver) { try { entry.resizeObserver.disconnect(); } catch (_e) { /* best-effort */ } }
       if (entry.tile.parentNode) entry.tile.parentNode.removeChild(entry.tile);
       try { entry.term.dispose(); } catch (_e) { /* best-effort */ }
@@ -246,11 +252,26 @@
         name,
         status: 'running',
       };
+
+      // Attach per-tile scroll rail
+      let scrollRailHandle = null;
+      if (ScrollRail) {
+        try {
+          const scrollCtrl = ScrollRail.createScrollRailController(term);
+          const termShell = tileEl.querySelector('.tile-term-shell');
+          if (termShell) {
+            scrollRailHandle = ScrollRail.attachScrollRail(termShell, scrollCtrl);
+            scrollRailHandle._controller = scrollCtrl;
+          }
+        } catch (_e) { /* best-effort: scroll rail must not block tile creation */ }
+      }
+
       tiles.set(session.sessionId, {
         tile: tileEl,
         term,
         fitAddon,
         resizeObserver: null,
+        scrollRail: scrollRailHandle,
         name,
         statusEl,
         statusTextEl,
