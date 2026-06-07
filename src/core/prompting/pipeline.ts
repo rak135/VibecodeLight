@@ -22,6 +22,7 @@ import {
   markFlashInputProviderCalled,
 } from '../context/index.js';
 import { renderFinalPrompt } from './renderer.js';
+import { writeAgentBinding, type AgentBinding } from '../coordination/agent_binding.js';
 import { resolveFlashSystemPrompt } from '../../core/prompts/flash_system_prompt.js';
 import type {
   PipelineEvent,
@@ -59,6 +60,12 @@ export interface PromptPipelineOptions {
    * Full skill bodies are not embedded in artifacts.
    */
   selectedSkillIds?: readonly string[];
+  /**
+   * Optional run/agent binding (Phase 3B). When set, it is persisted as a run
+   * artifact (`coordination/agent_binding.json`) and rendered as a visible
+   * "# Multi-Agent Coordination" block in final_prompt.md.
+   */
+  agentBinding?: AgentBinding | null;
 }
 
 export interface PromptPipelineSuccess {
@@ -787,7 +794,10 @@ async function finalizeAndRenderStep(args: {
   };
   writeRunManifest(scan.runManifestPath, doneManifest);
 
-  const renderResult = renderFinalPrompt(scan.runDir, { vibecodePath: scan.vibecodePath });
+  const renderResult = renderFinalPrompt(scan.runDir, {
+    vibecodePath: scan.vibecodePath,
+    repoRoot: args.repoRoot,
+  });
   if (!renderResult.ok) {
     const result: PromptPipelineError = {
       ok: false,
@@ -1015,6 +1025,9 @@ export async function runPromptPipeline(opts: PromptPipelineOptions): Promise<Pr
     ...(codegraphArtifacts.repoAtlasJsonArtifact ? [codegraphArtifacts.repoAtlasJsonArtifact] : []),
     ...Object.values(scan.artifacts),
   ];
+  if (opts.agentBinding) {
+    artifacts.push(writeAgentBinding(scan.runDir, opts.agentBinding));
+  }
   const warningCollector = createWarningCollector();
   warningCollector.addWarnings('Scanner', scan.warnings);
   warningCollector.addWarnings('Provider', resolved.resolution.warnings);

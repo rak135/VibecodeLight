@@ -885,6 +885,8 @@ Run the complete mock prompt pipeline without Electron:
 pnpm vibecode prompt "task" --mock
 pnpm vibecode prompt "task" --mock --json
 pnpm vibecode prompt "task" --mock --auto-approve
+pnpm vibecode prompt "task" --mock --agent <agent_id> --agent-mode mcp
+pnpm vibecode prompt render latest --agent <agent_id> --agent-mode cli
 pnpm vibecode runs list
 pnpm vibecode runs show latest
 pnpm vibecode runs show latest --json
@@ -893,6 +895,8 @@ pnpm vibecode runs show latest --artifact scan/codegraph_repo_atlas.md
 ```
 
 `prompt --mock` writes scan, skills, flash, context, and `output/final_prompt.md` artifacts. By default it does not send anything to a terminal, so no `terminal/send_metadata.json` is created. Adding `--auto-approve` sends the saved `output/final_prompt.md` into a terminal without a separate approval step and writes `terminal/send_metadata.json` with `auto_approve: true` (still no `after/` post-run artifacts). The artifact is the truth — the exact rendered file is what is sent. For CodeGraph-derived Repo Atlas artifacts, the canonical scan paths are `scan/codegraph_repo_atlas.md` / `scan/codegraph_repo_atlas.json`; the legacy compatibility aliases `scan/repo_atlas.md` / `scan/repo_atlas.json` are also written.
+
+Optional multi-agent coordination (advisory): pass `--agent <agent_id>` (with optional `--terminal-session <id>` and `--agent-mode mcp|cli|unknown`) to `prompt` or `prompt render` to bind the run to a registered agent. The binding is stored as a per-run artifact `runs/<id>/coordination/agent_binding.json` (never in `run_manifest.json`), and the renderer adds a visible `# Multi-Agent Coordination` section to `output/final_prompt.md` that lists the agent's own claims, files claimed by other active agents, and mode-specific reminders (MCP `vibecode_claim_*` tools for `mcp`, `vibecode claims …` CLI commands for `cli`/`unknown`). An unknown `--agent` returns a structured `AGENT_NOT_FOUND` error; an invalid `--agent-mode` returns `INVALID_AGENT_MODE`. Coordination is read-only here (the block reflects existing state); claims are still created/released explicitly via the `vibecode claims …` commands or the MCP coordination tools. Without `--agent`, no binding is written and no coordination block is added.
 
 `runs show` includes a first-class CodeGraph summary (`used for context`, reason, Repo Atlas status, warnings, and available `scan/` artifacts). The same structured `codegraph` object is present in `runs show --json`; `--artifact codegraph` prints `scan/codegraph_usage.json` for agent assertions without Electron.
 

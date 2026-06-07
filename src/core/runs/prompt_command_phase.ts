@@ -21,6 +21,7 @@ import {
   type TerminalSendWriter,
 } from '../terminal/index.js';
 import { getWorkspacePaths } from '../workspace/paths.js';
+import type { AgentBinding } from '../coordination/agent_binding.js';
 
 export const BAD_PROVIDER_RESPONSE_TIP = 'Tip: This indicates an API endpoint, auth, model, or provider configuration error. Check pnpm vibecode config show for your current provider configuration.';
 
@@ -90,6 +91,8 @@ export interface PromptCommandPhaseOptions {
   sendTerminal?: PromptSendTerminal;
   /** UI-selected repo-local skill ids; threaded into the run manifest. */
   selectedSkillIds?: readonly string[];
+  /** Optional run/agent binding (Phase 3B); persisted + rendered as a coordination block. */
+  agentBinding?: AgentBinding | null;
 }
 
 function createDefaultPromptSendTerminal(repoRoot: string): PromptSendTerminal {
@@ -122,6 +125,7 @@ export async function performPromptCommandPhase(options: PromptCommandPhaseOptio
     taskNormalizerEnabled: options.taskNormalizerEnabled === true,
     adapter: options.adapter,
     selectedSkillIds: options.selectedSkillIds,
+    agentBinding: options.agentBinding,
     onProgress: options.json ? undefined : (event) => writePromptProgressEvent(event, stderr),
   });
 

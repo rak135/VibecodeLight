@@ -7,6 +7,12 @@ import {
   readSelectedSkillsManifest,
   type SelectedSkillsManifest,
 } from '../skills/selected_manifest.js';
+import { readAgentBinding } from '../coordination/agent_binding.js';
+import {
+  buildCoordinationPromptContext,
+  type CoordinationPromptContext,
+} from '../coordination/prompt_context.js';
+import { renderCoordinationSection } from './coordination_section.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +36,20 @@ export interface PromptRenderResult {
 export interface RenderOptions {
   /** .vibecode/ directory path; when provided, current/ mirror is updated. */
   vibecodePath?: string;
+  /**
+   * Repo root. When provided (and `coordination` is not given explicitly), the
+   * renderer self-resolves the coordination block from the run's
+   * `coordination/agent_binding.json` plus live coordination state.
+   */
+  repoRoot?: string;
+  /**
+   * Explicit coordination prompt context. When provided (including `null`), it
+   * overrides self-resolution. `null` deterministically omits the block. Unit
+   * tests pass this directly to stay decoupled from coordination state on disk.
+   */
+  coordination?: CoordinationPromptContext | null;
+  /** Clock override for deterministic stale computation during self-resolution. */
+  now?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -471,6 +491,11 @@ interface BuildFinalPromptOptions {
    * Selected Skills section; flash output is never consulted.
    */
   selectedSkillsManifest: SelectedSkillsManifest | null;
+  /**
+   * Pre-rendered "# Multi-Agent Coordination" section. Empty string when no
+   * agent is bound / coordination is inactive, in which case no block is added.
+   */
+  coordinationSection: string;
 }
 
 function renderSelectedSkillsManifestSection(manifest: SelectedSkillsManifest): string {
@@ -628,6 +653,8 @@ function buildFinalPrompt(opts: BuildFinalPromptOptions): string {
 
     ...(codegraphReady ? [renderAvailableRepoNavigationCommandsSection(manifest.run_id)] : []),
 
+    ...(opts.coordinationSection ? [`${opts.coordinationSection}\n`] : []),
+
     `# Validation Expectations\n\n- Keep changes scoped to the requested task.\n- Run the relevant tests and checks listed above before reporting completion.\n- Do not introduce changes outside the stated scope.\n- Verify all modified files compile without errors.\n`,
 
     `# Output Requirements\n\n- Summarize what you changed and why.\n- List all files modified.\n- Report test results.\n- Note any remaining risks or follow-up items.\n- If any required test or check failed, report it explicitly.\n`,
@@ -755,6 +782,24 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
     // --- UI-selected skills manifest (optional) ---
     const selectedSkillsManifest = readSelectedSkillsManifest(runDir);
 
+    // --- Multi-agent coordination block (Phase 3B) ---
+    // Explicit `coordination` (including null) wins; otherwise self-resolve from
+    // the run's agent_binding.json + live coordination state when a repoRoot is
+    // available. The block is part of final_prompt.md (the truth), never an
+    // after-preview injection.
+    let coordination: CoordinationPromptContext | null = null;
+    if (opts?.coordination !== undefined) {
+      coordination = opts.coordination;
+    } else if (opts?.repoRoot) {
+      const binding = readAgentBinding(runDir);
+      coordination = buildCoordinationPromptContext(
+        opts.repoRoot,
+        binding,
+        opts.now ? { now: opts.now } : {},
+      );
+    }
+    const coordinationSection = coordination ? renderCoordinationSection(coordination) : '';
+
     // --- Render ---
     const content = buildFinalPrompt({
       task,
@@ -770,6 +815,7 @@ export function renderFinalPrompt(runDir: string, opts?: RenderOptions): PromptR
       rendererWarnings: warnings,
       codegraphReady,
       selectedSkillsManifest,
+      coordinationSection,
     });
 
     // --- Write output/final_prompt.md ---

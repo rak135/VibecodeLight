@@ -14,7 +14,8 @@ export type CoordinationErrorCode =
   | 'INVALID_CLAIM_PATH'
   | 'INVALID_CLAIM_MODE'
   | 'CLAIM_DENIED'
-  | 'CLAIM_NOT_FOUND';
+  | 'CLAIM_NOT_FOUND'
+  | 'INVALID_AGENT_MODE';
 
 /** A structured, code-carrying error raised by coordination core services. */
 export class CoordinationError extends Error {

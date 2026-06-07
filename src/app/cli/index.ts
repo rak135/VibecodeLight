@@ -43,6 +43,10 @@ import {
 } from '../../core/context/index.js';
 import { renderFinalPrompt } from '../../core/prompting/index.js';
 import type { PromptPipelineResult } from '../../core/prompting/index.js';
+import {
+  resolveAgentBindingInput,
+  writeAgentBinding,
+} from '../../core/coordination/agent_binding.js';
 import { runTerminalDemo } from '../../core/terminal/index.js';
 import { runDesktopSmoke } from '../desktop/desktop_smoke.js';
 import { registerAgentGuidanceCommands } from './commands/agent_guidance.js';
@@ -613,7 +617,10 @@ export function createCli(): Command {
       }
     });
 
-  const handlePromptRender = (runId: string | undefined, options: { repo: string; json?: boolean }): void => {
+  const handlePromptRender = (
+    runId: string | undefined,
+    options: { repo: string; json?: boolean; agent?: string; terminalSession?: string; agentMode?: string },
+  ): void => {
     if (!runId) {
       const error = { code: 'RUN_ID_REQUIRED', message: 'run id is required', path: '', details: [] };
       if (options.json) console.log(JSON.stringify({ ok: false, error }));
@@ -661,7 +668,31 @@ export function createCli(): Command {
       return;
     }
 
-    const result = renderFinalPrompt(runDir, { vibecodePath: paths.vibecode });
+    // Phase 3B: optional run/agent binding + coordination block. Validate the
+    // requested agent against live coordination state before rendering; on
+    // failure emit a structured error and do not render.
+    const bindingResult = resolveAgentBindingInput(repoRoot, {
+      agentId: options.agent,
+      terminalSessionId: options.terminalSession,
+      agentMode: options.agentMode,
+    });
+    if (!bindingResult.ok) {
+      emitCliStructuredError(
+        makeCliStructuredError(
+          bindingResult.error.code,
+          bindingResult.error.message,
+          repoRoot,
+          bindingResult.error.details,
+        ),
+        { json: options.json, prefix: 'prompt render failed' },
+      );
+      return;
+    }
+    if (bindingResult.binding) {
+      writeAgentBinding(runDir, bindingResult.binding);
+    }
+
+    const result = renderFinalPrompt(runDir, { vibecodePath: paths.vibecode, repoRoot });
 
     if (!result.ok) {
       const error = result.error ?? {
@@ -726,8 +757,11 @@ export function createCli(): Command {
     .option('--no-task-normalizer', 'Disable Task Normalizer (default)', false)
     .option('--auto-approve', 'Send the rendered final_prompt.md into a terminal without a separate approval step')
     .option('--skill <id>', 'Include a UI-selected skill id (repeatable)', (value: string, prev: string[] = []) => prev.concat([value]), [] as string[])
+    .option('--agent <agent_id>', 'Bind the run to a coordinating agent id (renders a coordination block)')
+    .option('--terminal-session <id>', 'Owning terminal session id to record in the run/agent binding')
+    .option('--agent-mode <mode>', 'Agent tooling capability: mcp | cli | unknown')
     .option('--json', 'Output canonical JSON envelope')
-    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; codegraph?: boolean; codegraphMode?: string; taskNormalizer?: boolean; autoApprove?: boolean; skill?: string[]; json?: boolean }) => {
+    .action(async (args: string[] | undefined, options: { repo: string; mock?: boolean; live?: boolean; flashProvider?: string; flashModel?: string; codegraph?: boolean; codegraphMode?: string; taskNormalizer?: boolean; autoApprove?: boolean; skill?: string[]; agent?: string; terminalSession?: string; agentMode?: string; json?: boolean }) => {
       const parts = args ?? [];
       if (parts[0] === 'render') {
         handlePromptRender(parts[1], options);
@@ -750,6 +784,26 @@ export function createCli(): Command {
       }
 
       const repoRoot = path.resolve(options.repo);
+
+      // Phase 3B: resolve + validate optional run/agent binding before the run.
+      const bindingResult = resolveAgentBindingInput(repoRoot, {
+        agentId: options.agent,
+        terminalSessionId: options.terminalSession,
+        agentMode: options.agentMode,
+      });
+      if (!bindingResult.ok) {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            bindingResult.error.code,
+            bindingResult.error.message,
+            repoRoot,
+            bindingResult.error.details,
+          ),
+          { json: options.json, prefix: 'prompt failed' },
+        );
+        return;
+      }
+
       const result = await runPromptCommand({
         task,
         repoRoot,
@@ -761,6 +815,7 @@ export function createCli(): Command {
         taskNormalizerEnabled: options.taskNormalizer === true,
         autoApprove: options.autoApprove === true,
         selectedSkillIds: options.skill ?? [],
+        agentBinding: bindingResult.binding,
         json: options.json,
       });
       if (result.ok === false) process.exitCode = 1;
@@ -770,9 +825,22 @@ export function createCli(): Command {
     .command('render <runId>')
     .description('Render final_prompt.md from a finalized run')
     .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--agent <agent_id>', 'Bind the run to a coordinating agent id (renders a coordination block)')
+    .option('--terminal-session <id>', 'Owning terminal session id to record in the run/agent binding')
+    .option('--agent-mode <mode>', 'Agent tooling capability: mcp | cli | unknown')
     .option('--json', 'Output canonical JSON envelope')
-    .action((runId: string, options: { repo: string; json?: boolean }) => {
-      handlePromptRender(runId, { repo: options.repo, json: options.json ?? prompt.opts<{ json?: boolean }>().json });
+    .action((runId: string, options: { repo: string; json?: boolean; agent?: string; terminalSession?: string; agentMode?: string }) => {
+      // Agent/coordination flags may be parsed against the parent `prompt`
+      // command depending on their position, so fall back to its opts (as the
+      // existing --json handling does).
+      const parentOpts = prompt.opts<{ json?: boolean; agent?: string; terminalSession?: string; agentMode?: string }>();
+      handlePromptRender(runId, {
+        repo: options.repo,
+        json: options.json ?? parentOpts.json,
+        agent: options.agent ?? parentOpts.agent,
+        terminalSession: options.terminalSession ?? parentOpts.terminalSession,
+        agentMode: options.agentMode ?? parentOpts.agentMode,
+      });
     });
 
   const desktopCmd = program.command('desktop').description('Desktop shell commands');
