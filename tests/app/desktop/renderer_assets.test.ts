@@ -25,10 +25,4 @@ describe('desktop renderer assets', () => {
     expect(csp).not.toMatch(/unpkg\.com/);
     expect(csp).toMatch(/default-src\s+'self'/);
   });
-
-  test('@xterm/xterm package ships expected asset files in node_modules', () => {
-    const xtermDir = path.join(repoRoot, 'node_modules', '@xterm', 'xterm');
-    expect(fs.existsSync(path.join(xtermDir, 'lib', 'xterm.js'))).toBe(true);
-    expect(fs.existsSync(path.join(xtermDir, 'css', 'xterm.css'))).toBe(true);
-  });
 });

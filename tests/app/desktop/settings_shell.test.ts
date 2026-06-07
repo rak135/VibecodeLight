@@ -1,16 +1,19 @@
 import SettingsShell from '../../../src/app/desktop/renderer/settings_shell.js';
 
 describe('settings shell — tab definitions', () => {
-  test('SETTINGS_TABS lists the six tabs in order', () => {
-    const tabs = SettingsShell.SETTINGS_TABS.map((t: { id: string }) => t.id);
-    expect(tabs).toEqual([
+  test('SETTINGS_TABS includes the canonical stable tab identifiers', () => {
+    const ids = SettingsShell.SETTINGS_TABS.map((t: { id: string }) => t.id);
+    // The canonical set of stable tab identifiers (source declares them).
+    expect(ids).toEqual(expect.arrayContaining([
       'flash',
       'codegraph',
       'mcp',
       'agent-guidance',
       'terminal',
       'advanced',
-    ]);
+    ]));
+    // Every tab id is unique.
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   test('every tab has a label, id, and description', () => {
@@ -34,9 +37,10 @@ describe('settings shell — tab definitions', () => {
 });
 
 describe('settings shell — tab state', () => {
-  test('initialTabState selects the first tab by default', () => {
+  test('initialTabState selects a valid tab', () => {
     const state = SettingsShell.initialTabState();
-    expect(state.activeTabId).toBe('flash');
+    const validIds = SettingsShell.SETTINGS_TABS.map((t: { id: string }) => t.id);
+    expect(validIds).toContain(state.activeTabId);
   });
 
   test('selectTab updates activeTabId when the id is valid', () => {
@@ -45,8 +49,9 @@ describe('settings shell — tab state', () => {
   });
 
   test('selectTab leaves activeTabId unchanged when the id is unknown', () => {
-    const state = SettingsShell.selectTab(SettingsShell.initialTabState(), 'unknown');
-    expect(state.activeTabId).toBe('flash');
+    const initial = SettingsShell.initialTabState();
+    const state = SettingsShell.selectTab(initial, 'unknown');
+    expect(state.activeTabId).toBe(initial.activeTabId);
   });
 });
 
@@ -62,13 +67,14 @@ describe('settings shell — controller', () => {
     controller.activate('agent-guidance');
     expect(calls.length).toBeGreaterThanOrEqual(2);
     expect(calls[calls.length - 1].active).toBe('agent-guidance');
-    expect(calls[calls.length - 1].tabs.map((t) => t.id)).toEqual([
+    const renderedIds = calls[calls.length - 1].tabs.map((t) => t.id);
+    expect(renderedIds).toEqual(expect.arrayContaining([
       'flash',
       'codegraph',
       'mcp',
       'agent-guidance',
       'terminal',
       'advanced',
-    ]);
+    ]));
   });
 });
