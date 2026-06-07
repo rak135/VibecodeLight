@@ -83,6 +83,22 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     expect(content).not.toContain('vibecode finalize check');
   });
 
+  test('mentions the live watcher as advisory/non-enforcing in both modes', () => {
+    for (const mode of ['mcp', 'cli', 'unknown'] as const) {
+      const runDir = makeRunDir(tmpDir);
+      renderFinalPrompt(runDir, { coordination: { ...mcpContext, agent_mode: mode } });
+      const content = readPrompt(runDir);
+      // Phase 4D: the block notes a live watcher may record evidence while running,
+      // describes it as advisory/non-enforcing, and keeps finalize check + commit
+      // guard as the enforcement path. It must never claim the watcher blocks edits.
+      expect(content.toLowerCase()).toContain('live watcher');
+      expect(content.toLowerCase()).toContain('advisory');
+      expect(content).toContain('enforcement path');
+      expect(content).not.toMatch(/watcher (blocks|enforces|prevents)/i);
+      fs.rmSync(runDir, { recursive: true, force: true });
+    }
+  });
+
   test('renders a CLI coordination block with canonical CLI claim commands', () => {
     const runDir = makeRunDir(tmpDir);
     const cli: CoordinationPromptContext = { ...mcpContext, agent_mode: 'cli' };

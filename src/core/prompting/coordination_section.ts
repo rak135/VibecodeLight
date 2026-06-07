@@ -101,7 +101,7 @@ export function renderCoordinationSection(ctx: CoordinationPromptContext): strin
     `- If the task asks you to commit, create the scoped commit with the Vibecode commit guard (CLI): vibecode commit guard --repo <path> --agent ${agentId} --json (add --run <run_id> if you have one). It commits only files you claimed that the finalize check approved.`,
     '- Never use git add -A or broad git staging; let the commit guard stage only your claimed files.',
     '- Coordination is advisory. Finalize check and a scoped commit guard are available (claims-only; never broad git staging).',
-    '- A watcher may record advisory evidence when changed files do not match active claims. This evidence is informational only — it does not block, stage, or revert anything. Review it (command/tool below) if a change looks unexpected.',
+    '- A live watcher may record advisory evidence while it runs, and you can record/list evidence manually (command/tool below). Watcher evidence is informational only — it never blocks, stages, or reverts. The finalize check and the scoped commit guard remain the enforcement path.',
     '- Handoffs are not implemented yet. Do not invent handoff commands.',
     '- Final report: Report which claims you created, retained, released, or could not obtain.',
     '',

@@ -34,6 +34,14 @@ describe('Coordination Phase 3A scope boundary', () => {
     const files = collectFiles(coordinationRoot);
     expect(files.length).toBeGreaterThan(0);
 
+    // Phase 4D intentionally adds exactly ONE live fs.watch watcher
+    // (`live_watcher.ts`), superseding the original Phase 3A "no watcher
+    // anywhere" invariant. The live-watch rules below are therefore exempted for
+    // that single file (its non-enforcing scope is pinned by the Phase 4D scope
+    // test); every other guard/lock/permission rule still applies to it.
+    const liveWatcherFile = path.join(coordinationRoot, 'live_watcher.ts');
+    const liveWatchLabels = new Set(['fs.watch', 'watchFile', 'chokidar']);
+
     const forbidden: Array<{ label: string; regex: RegExp }> = [
       { label: 'fs.watch', regex: /\bfs\.watch\s*\(/ },
       { label: 'watchFile', regex: /\bwatchFile\s*\(/ },
@@ -49,7 +57,9 @@ describe('Coordination Phase 3A scope boundary', () => {
     const violations: string[] = [];
     for (const file of files) {
       const source = read(file);
+      const isLiveWatcher = path.resolve(file) === path.resolve(liveWatcherFile);
       for (const rule of forbidden) {
+        if (isLiveWatcher && liveWatchLabels.has(rule.label)) continue;
         if (rule.regex.test(source)) violations.push(`${repoPath(file)} :: ${rule.label}`);
       }
     }
