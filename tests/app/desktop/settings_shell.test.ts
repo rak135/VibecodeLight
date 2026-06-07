@@ -1,19 +1,18 @@
 import SettingsShell from '../../../src/app/desktop/renderer/settings_shell.js';
 
 describe('settings shell — tab definitions', () => {
-  test('SETTINGS_TABS includes the canonical stable tab identifiers', () => {
+  test('SETTINGS_TABS includes exactly the canonical stable tab identifiers', () => {
     const ids = SettingsShell.SETTINGS_TABS.map((t: { id: string }) => t.id);
-    // The canonical set of stable tab identifiers (source declares them).
-    expect(ids).toEqual(expect.arrayContaining([
-      'flash',
-      'codegraph',
-      'mcp',
-      'agent-guidance',
-      'terminal',
+    // Exact set of stable tab identifiers — order-independent.
+    const expected = [
       'advanced',
-    ]));
-    // Every tab id is unique.
-    expect(new Set(ids).size).toBe(ids.length);
+      'agent-guidance',
+      'codegraph',
+      'flash',
+      'mcp',
+      'terminal',
+    ];
+    expect([...ids].sort()).toEqual(expected);
   });
 
   test('every tab has a label, id, and description', () => {
@@ -68,13 +67,13 @@ describe('settings shell — controller', () => {
     expect(calls.length).toBeGreaterThanOrEqual(2);
     expect(calls[calls.length - 1].active).toBe('agent-guidance');
     const renderedIds = calls[calls.length - 1].tabs.map((t) => t.id);
-    expect(renderedIds).toEqual(expect.arrayContaining([
-      'flash',
-      'codegraph',
-      'mcp',
-      'agent-guidance',
-      'terminal',
+    expect([...renderedIds].sort()).toEqual([
       'advanced',
-    ]));
+      'agent-guidance',
+      'codegraph',
+      'flash',
+      'mcp',
+      'terminal',
+    ]);
   });
 });

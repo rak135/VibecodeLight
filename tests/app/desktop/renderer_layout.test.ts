@@ -49,6 +49,9 @@ describe('desktop renderer Elegant Dark shell', () => {
     // The composer overlay element exists in the static markup; the
     // controller reparents it into whichever tile opens the composer.
     expect(html).toMatch(/id="composer-overlay"/);
+    // CSS scopes overlay visibility to the tile that owns it.
+    const css = fs.readFileSync(stylesCss, 'utf8');
+    expect(css).toMatch(/\.tile\.overlay-on \.overlay-layer/);
   });
 
   test('keeps the real composer wiring (task, build, send, terminal)', () => {
