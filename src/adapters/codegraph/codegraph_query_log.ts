@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+import { LlmAdapterError } from '../llm/errors.js';
+import { resolveExplicitRunDir } from '../../core/runs/run_resolver.js';
+
 /**
  * Append-only JSONL logger for agent-facing CodeGraph query commands.
  *
@@ -90,10 +93,9 @@ export function resolveCodeGraphLogPaths(repoRoot: string, runId?: string | null
   return { workspaceLog, runLog };
 }
 
-function runDirectoryExists(repoRoot: string, runId: string): boolean {
+function runDirectoryExists(runDir: string): boolean {
   try {
-    const dir = path.join(repoRoot, '.vibecode', 'runs', runId);
-    return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+    return fs.existsSync(runDir) && fs.statSync(runDir).isDirectory();
   } catch {
     return false;
   }
@@ -118,7 +120,7 @@ export interface LogCodeGraphQueryOptions {
 export function logCodeGraphQuery(opts: LogCodeGraphQueryOptions): CodeGraphQueryLogWriteResult {
   const { repoRoot, event } = opts;
   const runId = opts.runId ?? null;
-  const paths = resolveCodeGraphLogPaths(repoRoot, runId);
+  const paths = resolveCodeGraphLogPaths(repoRoot, null);
 
   const warnings: string[] = [];
   let workspaceLogWritten = false;
@@ -134,12 +136,30 @@ export function logCodeGraphQuery(opts: LogCodeGraphQueryOptions): CodeGraphQuer
 
   let runLogPath: string | null = paths.runLog;
   if (runId) {
-    if (!runDirectoryExists(repoRoot, runId)) {
+    let runDir: string;
+    try {
+      runDir = resolveExplicitRunDir(repoRoot, runId).runDir;
+      runLogPath = path.join(runDir, 'terminal', 'codegraph_queries.jsonl');
+    } catch (error) {
+      if (error instanceof LlmAdapterError && error.code === 'INVALID_RUN_ID') {
+        warnings.push(`RUN_LOG_SKIPPED_INVALID_RUN_ID: ${runId}`);
+        runLogPath = null;
+        return {
+          workspaceLogWritten,
+          runLogWritten,
+          warnings,
+          workspaceLogPath: paths.workspaceLog,
+          runLogPath,
+        };
+      }
+      throw error;
+    }
+    if (!runDirectoryExists(runDir)) {
       warnings.push(`RUN_LOG_SKIPPED_RUN_NOT_FOUND: ${runId}`);
       runLogPath = null;
-    } else if (paths.runLog) {
+    } else if (runLogPath) {
       try {
-        appendJsonl(paths.runLog, event);
+        appendJsonl(runLogPath, event);
         runLogWritten = true;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

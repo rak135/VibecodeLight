@@ -3,7 +3,7 @@ import path from 'path';
 
 import { getFinalizeCheck, type FinalizeCheckResult } from './finalize_check.js';
 import { getRunCoordinationPaths } from './agent_binding.js';
-import { getWorkspacePaths } from '../workspace/paths.js';
+import { resolveExplicitRunDir } from '../runs/run_resolver.js';
 import {
   commitWithMessage,
   listStagedFiles,
@@ -52,10 +52,12 @@ export type CommitGuardIssueCode =
   | 'FINALIZE_CHECK_BLOCKED'
   | 'NO_COMMITTABLE_FILES'
   | 'GIT_INDEX_NOT_CLEAN'
+  | 'GIT_STAGED_FILES_FAILED'
   | 'GIT_STAGE_FAILED'
   | 'GIT_COMMIT_FAILED'
   | 'GIT_STATUS_CHANGED_DURING_COMMIT'
-  | 'INVALID_COMMIT_MESSAGE';
+  | 'INVALID_COMMIT_MESSAGE'
+  | 'INVALID_RUN_ID';
 
 export interface CommitGuardIssue {
   code: CommitGuardIssueCode;
@@ -108,7 +110,7 @@ function buildMessage(input: CommitGuardInput, agentId: string | null, runId: st
 
 function writeArtifact(repoRoot: string, runId: string, result: CommitGuardResult): void {
   try {
-    const runDir = path.join(getWorkspacePaths(repoRoot).runs, runId);
+    const { runDir } = resolveExplicitRunDir(repoRoot, runId);
     const { dir } = getRunCoordinationPaths(runDir);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'commit_guard.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
@@ -159,12 +161,14 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
 
   // Finalize check could not even resolve an agent → invocation failure.
   if (!finalize.ok) {
+    const finalizeBlock = finalize.blocks[0];
+    const code = finalizeBlock?.code === 'INVALID_RUN_ID' ? 'INVALID_RUN_ID' : 'FINALIZE_CHECK_BLOCKED';
     return base({
       ok: false,
       blocks: [{
-        code: 'FINALIZE_CHECK_BLOCKED',
+        code,
         severity: 'block',
-        message: finalize.blocks[0]?.message ?? 'finalize check could not resolve an agent.',
+        message: finalizeBlock?.message ?? 'finalize check could not resolve an agent.',
       }],
     });
   }
@@ -203,26 +207,35 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   // The index must not carry anything we did not stage this run. In a shared
   // working tree a pre-existing staged file may belong to another agent/user.
   const stagedAtEntry = listStagedFiles(input.repoRoot, runner);
-  if (stagedAtEntry.ok) {
-    const unrelated = stagedAtEntry.files.filter((f) => !committableSet.has(f));
-    if (unrelated.length > 0) {
-      const result = base({
-        skipped_files: skipped,
-        blocks: [{
-          code: 'GIT_INDEX_NOT_CLEAN',
-          severity: 'block',
-          message: 'The git index already contains staged files that are not part of this agent’s committable set. Commit or unstage them yourself first.',
-          details: { unrelated_staged: unrelated },
-        }],
-      });
-      if (runId) writeArtifact(input.repoRoot, runId, result);
-      return result;
-    }
+  if (!stagedAtEntry.ok) {
+    const result = base({
+      skipped_files: skipped,
+      blocks: [{
+        code: 'GIT_STAGED_FILES_FAILED',
+        severity: 'block',
+        message: `Unable to verify staged files before commit: ${stagedAtEntry.stderr.trim() || 'git diff --cached failed'}`,
+      }],
+    });
+    if (runId) writeArtifact(input.repoRoot, runId, result);
+    return result;
+  }
+  const unrelated = stagedAtEntry.files.filter((f) => !committableSet.has(f));
+  if (unrelated.length > 0) {
+    const result = base({
+      skipped_files: skipped,
+      blocks: [{
+        code: 'GIT_INDEX_NOT_CLEAN',
+        severity: 'block',
+        message: 'The git index already contains staged files that are not part of this agent’s committable set. Commit or unstage them yourself first.',
+        details: { unrelated_staged: unrelated },
+      }],
+    });
+    if (runId) writeArtifact(input.repoRoot, runId, result);
+    return result;
   }
 
   if (input.dry_run === true) {
     const result = base({ status: 'dry_run', staged_files: committable, skipped_files: skipped });
-    if (runId) writeArtifact(input.repoRoot, runId, result);
     return result;
   }
 
@@ -239,7 +252,19 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
 
   // Verify the index is exactly the intended set — no more, no less.
   const stagedNow = listStagedFiles(input.repoRoot, runner);
-  const stagedNowFiles = stagedNow.ok ? stagedNow.files : [];
+  if (!stagedNow.ok) {
+    const result = base({
+      skipped_files: skipped,
+      blocks: [{
+        code: 'GIT_STAGED_FILES_FAILED',
+        severity: 'block',
+        message: `Unable to verify staged files after staging: ${stagedNow.stderr.trim() || 'git diff --cached failed'}`,
+      }],
+    });
+    if (runId) writeArtifact(input.repoRoot, runId, result);
+    return result;
+  }
+  const stagedNowFiles = stagedNow.files;
   const unexpected = stagedNowFiles.filter((f) => !committableSet.has(f));
   const missing = committable.filter((f) => !stagedNowFiles.includes(f));
   if (unexpected.length > 0 || missing.length > 0) {

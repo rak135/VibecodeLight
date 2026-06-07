@@ -157,6 +157,34 @@ describe('runCommitGuard — scoped staging and commit', () => {
     expect(committed).toEqual(['src/a b.ts']);
   });
 
+  test('a pathspec-metacharacter filename is staged literally', () => {
+    const repo = makeRepo('vibecode-cg-literal-');
+    write(repo, 'src/a.ts', 'tracked\n');
+    git(['add', '--', 'src/a.ts'], repo);
+    git(['commit', '-q', '-m', 'track a'], repo);
+
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/[abc].ts', mode: 'exclusive' });
+    write(repo, 'src/[abc].ts');
+
+    const invoked: string[][] = [];
+    const recordingRunner: GitCommandRunner = (args, cwd): GitCommandResult => {
+      invoked.push(args);
+      return defaultGitCommandRunner(args, cwd);
+    };
+
+    const result = runCommitGuard({ repoRoot: repo, agent_id: agent.agent_id, gitRunner: recordingRunner });
+    expect(result.status).toBe('committed');
+    const addArgs = invoked.find((args) => args[0] === 'add');
+    expect(addArgs).toContain('--');
+    expect(addArgs).toContain(':(literal)src/[abc].ts');
+
+    const committed = git(['show', '--name-only', '--format=', 'HEAD'], repo).stdout
+      .split(/\r?\n/)
+      .filter((l) => l.trim().length > 0);
+    expect(committed).toEqual(['src/[abc].ts']);
+  });
+
   test('commit message includes Vibecode-Run / Vibecode-Agent metadata footer', () => {
     const repo = makeRepo('vibecode-cg-msg-');
     const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
@@ -198,6 +226,24 @@ describe('runCommitGuard — scoped staging and commit', () => {
     expect(parsed.commit_hash).toBe(result.commit_hash);
   });
 
+  test('dry-run with run_id does not write commit_guard.json', () => {
+    const repo = makeRepo('vibecode-cg-dry-artifact-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    writeAgentBinding(path.join(getWorkspacePaths(repo).runs, 'run1'), {
+      agent_id: agent.agent_id,
+      terminal_session_id: null,
+      agent_mode: 'cli',
+      coordination_enabled: true,
+    });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
+    write(repo, 'src/a.ts');
+
+    const result = runCommitGuard({ repoRoot: repo, run_id: 'run1', dry_run: true });
+    expect(result.status).toBe('dry_run');
+    const artifact = path.join(getWorkspacePaths(repo).runs, 'run1', 'coordination', 'commit_guard.json');
+    expect(fs.existsSync(artifact)).toBe(false);
+  });
+
   test('invalid (whitespace-only) message is an invocation error and commits nothing', () => {
     const repo = makeRepo('vibecode-cg-badmsg-');
     const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
@@ -226,6 +272,111 @@ describe('runCommitGuard — index safety', () => {
     const result = runCommitGuard({ repoRoot: repo, agent_id: agent.agent_id });
     expect(result.status).toBe('blocked');
     expect(result.blocks.map((b) => b.code)).toContain('GIT_INDEX_NOT_CLEAN');
+    expect(head(repo)).toBe(before);
+  });
+
+  test('invalid traversal run_id is rejected and writes no outside artifact', () => {
+    const repo = makeRepo('vibecode-cg-badrun-');
+    const outside = path.resolve(getWorkspacePaths(repo).runs, '../../outside');
+
+    const result = runCommitGuard({ repoRoot: repo, run_id: '../../outside' });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.map((b) => b.code)).toContain('INVALID_RUN_ID');
+    expect(fs.existsSync(outside)).toBe(false);
+  });
+
+  test('absolute run_id is rejected and writes no outside artifact', () => {
+    const repo = makeRepo('vibecode-cg-absrun-');
+    const absoluteRunId = path.resolve(path.dirname(repo), 'outside-run');
+
+    const result = runCommitGuard({ repoRoot: repo, run_id: absoluteRunId });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.map((b) => b.code)).toContain('INVALID_RUN_ID');
+    expect(fs.existsSync(absoluteRunId)).toBe(false);
+  });
+
+  test('staged-file listing failure at entry blocks before staging', () => {
+    const repo = makeRepo('vibecode-cg-entry-list-fail-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
+    write(repo, 'src/a.ts');
+    const before = head(repo);
+    const invoked: string[][] = [];
+    const failingRunner: GitCommandRunner = (args, cwd): GitCommandResult => {
+      invoked.push(args);
+      if (args[0] === 'diff') return { ok: false, stdout: '', stderr: 'index unavailable', exitCode: 1 };
+      return defaultGitCommandRunner(args, cwd);
+    };
+
+    const result = runCommitGuard({ repoRoot: repo, agent_id: agent.agent_id, gitRunner: failingRunner });
+
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.map((b) => b.code)).toContain('GIT_STAGED_FILES_FAILED');
+    expect(invoked.some((args) => args[0] === 'add')).toBe(false);
+    expect(invoked.some((args) => args[0] === 'commit')).toBe(false);
+    expect(head(repo)).toBe(before);
+  });
+
+  test('staged-file listing failure after staging blocks before commit', () => {
+    const repo = makeRepo('vibecode-cg-post-list-fail-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
+    write(repo, 'src/a.ts');
+    const before = head(repo);
+    let listCalls = 0;
+    const invoked: string[][] = [];
+    const failingRunner: GitCommandRunner = (args, cwd): GitCommandResult => {
+      invoked.push(args);
+      if (args[0] === 'diff') {
+        listCalls += 1;
+        return listCalls === 1
+          ? { ok: true, stdout: '', stderr: '', exitCode: 0 }
+          : { ok: false, stdout: '', stderr: 'index unavailable', exitCode: 1 };
+      }
+      return defaultGitCommandRunner(args, cwd);
+    };
+
+    const result = runCommitGuard({ repoRoot: repo, agent_id: agent.agent_id, gitRunner: failingRunner });
+
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.map((b) => b.code)).toContain('GIT_STAGED_FILES_FAILED');
+    expect(invoked.some((args) => args[0] === 'add')).toBe(true);
+    expect(invoked.some((args) => args[0] === 'commit')).toBe(false);
+    expect(head(repo)).toBe(before);
+  });
+
+  test('post-stage mismatch blocks before commit', () => {
+    const repo = makeRepo('vibecode-cg-post-mismatch-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
+    write(repo, 'src/a.ts');
+    const before = head(repo);
+    let listCalls = 0;
+    const invoked: string[][] = [];
+    const mismatchRunner: GitCommandRunner = (args, cwd): GitCommandResult => {
+      invoked.push(args);
+      if (args[0] === 'diff') {
+        listCalls += 1;
+        return {
+          ok: true,
+          stdout: listCalls === 1 ? '' : 'src/a.ts\0src/extra.ts\0',
+          stderr: '',
+          exitCode: 0,
+        };
+      }
+      if (args[0] === 'add') return { ok: true, stdout: '', stderr: '', exitCode: 0 };
+      return defaultGitCommandRunner(args, cwd);
+    };
+
+    const result = runCommitGuard({ repoRoot: repo, agent_id: agent.agent_id, gitRunner: mismatchRunner });
+
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.map((b) => b.code)).toContain('GIT_STATUS_CHANGED_DURING_COMMIT');
+    expect(invoked.some((args) => args[0] === 'commit')).toBe(false);
     expect(head(repo)).toBe(before);
   });
 });
@@ -258,6 +409,7 @@ describe('runCommitGuard — git command safety', () => {
         expect(args).toContain('--');
         expect(args).not.toContain('-A');
         expect(args).not.toContain('.');
+        expect(args.some((arg) => arg.startsWith(':(literal)'))).toBe(true);
       }
     }
   });

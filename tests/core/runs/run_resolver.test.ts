@@ -81,17 +81,22 @@ describe('resolveRunDir', () => {
     }
   });
 
-  test('rejects empty string as RUN_NOT_FOUND', () => {
+  test('rejects empty string as INVALID_RUN_ID', () => {
     expect(() => resolveRunDir(repoRoot, '')).toThrow(LlmAdapterError);
     try {
       resolveRunDir(repoRoot, '');
     } catch (err) {
-      expect((err as LlmAdapterError).code).toBe('RUN_NOT_FOUND');
+      expect((err as LlmAdapterError).code).toBe('INVALID_RUN_ID');
     }
   });
 
-  test('rejects whitespace-only run id as RUN_NOT_FOUND', () => {
+  test('rejects whitespace-only run id as INVALID_RUN_ID', () => {
     expect(() => resolveRunDir(repoRoot, '   ')).toThrow(LlmAdapterError);
+    try {
+      resolveRunDir(repoRoot, '   ');
+    } catch (err) {
+      expect((err as LlmAdapterError).code).toBe('INVALID_RUN_ID');
+    }
   });
 
   test('rejects run id containing forward slash (path traversal guard)', () => {
@@ -99,7 +104,7 @@ describe('resolveRunDir', () => {
     try {
       resolveRunDir(repoRoot, '../escape');
     } catch (err) {
-      expect((err as LlmAdapterError).code).toBe('RUN_NOT_FOUND');
+      expect((err as LlmAdapterError).code).toBe('INVALID_RUN_ID');
       expect((err as LlmAdapterError).message).toMatch(/invalid run id/);
     }
   });
@@ -115,6 +120,24 @@ describe('resolveRunDir', () => {
 
   test('rejects nested traversal "foo/../bar"', () => {
     expect(() => resolveRunDir(repoRoot, 'foo/../bar')).toThrow(LlmAdapterError);
+  });
+
+  test('rejects run id containing traversal marker even without separators', () => {
+    expect(() => resolveRunDir(repoRoot, 'run..id')).toThrow(LlmAdapterError);
+    try {
+      resolveRunDir(repoRoot, 'run..id');
+    } catch (err) {
+      expect((err as LlmAdapterError).code).toBe('INVALID_RUN_ID');
+    }
+  });
+
+  test('rejects drive-prefix-looking run id', () => {
+    expect(() => resolveRunDir(repoRoot, 'C:escape')).toThrow(LlmAdapterError);
+    try {
+      resolveRunDir(repoRoot, 'C:escape');
+    } catch (err) {
+      expect((err as LlmAdapterError).code).toBe('INVALID_RUN_ID');
+    }
   });
 
   test('a corrupted "latest" manifest with a traversal run_id is rejected', () => {

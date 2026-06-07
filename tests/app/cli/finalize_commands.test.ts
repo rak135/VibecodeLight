@@ -149,6 +149,19 @@ describe('vibecode finalize check (CLI)', () => {
     expect(env.data?.blocks.map((bl) => bl.code)).toContain('RUN_AGENT_MISMATCH');
   });
 
+  test('rejects traversal --run without reading outside runs', async () => {
+    const repo = makeRepo('vibecode-cli-fc-badrun-');
+    const outside = path.resolve(getWorkspacePaths(repo).runs, '../../outside');
+
+    const result = await runCli(['finalize', 'check', '--run', '../../outside', '--repo', repo, '--json']);
+
+    expect(result.exitCode).toBe(1);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_RUN_ID');
+    expect(fs.existsSync(outside)).toBe(false);
+  });
+
   test('missing agent is a completed blocked check (ok:true, AGENT_NOT_FOUND)', async () => {
     const repo = makeRepo('vibecode-cli-fc-missing-');
     const result = await runCli(['finalize', 'check', '--agent', 'nope', '--repo', repo, '--json']);

@@ -66,22 +66,39 @@ export function resolveRunDir(
   return assertSafeRunId(runSelector, paths.runs);
 }
 
+/** Resolve an explicit run id only; unlike resolveRunDir, `latest` is not special. */
+export function resolveExplicitRunDir(
+  repoRoot: string,
+  runId: string,
+): { runId: string; runDir: string } {
+  return assertSafeRunId(runId, getWorkspacePaths(repoRoot).runs);
+}
+
+function invalidRunId(runId: string, runsDir: string, details: string[]): LlmAdapterError {
+  return new LlmAdapterError(`invalid run id: ${runId}`, {
+    code: 'INVALID_RUN_ID',
+    path: path.join(runsDir, typeof runId === 'string' ? runId : ''),
+    details,
+  });
+}
+
 function assertSafeRunId(runId: string, runsDir: string): { runId: string; runDir: string } {
   const trimmed = typeof runId === 'string' ? runId.trim() : '';
   if (trimmed.length === 0) {
-    throw new LlmAdapterError('run id is required', {
-      code: 'RUN_NOT_FOUND',
-      path: runsDir,
-      details: ['An empty run id is not a valid selector.'],
-    });
+    throw invalidRunId(runId, runsDir, ['Run id must be a non-empty repository-relative id.']);
   }
 
-  if (containsPathSeparator(trimmed) || isTraversalSegment(trimmed)) {
-    throw new LlmAdapterError(`invalid run id: ${runId}`, {
-      code: 'RUN_NOT_FOUND',
-      path: path.join(runsDir, trimmed),
-      details: ['Run id must not contain path separators or traversal segments.'],
-    });
+  if (
+    containsPathSeparator(trimmed) ||
+    isTraversalSegment(trimmed) ||
+    path.isAbsolute(trimmed) ||
+    hasDrivePrefix(trimmed) ||
+    trimmed.includes('..') ||
+    !/^[A-Za-z0-9_-]+$/.test(trimmed)
+  ) {
+    throw invalidRunId(runId, runsDir, [
+      'Run id must not contain path separators, traversal markers, drive prefixes, or unsafe characters.',
+    ]);
   }
 
   // Belt-and-braces: the resolved path must stay inside the runs directory.
@@ -90,11 +107,7 @@ function assertSafeRunId(runId: string, runsDir: string): { runId: string; runDi
   const resolvedRunDir = path.resolve(runDir);
   const rel = path.relative(resolvedRunsDir, resolvedRunDir);
   if (rel.startsWith('..') || path.isAbsolute(rel) || rel === '') {
-    throw new LlmAdapterError(`invalid run id: ${runId}`, {
-      code: 'RUN_NOT_FOUND',
-      path: runDir,
-      details: ['Resolved run directory escaped the .vibecode/runs root.'],
-    });
+    throw invalidRunId(runId, runsDir, ['Resolved run directory escaped the .vibecode/runs root.']);
   }
 
   return { runId: trimmed, runDir };
@@ -106,4 +119,8 @@ function containsPathSeparator(value: string): boolean {
 
 function isTraversalSegment(value: string): boolean {
   return value === '.' || value === '..';
+}
+
+function hasDrivePrefix(value: string): boolean {
+  return /^[A-Za-z]:/.test(value);
 }

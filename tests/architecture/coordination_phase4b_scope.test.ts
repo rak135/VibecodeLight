@@ -13,8 +13,8 @@ import { buildVibecodeMcpTools, VIBECODE_MCP_TOOL_NAMES } from '../../src/app/mc
  * narrow and explicit. This test pins that the new files never use broad staging
  * (`git add -A` / `git add .`) and never reset/stash/clean/checkout/restore, and
  * that no watcher / handoff / UI / source-lock behavior sneaks in. It also pins
- * the deliberate decision that the commit guard is CLI-ONLY — VibecodeMCP stays
- * strictly read-only, so no MCP commit/mutation tool exists.
+ * the deliberate decision that the commit guard is CLI-ONLY — VibecodeMCP has
+ * no git/source/commit mutation tool.
  */
 
 const repoRoot = path.resolve(__dirname, '../..');

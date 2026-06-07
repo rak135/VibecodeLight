@@ -120,6 +120,21 @@ describe('codegraph query logger', () => {
     expect(fs.existsSync(path.join(tmpRoot, '.vibecode', 'runs', runId))).toBe(false);
   });
 
+  test('invalid run_id cannot write a run-scoped log outside .vibecode/runs', () => {
+    const runId = '../../outside';
+    const outside = path.resolve(tmpRoot, '.vibecode', 'runs', runId);
+    fs.mkdirSync(path.join(outside, 'terminal'), { recursive: true });
+    const event = makeBaseEvent(tmpRoot, { run_id: runId });
+
+    const r = logCodeGraphQuery({ repoRoot: tmpRoot, runId, event });
+
+    expect(r.workspaceLogWritten).toBe(true);
+    expect(r.runLogWritten).toBe(false);
+    expect(r.runLogPath).toBeNull();
+    expect(r.warnings.join(' ')).toMatch(/RUN_LOG_SKIPPED_INVALID_RUN_ID/);
+    expect(fs.existsSync(path.join(outside, 'terminal', 'codegraph_queries.jsonl'))).toBe(false);
+  });
+
   test('appends multiple events to the same workspace log without overwriting', () => {
     const e1 = makeBaseEvent(tmpRoot, { duration_ms: 1 });
     const e2 = makeBaseEvent(tmpRoot, { duration_ms: 2, subcommand: 'context' });

@@ -130,6 +130,30 @@ describe('getFinalizeCheck — run binding resolution', () => {
     expect(result.blocks.map((b) => b.code)).toContain('RUN_BINDING_NOT_FOUND');
   });
 
+  test('invalid traversal run_id is rejected without reading outside runs', () => {
+    const repo = makeRepo('vibecode-fc-badrun-');
+    const outside = path.resolve(getWorkspacePaths(repo).runs, '../../outside');
+
+    const result = getFinalizeCheck({ repoRoot: repo, run_id: '../../outside' });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.map((b) => b.code)).toContain('INVALID_RUN_ID');
+    expect(fs.existsSync(outside)).toBe(false);
+  });
+
+  test('absolute run_id is rejected safely', () => {
+    const repo = makeRepo('vibecode-fc-absrun-');
+    const absoluteRunId = path.resolve(path.dirname(repo), 'outside-run');
+
+    const result = getFinalizeCheck({ repoRoot: repo, run_id: absoluteRunId });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.blocks.map((b) => b.code)).toContain('INVALID_RUN_ID');
+    expect(fs.existsSync(absoluteRunId)).toBe(false);
+  });
+
   test('explicit --agent and --run that disagree is blocked RUN_AGENT_MISMATCH', () => {
     const repo = makeRepo('vibecode-fc-mismatch-');
     const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });

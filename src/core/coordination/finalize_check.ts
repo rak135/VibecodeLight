@@ -1,9 +1,8 @@
-import path from 'path';
-
+import { LlmAdapterError } from '../../adapters/llm/errors.js';
 import { listAgents } from './agents.js';
 import { readAgentBinding } from './agent_binding.js';
 import { listFileClaims } from './claims.js';
-import { getWorkspacePaths } from '../workspace/paths.js';
+import { resolveExplicitRunDir } from '../runs/run_resolver.js';
 import {
   getGitChangedFiles,
   isGeneratedOrIgnoredRuntimePath,
@@ -63,6 +62,7 @@ export type FinalizeIssueCode =
   | 'AGENT_NOT_ACTIVE'
   | 'RUN_AGENT_MISMATCH'
   | 'RUN_BINDING_NOT_FOUND'
+  | 'INVALID_RUN_ID'
   | 'UNCLAIMED_CHANGED_FILE'
   | 'FILE_CLAIMED_BY_OTHER_AGENT'
   | 'STALE_AGENT_CLAIM'
@@ -147,24 +147,46 @@ interface AgentResolution {
 }
 
 function resolveAgent(input: FinalizeCheckInput, agents: AgentSession[]): AgentResolution {
-  const runId = input.run_id ?? null;
+  let runId = input.run_id ?? null;
   let boundAgentId: string | null = null;
 
   if (runId) {
-    const runDir = path.join(getWorkspacePaths(input.repoRoot).runs, runId);
+    let runDir: string;
+    let resolvedRunId = runId;
+    try {
+      const resolved = resolveExplicitRunDir(input.repoRoot, runId);
+      runDir = resolved.runDir;
+      resolvedRunId = resolved.runId;
+    } catch (error) {
+      if (error instanceof LlmAdapterError && error.code === 'INVALID_RUN_ID') {
+        return {
+          agent: null,
+          runId,
+          invocationFailure: true,
+          block: {
+            code: 'INVALID_RUN_ID',
+            severity: 'block',
+            message: error.message,
+            details: { run_id: runId, details: error.details },
+          },
+        };
+      }
+      throw error;
+    }
     const binding = readAgentBinding(runDir);
     if (!binding || !binding.agent_id) {
       return {
         agent: null,
-        runId,
+        runId: resolvedRunId,
         block: {
           code: 'RUN_BINDING_NOT_FOUND',
           severity: 'block',
-          message: `No run/agent binding with an agent_id was found for run ${runId}.`,
-          details: { run_id: runId },
+          message: `No run/agent binding with an agent_id was found for run ${resolvedRunId}.`,
+          details: { run_id: resolvedRunId },
         },
       };
     }
+    runId = resolvedRunId;
     boundAgentId = binding.agent_id;
   }
 

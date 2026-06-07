@@ -22,9 +22,9 @@ export interface CommitCommandDependencies {
  * Phase 4B ships the `guard` subcommand: a scoped commit guard that commits ONLY
  * the files the finalize check classified as claimed_by_agent. It is a thin
  * wrapper over the shared core service (`core/coordination/commit_guard`). It is
- * intentionally CLI-only — VibecodeMCP stays strictly read-only, so there is no
- * MCP commit tool. The guard never uses `git add -A`, never resets/stashes, and
- * blocks when the index already contains unrelated staged files.
+ * intentionally CLI-only — VibecodeMCP has no git/source/commit mutation tool.
+ * The guard never uses `git add -A`, never resets/stashes, and blocks when the
+ * index already contains unrelated staged files.
  */
 export function registerCommitCommands(
   program: Command,

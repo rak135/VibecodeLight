@@ -1170,22 +1170,25 @@ vibecode commit guard --agent <agent_id> --message "feat(x): ..." --json
 This is the first git-mutating coordination behavior. It runs the Phase 4A
 finalize check first and, only if the check is not blocked, creates a scoped
 commit containing **exactly** the changed files the check classified as
-`claimed_by_agent`. Staging is always by explicit pathspec (`git add -- <paths>`)
-— never `git add -A`, never broad staging — and the guard never runs
+`claimed_by_agent`. Staging is always by explicit literal pathspec
+(`git add -- :(literal)<path>`) — never `git add -A`, never broad staging — and the guard never runs
 `reset`/`stash`/`clean`/`checkout`/`restore`. If the git index already contains
 unrelated staged files it blocks with `GIT_INDEX_NOT_CLEAN` rather than touching
 them (in a shared working tree they may belong to another agent/user). Generated
 `.vibecode/` runtime paths and files unclaimed or claimed by another active agent
 are never staged. `--dry-run` reports the would-stage set without staging or
-committing. The commit message gets a `Vibecode-Run` / `Vibecode-Agent` footer,
-and (when a `run_id` is given) a `commit_guard.json` result is written under the
-run's generated `coordination/` state. All mutation is reversible by normal git
-history.
+committing and does not write `commit_guard.json`. The commit message gets a
+`Vibecode-Run` / `Vibecode-Agent` footer, and (when a `run_id` is given for a
+real commit or blocked non-dry-run guard) a `commit_guard.json` result is written
+under the run's generated `coordination/` state. All git mutation is reversible
+by normal git history.
 
-Because VibecodeMCP is strictly read-only, the commit guard is **CLI-only** in
-Phase 4B — there is intentionally **no** `vibecode_commit_guard` MCP tool. MCP
-agents run the finalize check via `vibecode_finalize_check` and then invoke the
-CLI `vibecode commit guard` when the task asks for a commit.
+The commit guard is **CLI-only** in Phase 4B — there is intentionally **no**
+`vibecode_commit_guard` MCP tool and no MCP git/source/commit mutation surface.
+MCP coordination tools may mutate only generated `.vibecode/coordination/` state
+for agent sessions, heartbeats, and advisory claims. MCP agents run the read-only
+finalize check via `vibecode_finalize_check` and then invoke the CLI
+`vibecode commit guard` only when the task explicitly asks for a commit.
 
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does

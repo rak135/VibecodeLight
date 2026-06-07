@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { registerAgent } from '../../../src/core/coordination/agents.js';
 import { addFileClaim } from '../../../src/core/coordination/claims.js';
+import { writeAgentBinding } from '../../../src/core/coordination/agent_binding.js';
+import { getWorkspacePaths } from '../../../src/core/workspace/paths.js';
 
 interface CliRun {
   logs: string[];
@@ -93,6 +95,27 @@ describe('vibecode commit guard (CLI)', () => {
     expect(env.data?.status).toBe('dry_run');
     expect(env.data?.staged_files).toEqual(['src/a.ts']);
     expect(git(['rev-parse', 'HEAD'], repo).stdout.trim()).toBe(before);
+    expect(git(['diff', '--cached', '--name-only'], repo).stdout.trim()).toBe('');
+  });
+
+  test('--dry-run with --run does not write commit_guard.json', async () => {
+    const repo = makeRepo('vibecode-cli-cg-dry-run-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    writeAgentBinding(path.join(getWorkspacePaths(repo).runs, 'run1'), {
+      agent_id: agent.agent_id,
+      terminal_session_id: null,
+      agent_mode: 'cli',
+      coordination_enabled: true,
+    });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
+    write(repo, 'src/a.ts');
+
+    const result = await runCli(['commit', 'guard', '--run', 'run1', '--dry-run', '--repo', repo, '--json']);
+    expect(result.exitCode).toBe(0);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).toBe('dry_run');
+    expect(fs.existsSync(path.join(getWorkspacePaths(repo).runs, 'run1', 'coordination', 'commit_guard.json'))).toBe(false);
   });
 
   test('commits a claimed file and returns a stable envelope', async () => {
@@ -143,6 +166,19 @@ describe('vibecode commit guard (CLI)', () => {
     expect(env.ok).toBe(true);
     expect(env.data?.status).toBe('blocked');
     expect(env.data?.blocks.map((b) => b.code)).toContain('GIT_INDEX_NOT_CLEAN');
+  });
+
+  test('rejects traversal --run without writing outside artifact', async () => {
+    const repo = makeRepo('vibecode-cli-cg-badrun-');
+    const outside = path.resolve(getWorkspacePaths(repo).runs, '../../outside');
+
+    const result = await runCli(['commit', 'guard', '--run', '../../outside', '--repo', repo, '--json']);
+
+    expect(result.exitCode).toBe(1);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_RUN_ID');
+    expect(fs.existsSync(outside)).toBe(false);
   });
 
   test('rejects a whitespace-only message as a structured invocation error', async () => {

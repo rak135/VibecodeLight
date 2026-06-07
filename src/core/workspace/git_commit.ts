@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process';
+import path from 'path';
 
 /**
  * Narrow git mutation/read adapter for the scoped commit guard (Phase 4B).
@@ -76,11 +77,39 @@ export function stagePaths(
     return { ok: false, stdout: '', stderr: 'no paths to stage', exitCode: null };
   }
   for (const p of paths) {
-    if (typeof p !== 'string' || p.trim().length === 0 || p === '-A' || p === '.' || p === '-all' || p === '--all') {
+    if (!isSafeRepoRelativePathspec(p)) {
       return { ok: false, stdout: '', stderr: `refusing to stage unsafe pathspec: ${JSON.stringify(p)}`, exitCode: null };
     }
   }
-  return runner(['add', '--', ...paths], repoRoot);
+  return runner(['add', '--', ...paths.map(toLiteralPathspec)], repoRoot);
+}
+
+function isSafeRepoRelativePathspec(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const p = value.trim();
+  if (
+    p.length === 0 ||
+    p !== value ||
+    p === '-A' ||
+    p === '.' ||
+    p === '-all' ||
+    p === '--all' ||
+    p.includes('\\') ||
+    p.startsWith('-') ||
+    path.isAbsolute(p) ||
+    /^[A-Za-z]:/.test(p)
+  ) {
+    return false;
+  }
+  const segments = p.split('/');
+  if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) return false;
+  const first = segments[0];
+  if (first === '.vibecode' || first === '.git') return false;
+  return true;
+}
+
+function toLiteralPathspec(p: string): string {
+  return `:(literal)${p}`;
 }
 
 /** Create a commit with the given full message. Caller validates the message. */
