@@ -5,7 +5,7 @@ import { RunManifest } from '../models/index.js';
 import { buildSkillsCatalog, writeSkillsCatalog } from '../skills/catalog.js';
 import { getWorkspacePaths } from '../workspace/paths.js';
 import { invokeScan } from '../scanning/scanner_subprocess.js';
-import { buildScannerConfig } from '../scanning/scanner_config.js';
+import { buildScannerConfig, buildScannerConfigPayload } from '../scanning/scanner_config.js';
 import { writeExternalToolsArtifact } from '../scanning/external_tools.js';
 import { detectCodeGraph } from '../../adapters/codegraph/codegraph_cli.js';
 import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
@@ -78,7 +78,8 @@ export async function performScanPhase(opts: {
   });
 
   const scannerConfigPath = path.join(runDir, 'scanner_config.json');
-  fs.writeFileSync(scannerConfigPath, `${JSON.stringify({ ...scannerConfig, normalized_english_task: opts.taskIntent?.enabled && opts.taskIntent.ok ? opts.taskIntent.normalized_english_task : '', search_hints: opts.taskIntent?.enabled && opts.taskIntent.ok ? opts.taskIntent.search_hints : [], keyword_groups: opts.taskIntent?.enabled && opts.taskIntent.ok ? opts.taskIntent.keyword_groups : {}, _provenance_note: 'normalized signals from Task Normalizer; Python scanner uses these for expanded keyword matching' }, null, 2)}\n`, 'utf8');
+  const configPayload = buildScannerConfigPayload(scannerConfig, opts.taskIntent);
+  fs.writeFileSync(scannerConfigPath, `${JSON.stringify(configPayload, null, 2)}\n`, 'utf8');
 
   try {
     await invokeScan({

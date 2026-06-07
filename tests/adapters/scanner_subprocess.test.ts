@@ -168,16 +168,17 @@ describe('invokeScan fallback', () => {
     mockedSpawnSync.mockReset();
   });
 
-  test('falls back from python3 to python when python3 fails and returns success', async () => {
+  test('falls back from python3 to python when python3 has spawn error and python succeeds', async () => {
     let callIndex = 0;
     mockedSpawnSync.mockImplementation(() => {
       callIndex++;
       if (callIndex === 1) {
         return {
-          status: 1,
+          status: null,
           signal: null,
           stdout: '',
-          stderr: 'python3 not found',
+          stderr: '',
+          error: new Error('spawn python3 ENOENT'),
           pid: 100,
           output: ['', '', ''],
         } as unknown as ReturnType<typeof spawnSync>;
@@ -208,12 +209,38 @@ describe('invokeScan fallback', () => {
     expect(mockedSpawnSync.mock.calls[1][0]).toBe('python');
   });
 
-  test('records attemptedCommands with both python3 and python in diagnostic when both fail', async () => {
+  test('does not fall back when python3 scanner runs but returns non-zero (runtime failure)', async () => {
     mockedSpawnSync.mockReturnValue({
       status: 1,
       signal: null,
       stdout: '',
-      stderr: 'scanner error',
+      stderr: 'scanner runtime error',
+      pid: 100,
+      output: ['', '', ''],
+    } as unknown as ReturnType<typeof spawnSync>);
+
+    await expect(invokeScan({
+      scannerDir: '/scanner',
+      config: buildScannerConfig({
+        run_id: 'run-no-fallback',
+        task: 'test',
+        repo_root: '/repo',
+        out_dir: 'scan',
+      }),
+      repoRoot: '/repo',
+    })).rejects.toThrow(/SCANNER_FAILED/);
+
+    expect(mockedSpawnSync).toHaveBeenCalledTimes(1);
+    expect(mockedSpawnSync.mock.calls[0][0]).toBe('python3');
+  });
+
+  test('records attemptedCommands with both python3 and python in diagnostic when both have spawn errors', async () => {
+    mockedSpawnSync.mockReturnValue({
+      status: null,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      error: new Error('spawn ENOENT'),
       pid: 100,
       output: ['', '', ''],
     } as unknown as ReturnType<typeof spawnSync>);
@@ -228,6 +255,44 @@ describe('invokeScan fallback', () => {
       }),
       repoRoot: '/repo',
     })).rejects.toThrow(/attempted: python3, python/);
+  });
+
+  test('falls back on Windows exit code 9009 (command not found) without spawn error', async () => {
+    let callIndex = 0;
+    mockedSpawnSync.mockImplementation(() => {
+      callIndex++;
+      if (callIndex === 1) {
+        return {
+          status: 9009,
+          signal: null,
+          stdout: '',
+          stderr: '',
+          pid: 100,
+          output: ['', '', ''],
+        } as unknown as ReturnType<typeof spawnSync>;
+      }
+      return {
+        status: 0,
+        signal: null,
+        stdout: '',
+        stderr: '',
+        pid: 101,
+        output: ['', '', ''],
+      } as unknown as ReturnType<typeof spawnSync>;
+    });
+
+    await expect(invokeScan({
+      scannerDir: '/scanner',
+      config: buildScannerConfig({
+        run_id: 'run-win-9009',
+        task: 'test',
+        repo_root: '/repo',
+        out_dir: 'scan',
+      }),
+      repoRoot: '/repo',
+    })).resolves.toBeUndefined();
+
+    expect(mockedSpawnSync).toHaveBeenCalledTimes(2);
   });
 
   test('does not attempt python when explicit pythonPath is provided', async () => {

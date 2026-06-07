@@ -39,6 +39,14 @@ function tailLines(value: string | undefined, maxLines: number): string {
   return trimmed.split(/\r?\n/).slice(-maxLines).join('\n');
 }
 
+const COMMAND_NOT_FOUND_EXIT_CODES = new Set([9009, 127]);
+
+export function isInterpreterUnavailable(result: ScannerSpawnResult): boolean {
+  if (result.error != null) return true;
+  if (result.status != null && COMMAND_NOT_FOUND_EXIT_CODES.has(result.status)) return true;
+  return false;
+}
+
 export function formatScannerFailureDiagnostic(opts: {
   cwd: string;
   repoRoot: string;
@@ -125,6 +133,9 @@ export async function invokeScan(opts: ScanInvokeOptions): Promise<void> {
       stderr: result.stderr ?? undefined,
       error: result.error ?? undefined,
     };
+    if (!isInterpreterUnavailable(lastResult)) {
+      break;
+    }
   }
 
   throw new Error(

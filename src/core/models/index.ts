@@ -20,6 +20,15 @@ export interface ScannerConfig {
   out_dir: string;
 }
 
+export interface ScannerConfigTaskIntentFields {
+  normalized_english_task: string;
+  search_hints: string[];
+  keyword_groups: Record<string, string[]>;
+  _provenance_note: string;
+}
+
+export type ScannerConfigWithTaskIntent = ScannerConfig & ScannerConfigTaskIntentFields;
+
 export interface InitResult {
   created: string[];
   existing: string[];
