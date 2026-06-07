@@ -28,6 +28,7 @@ function renderMcpTools(): string[] {
     '- During long work, keep your session alive with vibecode_agent_heartbeat.',
     '- Before editing a file, claim it with vibecode_claim_add; check a path with vibecode_claim_status and list claims with vibecode_claims_list.',
     '- If vibecode_claim_add returns CLAIM_DENIED: do not edit the file. Inspect the blocking claims, then wait, choose another file, or retry as shared only if the existing claim is compatible.',
+    '- Before your final report, run vibecode_finalize_check (pass your agent_id, or run_id) to confirm every changed file is covered by your active claims; resolve any blocked or unclaimed file it reports.',
     '- Before your final report, list and release the claims you no longer need with vibecode_claim_release.',
   ];
 }
@@ -46,6 +47,7 @@ function renderCliCommands(agentId: string, mode: CoordinationPromptContext['age
     `- Before editing a file, claim it: vibecode claims add --repo <path> --agent ${agentId} --path <path> --mode exclusive --json`,
     '- Check a path / list claims: vibecode claims status --repo <path> --path <path> --json — vibecode claims list --repo <path> --json',
     '- If a claim is denied (CLAIM_DENIED): do not edit the file. Inspect the blocking claims, then wait, choose another file, or retry with --mode shared only if compatible.',
+    `- Before your final report, run the finalize check: vibecode finalize check --repo <path> --agent ${agentId} --json (add --run <run_id> if you have one); resolve any blocked or unclaimed file it reports.`,
     '- Before your final report, release claims you no longer need: vibecode claims release --repo <path> --claim <claim_id> --json',
   );
   return lines;
@@ -93,7 +95,8 @@ export function renderCoordinationSection(ctx: CoordinationPromptContext): strin
     '- Before editing a file, create an advisory claim for it.',
     '- Do not edit files claimed by other active agents.',
     '- Release your claims when you finish with them.',
-    '- Coordination is advisory; finalize/commit guards are not active in this phase.',
+    '- Before your final report, run the finalize check (command/tool below) and resolve any blocked or unclaimed changed files.',
+    '- Coordination is advisory. Finalize check is available; commit guard is not active yet.',
     '- Handoffs are not implemented yet. Do not invent handoff commands.',
     '- Final report: Report which claims you created, retained, released, or could not obtain.',
     '',

@@ -65,8 +65,12 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     expect(content).toContain(
       'Report which claims you created, retained, released, or could not obtain.',
     );
-    // MCP agents are not told to shell out to the CLI claims commands.
+    // Phase 4A: MCP agents are told to run the finalize check tool before the final report.
+    expect(content).toContain('vibecode_finalize_check');
+    expect(content).toContain('commit guard is not active yet');
+    // MCP agents are not told to shell out to the CLI claims/finalize commands.
     expect(content).not.toContain('vibecode claims add');
+    expect(content).not.toContain('vibecode finalize check');
   });
 
   test('renders a CLI coordination block with canonical CLI claim commands', () => {
@@ -87,7 +91,11 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     expect(content).not.toContain('--type exclusive');
     expect(content).toContain('CLAIM_DENIED');
     expect(content).toContain('Handoffs are not implemented yet. Do not invent handoff commands.');
+    // Phase 4A: CLI agents are told to run the finalize check CLI command.
+    expect(content).toContain('vibecode finalize check --repo <path> --agent agent-1');
+    expect(content).toContain('commit guard is not active yet');
     expect(content).not.toContain('vibecode_claim_add');
+    expect(content).not.toContain('vibecode_finalize_check');
   });
 
   test('unknown mode falls back to conservative CLI instructions', () => {

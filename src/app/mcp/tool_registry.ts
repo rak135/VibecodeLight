@@ -18,6 +18,7 @@ import { buildCodeGraphSearchTool } from './tools/codegraph_search.js';
 import { buildCodeGraphStatusTool } from './tools/codegraph_status.js';
 import { buildCodeGraphUsageTool } from './tools/codegraph_usage.js';
 import { buildCoordinationStatusTool } from './tools/coordination_status.js';
+import { buildFinalizeCheckTool } from './tools/finalize_check.js';
 import { buildCurrentRunTool } from './tools/current_run.js';
 import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from './tools/project_instructions.js';
@@ -120,6 +121,8 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildClaimsListTool(),
     buildClaimStatusTool(),
     buildClaimReleaseTool(),
+    // Phase Coordination-4A: read-only agent-aware finalize check.
+    buildFinalizeCheckTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -162,4 +165,6 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_claims_list',
   'vibecode_claim_status',
   'vibecode_claim_release',
+  // Phase Coordination-4A
+  'vibecode_finalize_check',
 ]);

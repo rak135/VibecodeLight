@@ -1137,6 +1137,27 @@ does **not** implement a file watcher, automatic conflict workflow, finalize or
 commit guard, handoff protocol, UI panel, prompt injection, or source-file hard
 locks.
 
+Read-only finalize check tool (Phase Coordination-4A):
+
+```text
+vibecode_finalize_check
+```
+
+This classifies the dirty working tree of the bound repo relative to one
+agent's active advisory claims. Because all agents share one working tree (no
+git worktrees), it never asserts which agent edited a file — it only reports,
+per changed file, whether it is covered by this agent's active claim
+(`claimed_by_agent`), covered by another active agent's claim
+(`claimed_by_other_active_agent`), `unclaimed`, or a `generated_or_ignored`
+Vibecode runtime path. Pass `agent_id` or a `run_id` (whose
+`agent_binding.json` resolves the agent). Blocking findings are returned as a
+successful result with `status: "blocked"`; the check reuses the read-only
+`getGitChangedFiles` helper and performs **no** git mutation. The equivalent CLI
+command is `vibecode finalize check --repo <path> --agent <agent_id> --json`
+(or `--run <run_id>`); both surfaces call the same shared core service.
+Coordination-4A is a read-only **check** only — it is **not** a commit guard,
+file watcher, handoff workflow, or any git-mutating / source-locking behavior.
+
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
 not add a permission profile, an allow/deny list, or any approval mutation. MCP-2

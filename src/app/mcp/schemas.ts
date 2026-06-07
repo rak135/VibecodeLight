@@ -286,6 +286,19 @@ export const CLAIM_RELEASE_INPUT_SCHEMA: JsonSchema = {
   required: ['claim_id'],
 };
 
+// ---------------------------------------------------------------------------
+// Phase Coordination-4A: read-only finalize check input schema
+// ---------------------------------------------------------------------------
+
+export const FINALIZE_CHECK_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Coordinating agent id to check the working tree against.' },
+    run_id: { type: 'string', description: 'Run id whose agent_binding.json resolves the agent.' },
+  },
+};
+
 /** Helper for tool handlers: verify a positive integer or return undefined. */
 export function validatePositiveInteger(
   value: unknown,

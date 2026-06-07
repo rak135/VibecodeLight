@@ -56,6 +56,7 @@ import { registerCodeGraphCommands } from './commands/codegraph.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerCoordinationCommands } from './commands/coordination.js';
 import { registerDoctorCommand } from './commands/doctor.js';
+import { registerFinalizeCommands } from './commands/finalize.js';
 import { registerMcpCommands } from './commands/mcp.js';
 import { registerRunCreateCommand, registerRunsCommands, resolveRunDir } from './commands/runs.js';
 import { registerSkillsCommands } from './commands/skills.js';
@@ -290,6 +291,7 @@ export function createCli(): Command {
   registerCoordinationCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerClaimsCommands(program, { makeCliStructuredError, emitCliStructuredError });
+  registerFinalizeCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentGuidanceCommands(program, { makeCliStructuredError, emitCliStructuredError });
 
   program

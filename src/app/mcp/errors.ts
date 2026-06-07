@@ -53,7 +53,9 @@ export type McpErrorCode =
   | 'CLAIM_ADD_FAILED'
   | 'CLAIMS_LIST_FAILED'
   | 'CLAIM_STATUS_FAILED'
-  | 'CLAIM_RELEASE_FAILED';
+  | 'CLAIM_RELEASE_FAILED'
+  // Phase Coordination-4A: read-only finalize check.
+  | 'FINALIZE_CHECK_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -213,6 +215,11 @@ const ERROR_DEFAULTS: Record<
   CLAIM_RELEASE_FAILED: {
     retryable: true,
     suggestion: 'Verify the claim_id exists and retry if the failure is transient.',
+  },
+  FINALIZE_CHECK_FAILED: {
+    retryable: true,
+    suggestion:
+      'Pass agent_id or run_id. The check is read-only; blocked results are returned as ok=true with status="blocked", not as this error. Retry only if the failure is transient.',
   },
 };
 

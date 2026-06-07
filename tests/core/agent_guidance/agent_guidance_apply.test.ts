@@ -76,7 +76,7 @@ describe('agent guidance integration status/apply', () => {
       expect(status.guidance?.config_valid).toBe(true);
       expect(status.guidance?.source).toBe('file');
       expect(status.guidance?.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
-      expect(status.mcp?.expected_tool_count).toBe(26);
+      expect(status.mcp?.expected_tool_count).toBe(27);
       expect(status.approval_boundary).toMatch(/does not manage.*approval/i);
       expect(JSON.stringify(status)).not.toMatch(/allowedTools|deniedTools|hooks|permission profile/i);
     } finally {

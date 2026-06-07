@@ -57,6 +57,10 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_claims_list',
   'vibecode_claim_status',
   'vibecode_claim_release',
+  // Phase Coordination-4A: read-only agent-aware finalize check.
+  // Read-only; classifies the working tree against advisory claims. Never
+  // touches source files, the shell, git mutation, or the terminal.
+  'vibecode_finalize_check',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

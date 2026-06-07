@@ -42,6 +42,7 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_claims_list',
     'vibecode_claim_status',
     'vibecode_claim_release',
+    'vibecode_finalize_check',
   ]),
 });
 
@@ -72,6 +73,7 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_claims_list: 'List advisory file claims with computed stale-aware status.',
   vibecode_claim_status: 'Return advisory claim status for one repository-relative path.',
   vibecode_claim_release: 'Release an advisory file claim.',
+  vibecode_finalize_check: 'Read-only finalize check: classify the dirty working tree against an agent’s active advisory claims (not a commit guard).',
 });
 
 /**
