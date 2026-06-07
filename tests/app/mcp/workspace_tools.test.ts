@@ -10,6 +10,7 @@ import {
   buildWorkspaceStatusTool,
   type WorkspaceStatusToolDeps,
 } from '../../../src/app/mcp/tools/workspace_status.js';
+import { VIBECODE_MCP_TOOL_NAMES } from '../../../src/app/mcp/index.js';
 import { buildMcpGuidanceTool } from '../../../src/app/mcp/tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from '../../../src/app/mcp/tools/project_instructions.js';
 import { buildArtifactsListTool } from '../../../src/app/mcp/tools/artifacts_list.js';
@@ -94,7 +95,7 @@ describe('vibecode_workspace_info', () => {
       expect(data.repo_root).toBe(repoRoot);
       expect(data.mcp_server.name).toBe('vibecode-mcp');
       expect(typeof data.mcp_server.version).toBe('string');
-      expect(data.tools.total).toBe(32);
+      expect(data.tools.total).toBe(VIBECODE_MCP_TOOL_NAMES.length);
       expect(data.tools.groups.codegraph.length).toBe(7);
       expect(data.tools.groups.runs_artifacts.length).toBe(5);
       expect(data.tools.groups.workspace_orientation.length).toBe(5);

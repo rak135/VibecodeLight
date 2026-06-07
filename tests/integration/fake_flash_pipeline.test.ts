@@ -50,7 +50,7 @@ function fakeLiveFetch() {
   } as Response);
 }
 
-describe('live flash pipeline integration', () => {
+describe('fake flash pipeline integration', () => {
   test('prompt without --mock fails FLASH_PROVIDER_NOT_CONFIGURED when no live provider is configured', async () => {
     const repoRoot = makeRepo();
 

@@ -12,6 +12,14 @@ import type {
 import type { CodeGraphMcpContextRunner } from '../../../src/adapters/codegraph/codegraph_mcp.js';
 import { performContextBuildPhase } from '../../../src/core/runs/context_build_phase.js';
 
+/**
+ * TEMPORARY: Pins CodeGraph artifact surface for context-build phase.
+ * Should be consolidated into codegraph_step_parity.test.ts as the single
+ * canonical CodeGraph artifact test. Remove artifact-list assertions when
+ * codegraph_step_parity.test.ts is the sole canonical test.
+ * Do not add new assertions here.
+ */
+
 function makeRepo(prefix: string): string {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.writeFileSync(path.join(repoRoot, 'README.md'), '# Context-build CodeGraph characterization fixture\n', 'utf8');

@@ -89,7 +89,7 @@ function makeRepo(): string {
   return repoRoot;
 }
 
-describe('live flash provider metadata in run artifacts', () => {
+describe('fake flash provider metadata in run artifacts', () => {
   const originalLocalAppData = process.env.LOCALAPPDATA;
 
   afterEach(() => {

@@ -8,6 +8,7 @@ import {
 } from '../../../src/core/agent_guidance/agent_guidance_apply.js';
 import { getAgentGuidanceConfigPath } from '../../../src/core/config/agent_guidance_config.js';
 import { buildClaudeMcpInstallCommand } from '../../../src/core/mcp/claude_config.js';
+import { VIBECODE_MCP_TOOL_NAMES } from '../../../src/app/mcp/index.js';
 
 function expectedClaudeServer(repoRoot: string, binPath: string): { type: string; command: string; args: string[]; env: Record<string, never> } {
   const command = buildClaudeMcpInstallCommand({ repoRoot, vibecodeBinPath: binPath });
@@ -76,7 +77,7 @@ describe('agent guidance integration status/apply', () => {
       expect(status.guidance?.config_valid).toBe(true);
       expect(status.guidance?.source).toBe('file');
       expect(status.guidance?.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
-      expect(status.mcp?.expected_tool_count).toBe(32);
+      expect(status.mcp?.expected_tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
       expect(status.approval_boundary).toMatch(/does not manage.*approval/i);
       expect(JSON.stringify(status)).not.toMatch(/allowedTools|deniedTools|hooks|permission profile/i);
     } finally {

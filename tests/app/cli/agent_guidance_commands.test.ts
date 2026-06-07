@@ -5,6 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { buildClaudeMcpInstallCommand } from '../../../src/core/mcp/claude_config.js';
+import { VIBECODE_MCP_TOOL_NAMES } from '../../../src/app/mcp/index.js';
 
 function makeRepo(): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-cli-ag-repo-'));
@@ -82,7 +83,7 @@ describe('vibecode agent-guidance CLI commands', () => {
     expect(payload.agent).toBe('codex');
     expect(payload.guidance.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(payload.guidance.config_path).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
-    expect(payload.mcp.expected_tool_count).toBe(32);
+    expect(payload.mcp.expected_tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
     expect(JSON.stringify(payload)).not.toMatch(/allowedTools|deniedTools|hooks|permission profile/i);
   });
 

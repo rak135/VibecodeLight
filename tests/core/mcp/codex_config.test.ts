@@ -6,6 +6,7 @@ import {
   CODEX_MCP_ENABLED_TOOLS,
   buildCodexMcpConfig,
 } from '../../../src/core/mcp/codex_config.js';
+import { VIBECODE_MCP_TOOL_NAMES } from '../../../src/app/mcp/index.js';
 
 function makeRepo(): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-codex-config-'));
@@ -88,14 +89,14 @@ describe('Codex MCP config generation', () => {
     }
   });
 
-  test('includes exactly the 29 VibecodeMCP tools (MCP-1 CodeGraph + MCP-2 run/artifact + MCP-3 workspace orientation + Coordination tools) and no shell/git/terminal tools', () => {
+  test('includes exactly the VibecodeMCP tools and no shell/git/terminal tools', () => {
     const result = buildCodexMcpConfig({
       repoRoot,
       scope: 'user',
       vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
     });
 
-    expect(result.enabled_tools).toHaveLength(32);
+    expect(result.enabled_tools).toHaveLength(VIBECODE_MCP_TOOL_NAMES.length);
     expect(result.enabled_tools).toEqual([
       // Phase MCP-1
       'vibecode_codegraph_status',

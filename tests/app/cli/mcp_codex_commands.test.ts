@@ -4,6 +4,8 @@ import path from 'path';
 
 import { beforeEach, afterEach, describe, expect, test, vi } from 'vitest';
 
+import { VIBECODE_MCP_TOOL_NAMES } from '../../../src/app/mcp/index.js';
+
 function makeRepo(): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-cli-codex-mcp-'));
   fs.writeFileSync(path.join(repo, 'README.md'), '# fixture\n', 'utf8');
@@ -73,8 +75,8 @@ describe('vibecode mcp config/install/doctor for Codex', () => {
       command: 'node',
     });
     expect(payload.config_path).toBe(path.join(codexHome, 'config.toml').replace(/\\/g, '/'));
-    // 7 MCP-1 CodeGraph + 5 MCP-2 run/artifact + 5 MCP-3 workspace + 1 Coordination-1 + 4 Coordination-2 + 4 Coordination-3A + 1 Coordination-4A + 2 Coordination-4C = 29.
-    expect(payload.enabled_tools).toHaveLength(32);
+    // MCP-1 CodeGraph + MCP-2 run/artifact + MCP-3 workspace orientation + Coordination tools.
+    expect(payload.enabled_tools).toHaveLength(VIBECODE_MCP_TOOL_NAMES.length);
     expect(payload.enabled_tools).toEqual(expect.arrayContaining([
       'vibecode_codegraph_status',
       'vibecode_runs_list',

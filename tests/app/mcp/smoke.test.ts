@@ -46,7 +46,6 @@ describe('VibecodeMCP stdio server smoke (over in-memory transport)', () => {
       const listed = await client.listTools();
       const names = (listed.tools ?? []).map((t) => t.name);
       expect(names.sort()).toEqual([...VIBECODE_MCP_TOOL_NAMES].sort());
-      expect(names.length).toBe(32);
       // Phase MCP-2 additions visible alongside Phase MCP-1.
       expect(names).toContain('vibecode_runs_list');
       expect(names).toContain('vibecode_current_run');
@@ -91,7 +90,7 @@ describe('VibecodeMCP stdio server smoke (over in-memory transport)', () => {
     try {
       const listed = await client.listTools();
       const tools = listed.tools ?? [];
-      expect(tools.length).toBe(32);
+      expect(tools.length).toBe(VIBECODE_MCP_TOOL_NAMES.length);
       for (const tool of tools) {
         const schema = tool.inputSchema as { type?: string; additionalProperties?: boolean };
         expect(schema.type).toBe('object');

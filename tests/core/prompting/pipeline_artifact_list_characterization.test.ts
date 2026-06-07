@@ -6,6 +6,14 @@ import { describe, expect, test } from 'vitest';
 
 import { runPromptPipeline } from '../../../src/core/prompting/pipeline.js';
 
+/**
+ * TEMPORARY: Pins exact pipeline artifact list including generated paths
+ * outside the run directory. Should be replaced by pipeline.test.ts with
+ * arrayContaining shape assertions when the artifact contract is frozen.
+ * Remove when pipeline.test.ts covers the same artifact set with stable
+ * shape tests. Do not add new assertions here.
+ */
+
 function makeRepo(prefix: string): string {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.writeFileSync(path.join(repoRoot, 'README.md'), '# Fixture repo\n', 'utf8');

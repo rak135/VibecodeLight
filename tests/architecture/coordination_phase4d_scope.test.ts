@@ -111,8 +111,7 @@ describe('Coordination Phase 4D scope boundary', () => {
 
   test('Phase 4D adds NO MCP live-watch control tool (registry unchanged at 32, no watch tool)', () => {
     const tools = buildVibecodeMcpTools();
-    expect(tools).toHaveLength(32);
-    expect(VIBECODE_MCP_TOOL_NAMES).toHaveLength(32);
+    expect(tools).toHaveLength(VIBECODE_MCP_TOOL_NAMES.length);
     const evidenceTools = VIBECODE_MCP_TOOL_NAMES.filter((n) => n.includes('evidence')).sort();
     expect(evidenceTools).toEqual(['vibecode_evidence_list', 'vibecode_evidence_scan']);
     for (const name of VIBECODE_MCP_TOOL_NAMES) {

@@ -9,6 +9,14 @@ import type { CodeGraphMcpContextRunner } from '../../../src/adapters/codegraph/
 import { runPromptPipeline } from '../../../src/core/prompting/pipeline.js';
 import type { PipelineEvent } from '../../../src/core/prompting/pipeline_events.js';
 
+/**
+ * TEMPORARY: Pins CodeGraph artifact surface from the prompt pipeline
+ * perspective. Should be consolidated into codegraph_step_parity.test.ts
+ * as the single canonical CodeGraph artifact test. Remove artifact-list
+ * assertions when codegraph_step_parity.test.ts is the sole canonical test.
+ * Do not add new assertions here.
+ */
+
 function makeRepo(prefix: string): string {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.writeFileSync(path.join(repoRoot, 'README.md'), '# CodeGraph characterization fixture\n', 'utf8');

@@ -10,6 +10,15 @@ import { runPromptPipeline } from '../../../src/core/prompting/pipeline.js';
 import { resolveFlashConfig } from '../../../src/core/config/index.js';
 import { resolveFlashSystemPrompt } from '../../../src/core/prompts/flash_system_prompt.js';
 
+/**
+ * TEMPORARY: Pins exact flash phase artifact list and error code mapping.
+ * Error code tests (RUN_NOT_FOUND, FLASH_INPUT_NOT_FOUND,
+ * LIVE_PROVIDER_DISABLED) are permanent; the artifact list assertion is
+ * temporary. Canonical replacement: convert the artifact list to a shape
+ * test (arrayContaining minimum required set) when the flash artifact set
+ * is frozen. Do not add new assertions here.
+ */
+
 const BUNDLED_FLASH_SYSTEM_PROMPT_PATH = path.resolve(
   __dirname,
   '../../../resources/prompts/flash_system.md',

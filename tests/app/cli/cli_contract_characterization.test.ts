@@ -16,6 +16,14 @@ const CODEGRAPH_QUERY_ADAPTER_PATH = '../../../src/adapters/codegraph/codegraph_
  *
  * Do not "fix" these by changing production code in this batch — the cleanup is
  * a separate, later checkpoint.
+ *
+ * TEMPORARY: Pins current CLI behavior gaps (run create bare id, no --json on
+ * run create, raw artifact streaming, codegraph query JSON shape). Each test
+ * documents a gap that should be fixed in the CLI envelope cleanup checkpoint.
+ * Canonical replacements: init_commands.test.ts (init envelope),
+ * prompt_send_envelope.test.ts (send envelope), structured_output.test.ts
+ * (error envelope). Remove each test when its gap is closed.
+ * Do not add new assertions here.
  */
 
 function makeRepo(prefix: string): { repoRoot: string; cleanup: () => void } {
@@ -127,38 +135,6 @@ describe('CLI contract characterization (current behavior, pre-cleanup)', () => 
     expect(showCommand).toBeDefined();
     expect(hasJsonOption(listCommand as Command)).toBe(true);
     expect(hasJsonOption(showCommand as Command)).toBe(true);
-  });
-
-  test('current fallback behavior: `vibecode init --json` returns a canonical data envelope', async () => {
-    const { createCli } = await import('../../../src/app/cli/index.js');
-    const program = createCli();
-    const initCommand = findCommand(program, ['init']);
-    expect(initCommand).toBeDefined();
-    expect(hasJsonOption(initCommand as Command)).toBe(true);
-
-    const { repoRoot, cleanup } = makeRepo('vibecode-cli-init-json-');
-    try {
-      const cli = await runCli(['init', '--repo', repoRoot, '--json']);
-
-      expect(cli.exitCode).toBe(0);
-      expect(cli.stdout).toBe('');
-      expect(cli.errors).toEqual([]);
-      expect(cli.logs).toHaveLength(1);
-      const payload = JSON.parse(cli.logs[0]) as Record<string, unknown>;
-      expect(payload).toMatchObject({
-        ok: true,
-        data: {
-          created: expect.any(Array),
-          existing: expect.any(Array),
-        },
-        artifacts: expect.any(Array),
-        warnings: [],
-      });
-      expect(payload).not.toHaveProperty('created');
-      expect(payload).not.toHaveProperty('existing');
-    } finally {
-      cleanup();
-    }
   });
 
   test('current behavior: `runs show --artifact --json` streams RAW artifact content (no JSON envelope) on success', async () => {

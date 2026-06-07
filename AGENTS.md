@@ -747,6 +747,29 @@ Provider secrets must not be committed.
 
 ---
 
+# Test Discipline
+
+Test public behavior, artifact contracts, safety boundaries, parser/validator behavior, and real regressions.
+
+Do not test:
+- private helper names or internal structure
+- incidental import paths or source-grep patterns
+- exact growing-list counts (use named constants or derive from canonical lists like `VIBECODE_MCP_TOOL_NAMES.length`)
+- cosmetic DOM/theme/layout assertions
+- node_modules layout
+
+Characterization tests must self-declare with a top-of-file comment explaining:
+- what exact temporary behavior they pin
+- which canonical test should replace it
+- when it should be removed
+- "Do not add new assertions here."
+
+Default tests must not call live providers. Tests using fake/mock adapters must be named `fake_*` or `mock_*`, not `live_*`. Real `live_*` tests are allowed only when explicitly gated by an environment variable and excluded from default provider calls.
+
+Every new test must justify the protected invariant: what breaks if this test is removed?
+
+---
+
 # Development Environment
 
 Primary development environment is Windows PowerShell.

@@ -18,7 +18,7 @@ import {
 import { readEvidenceEvents } from '../../../src/core/coordination/watcher_events.js';
 
 /**
- * Phase 4D live watcher lifecycle — non-enforcing.
+ * Phase 4D watcher lifecycle (injected fake backend) — non-enforcing.
  *
  * These tests drive the lifecycle through an INJECTED fake backend and an
  * injected manual scheduler so there is no dependency on real fs.watch timing.
