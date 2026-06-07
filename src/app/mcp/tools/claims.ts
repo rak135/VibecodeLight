@@ -4,6 +4,7 @@ import {
   getClaimStatusForPath,
   releaseFileClaim,
 } from '../../../core/coordination/claims.js';
+import { reapStaleClaims } from '../../../core/coordination/claim_cleanup.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import { isClaimMode, type FileClaim } from '../../../core/coordination/types.js';
 import { buildMcpError, type McpErrorCode } from '../errors.js';
@@ -16,6 +17,7 @@ import {
   CLAIMS_LIST_INPUT_SCHEMA,
   CLAIM_STATUS_INPUT_SCHEMA,
   CLAIM_RELEASE_INPUT_SCHEMA,
+  CLAIMS_REAP_INPUT_SCHEMA,
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
@@ -256,6 +258,68 @@ export function buildClaimReleaseTool(): McpToolDefinition {
           return fail(mcpErrorForCoordination(err, 'CLAIM_RELEASE_FAILED'), err.message);
         }
         return fail('CLAIM_RELEASE_FAILED', err instanceof Error ? err.message : String(err));
+      }
+    },
+  };
+}
+
+export function buildClaimsReapTool(): McpToolDefinition {
+  const inputSchema: JsonSchema = CLAIMS_REAP_INPUT_SCHEMA;
+  const TOOL_NAME = 'vibecode_claims_reap';
+  const ALLOWED_KEYS = new Set(['dry_run']);
+  return {
+    name: TOOL_NAME,
+    title: 'Reap stale agent claims',
+    description:
+      'Release claims owned by stale or terminated agents in the bound repo. Writes only generated .vibecode/coordination/state.json. Pass dry_run=true to preview without mutating.',
+    inputSchema,
+    handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
+      const started = Date.now();
+      const fail = (code: 'INVALID_ARGUMENT' | 'CLAIMS_REAP_FAILED', message: string): McpToolFormattedResult =>
+        formatError({
+          tool: TOOL_NAME,
+          repoRoot: input.context.repoRoot,
+          warnings: [],
+          durationMs: Date.now() - started,
+          error: buildMcpError(code, message),
+        });
+
+      const unknown = rejectUnknownKeys(input.arguments, ALLOWED_KEYS);
+      if (!unknown.ok) return fail('INVALID_ARGUMENT', unknown.message);
+
+      const args = input.arguments ?? {};
+      const dryRun = validateBoolean(args.dry_run, 'dry_run');
+      if (!dryRun.ok) return fail('INVALID_ARGUMENT', dryRun.message);
+
+      try {
+        const result = reapStaleClaims({
+          repoRoot: input.context.repoRoot,
+          mode: dryRun.value === true ? 'dry_run' : 'apply',
+        });
+        const lines = [
+          `# Claims reap (${result.mode})`,
+          '',
+          `stale_agents: ${result.stale_agents.length}`,
+          `stale_claims: ${result.stale_claims.length}`,
+        ];
+        if (result.mode === 'apply') {
+          lines.push(`reaped: ${result.reaped_claims.length}`);
+        }
+        for (const agent of result.stale_agents) {
+          lines.push(`  - ${agent.agent_id} ${agent.agent_name} (${agent.status})`);
+        }
+        for (const claim of result.stale_claims) {
+          lines.push(`  - ${claim.claim_id} ${claim.path} agent=${claim.agent_id}`);
+        }
+        return formatSimpleSuccess({
+          tool: TOOL_NAME,
+          repoRoot: input.context.repoRoot,
+          text: lines.join('\n'),
+          data: result,
+          durationMs: Date.now() - started,
+        });
+      } catch (err) {
+        return fail('CLAIMS_REAP_FAILED', err instanceof Error ? err.message : String(err));
       }
     },
   };

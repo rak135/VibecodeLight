@@ -78,25 +78,35 @@ export function registerAgentsCommands(
     .command('register')
     .description('Register a persistent agent session')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .requiredOption('--name <name>', 'Human-friendly agent name')
-    .requiredOption('--type <type>', 'Agent type: claude | codex | hermes | opencode | custom')
+    .option('--name <name>', 'Human-friendly agent name')
+    .option('--type <type>', 'Agent type: claude | codex | hermes | opencode | custom')
     .option('--terminal-session-id <id>', 'Owning terminal session id')
     .option('--pid <pid>', 'OS process id')
     .option('--json', 'Output canonical JSON envelope')
     .action((options: {
       repo: string;
-      name: string;
-      type: string;
+      name?: string;
+      type?: string;
       terminalSessionId?: string;
       pid?: string;
       json?: boolean;
     }) => {
       const repoRoot = path.resolve(options.repo);
+      if (!options.name || !options.type) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'agents register requires --name and --type.', repoRoot, [
+            ...(options.name ? [] : ['Missing: --name <name>']),
+            ...(options.type ? [] : ['Missing: --type <type>']),
+          ]),
+          { json: options.json, prefix: 'agents register failed' },
+        );
+        return;
+      }
       const pid = options.pid !== undefined ? Number(options.pid) : null;
       handle(repoRoot, options.json, 'agents register failed', () => {
         const agent = registerAgent(repoRoot, {
-          agent_name: options.name,
-          agent_type: options.type,
+          agent_name: options.name!,
+          agent_type: options.type!,
           terminal_session_id: options.terminalSessionId ?? null,
           pid: Number.isFinite(pid) ? pid : null,
         });
@@ -120,12 +130,19 @@ export function registerAgentsCommands(
     .command('heartbeat')
     .description('Record a heartbeat for an agent (revives stale/idle to active)')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .requiredOption('--agent <agent_id>', 'Agent id')
+    .option('--agent <agent_id>', 'Agent id')
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; agent: string; json?: boolean }) => {
+    .action((options: { repo: string; agent?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      if (!options.agent) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'agents heartbeat requires --agent.', repoRoot, ['Missing: --agent <agent_id>']),
+          { json: options.json, prefix: 'agents heartbeat failed' },
+        );
+        return;
+      }
       handle(repoRoot, options.json, 'agents heartbeat failed', () => ({
-        agent: heartbeatAgent(repoRoot, options.agent),
+        agent: heartbeatAgent(repoRoot, options.agent!),
       }));
     });
 
@@ -133,12 +150,19 @@ export function registerAgentsCommands(
     .command('status')
     .description('Show one agent by id with its computed status')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .requiredOption('--agent <agent_id>', 'Agent id')
+    .option('--agent <agent_id>', 'Agent id')
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; agent: string; json?: boolean }) => {
+    .action((options: { repo: string; agent?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      if (!options.agent) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'agents status requires --agent.', repoRoot, ['Missing: --agent <agent_id>']),
+          { json: options.json, prefix: 'agents status failed' },
+        );
+        return;
+      }
       handle(repoRoot, options.json, 'agents status failed', () => ({
-        agent: getAgentStatus(repoRoot, options.agent),
+        agent: getAgentStatus(repoRoot, options.agent!),
       }));
     });
 
@@ -146,12 +170,19 @@ export function registerAgentsCommands(
     .command('terminate')
     .description('Mark an agent as terminated')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .requiredOption('--agent <agent_id>', 'Agent id')
+    .option('--agent <agent_id>', 'Agent id')
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; agent: string; json?: boolean }) => {
+    .action((options: { repo: string; agent?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      if (!options.agent) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'agents terminate requires --agent.', repoRoot, ['Missing: --agent <agent_id>']),
+          { json: options.json, prefix: 'agents terminate failed' },
+        );
+        return;
+      }
       handle(repoRoot, options.json, 'agents terminate failed', () => ({
-        agent: markAgentTerminated(repoRoot, options.agent),
+        agent: markAgentTerminated(repoRoot, options.agent!),
       }));
     });
 }

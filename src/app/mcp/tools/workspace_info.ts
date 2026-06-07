@@ -78,6 +78,9 @@ const COORDINATION_TOOL_NAMES = Object.freeze([
   'vibecode_finalize_check',
   'vibecode_evidence_list',
   'vibecode_evidence_scan',
+  'vibecode_claims_reap',
+  'vibecode_conflicts_list',
+  'vibecode_conflict_resolve',
 ]);
 
 export interface WorkspaceInfoToolDeps {

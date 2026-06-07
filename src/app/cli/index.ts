@@ -53,6 +53,7 @@ import { registerAgentGuidanceCommands } from './commands/agent_guidance.js';
 import { registerAgentsCommands } from './commands/agents.js';
 import { registerClaimsCommands } from './commands/claims.js';
 import { registerCommitCommands } from './commands/commit.js';
+import { registerConflictsCommands } from './commands/conflicts.js';
 import { registerCodeGraphCommands } from './commands/codegraph.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerCoordinationCommands } from './commands/coordination.js';
@@ -293,6 +294,7 @@ export function createCli(): Command {
   registerCoordinationCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerClaimsCommands(program, { makeCliStructuredError, emitCliStructuredError });
+  registerConflictsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerFinalizeCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerEvidenceCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerCommitCommands(program, { makeCliStructuredError, emitCliStructuredError });

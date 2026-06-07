@@ -517,7 +517,7 @@ describe('desktop config bridge', () => {
     expect(result.source).toBe('defaults');
     expect(result.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(result.config_path).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
-    expect(result.expected_tool_count).toBe(29);
+    expect(result.expected_tool_count).toBe(32);
     expect(JSON.stringify(result)).not.toContain(SECRET);
   });
 
@@ -540,7 +540,7 @@ describe('desktop config bridge', () => {
     expect(codex.ok).toBe(true);
     expect(codex.agent).toBe('codex');
     expect(codex.guidance.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(codex.mcp.expected_tool_count).toBe(29);
+    expect(codex.mcp.expected_tool_count).toBe(32);
     expect(claude.ok).toBe(true);
     expect(claude.agent).toBe('claude');
     expect(invalid.ok).toBe(false);

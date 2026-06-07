@@ -44,7 +44,7 @@ describe('VibecodeMCP security boundary', () => {
 
   test('no write/shell/git/terminal tool is registered', () => {
     const tools = buildVibecodeMcpTools();
-    expect(tools.length).toBe(29);
+    expect(tools.length).toBe(32);
     for (const tool of tools) {
       if (ALLOWED_READ_TOOL_NAMES.has(tool.name)) continue;
       for (const pattern of FORBIDDEN_TOOL_NAME_PATTERNS) {

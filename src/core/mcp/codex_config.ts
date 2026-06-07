@@ -62,6 +62,10 @@ export const CODEX_MCP_ENABLED_TOOLS = [
   // shell, git mutation, or the terminal.
   'vibecode_evidence_list',
   'vibecode_evidence_scan',
+  // Phase Coordination-4D-cleanup: claims reap + conflict history.
+  'vibecode_claims_reap',
+  'vibecode_conflicts_list',
+  'vibecode_conflict_resolve',
 ] as const;
 
 export type CodexMcpToolName = typeof CODEX_MCP_ENABLED_TOOLS[number];

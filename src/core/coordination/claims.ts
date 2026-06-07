@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import path from 'path';
 
 import { CoordinationError } from './errors.js';
+import { recordConflict } from './conflicts.js';
 import { HEARTBEAT_TTL_MS, computeAgentStatus } from './heartbeat.js';
 import { loadCoordinationState, writeCoordinationState } from './state.js';
 import {
@@ -202,6 +203,28 @@ export function addFileClaim(
   });
 
   if (conflicting.length > 0) {
+    // Record a conflict for the denial (best-effort; must not crash claim denial).
+    try {
+      recordConflict(repoRoot, {
+        conflict_type: 'claim_denied',
+        detected_at: now,
+        involved_claims: conflicting.map((c) => c.claim_id),
+        involved_agents: [input.agent_id, ...new Set(conflicting.map((c) => c.agent_id))],
+        involved_files: [normalizedPath],
+        severity: 'medium',
+        description: `Claim denied for ${normalizedPath}: ${conflicting.length} overlapping active claim(s).`,
+        evidence: {
+          detector: 'claim_manager',
+          details: {
+            requested: { agent_id: input.agent_id, path: normalizedPath, mode: input.mode },
+            conflicting_claims: conflicting.map((c) => ({ claim_id: c.claim_id, agent_id: c.agent_id, path: c.path, mode: c.mode })),
+          },
+        },
+      }, { now });
+    } catch {
+      // Conflict recording is advisory; a failure must not prevent the denial response.
+    }
+
     return {
       denied: true,
       claim: null,

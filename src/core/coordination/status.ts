@@ -2,6 +2,7 @@ import { getCoordinationPaths, loadCoordinationState } from './state.js';
 import { HEARTBEAT_TTL_MS, computeAgentStatus } from './heartbeat.js';
 import { summarizeRecentEvidence, type EvidenceSummary } from './watcher.js';
 import type { AgentSession, WorkspaceCoordinationState } from './types.js';
+import type { ConflictRecord } from './conflicts.js';
 import fs from 'fs';
 
 /**
@@ -19,6 +20,8 @@ export interface CoordinationStatusSummary {
   claims: number;
   conflicts: number;
   handoffs: number;
+  unresolved_conflicts: number;
+  stale_claims: number;
 }
 
 /** Stable result returned by the coordination status service. */
@@ -64,6 +67,16 @@ export function getCoordinationStatus(
     ...agent,
     status: computeAgentStatus(agent, nowMs, HEARTBEAT_TTL_MS),
   }));
+
+  const staleAgentIds = new Set(
+    agents.filter((a) => a.status === 'stale' || a.status === 'terminated').map((a) => a.agent_id),
+  );
+  const staleClaims = state.claims.filter(
+    (claim) => claim.status !== 'released' && staleAgentIds.has(claim.agent_id),
+  );
+  const conflicts = state.conflicts as readonly ConflictRecord[];
+  const unresolvedConflicts = conflicts.filter((c) => c.status === 'detected');
+
   return {
     workspace_root: repoRoot,
     state_file: stateFile,
@@ -75,6 +88,8 @@ export function getCoordinationStatus(
       claims: state.claims.length,
       conflicts: state.conflicts.length,
       handoffs: state.handoffs.length,
+      unresolved_conflicts: unresolvedConflicts.length,
+      stale_claims: staleClaims.length,
     },
     agents,
     evidence: summarizeRecentEvidence(repoRoot),

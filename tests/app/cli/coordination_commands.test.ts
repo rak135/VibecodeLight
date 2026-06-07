@@ -60,7 +60,7 @@ describe('vibecode coordination status --json', () => {
     expect(envelope.data.workspace_root).toBe(repo.repoRoot);
     expect(envelope.data.state_file_exists).toBe(false);
     expect(envelope.data.version).toBe(1);
-    expect(envelope.data.summary).toEqual({ agents: 0, claims: 0, conflicts: 0, handoffs: 0 });
+    expect(envelope.data.summary).toEqual({ agents: 0, claims: 0, conflicts: 0, handoffs: 0, unresolved_conflicts: 0, stale_claims: 0 });
     expect(envelope.artifacts).toEqual([]);
     expect(envelope.warnings).toEqual([]);
 

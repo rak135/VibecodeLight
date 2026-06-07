@@ -9,6 +9,7 @@ import {
   releaseFileClaim,
   type AddFileClaimResult,
 } from '../../../core/coordination/claims.js';
+import { reapStaleClaims } from '../../../core/coordination/claim_cleanup.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import type { FileClaim } from '../../../core/coordination/types.js';
 import {
@@ -66,13 +67,24 @@ export function registerClaimsCommands(
     .command('add')
     .description('Create an advisory file claim for an active agent')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .requiredOption('--agent <agent_id>', 'Agent id')
-    .requiredOption('--path <path>', 'Repository-relative path to claim')
+    .option('--agent <agent_id>', 'Agent id')
+    .option('--path <path>', 'Repository-relative path to claim')
     .option('--mode <mode>', 'Claim mode: exclusive | shared', 'exclusive')
     .option('--type <mode>', 'Alias for --mode')
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; agent: string; path: string; mode?: string; type?: string; json?: boolean }) => {
+    .action((options: { repo: string; agent?: string; path?: string; mode?: string; type?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      if (!options.agent || !options.path) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'claims add requires --agent and --path.', repoRoot, [
+            ...(options.agent ? [] : ['Missing: --agent <agent_id>']),
+            ...(options.path ? [] : ['Missing: --path <path>']),
+          ]),
+          { json: options.json, prefix: 'claims add failed' },
+        );
+        return;
+      }
+
       let result: AddFileClaimResult;
       try {
         result = addFileClaim(repoRoot, {
@@ -127,10 +139,17 @@ export function registerClaimsCommands(
     .command('status')
     .description('Show advisory claim status for a repository-relative path')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .requiredOption('--path <path>', 'Repository-relative path')
+    .option('--path <path>', 'Repository-relative path')
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; path: string; json?: boolean }) => {
+    .action((options: { repo: string; path?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      if (!options.path) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'claims status requires --path.', repoRoot, ['Missing: --path <path>']),
+          { json: options.json, prefix: 'claims status failed' },
+        );
+        return;
+      }
       try {
         success(options.json, { status: getClaimStatusForPath(repoRoot, options.path) });
       } catch (error) {
@@ -142,14 +161,41 @@ export function registerClaimsCommands(
     .command('release')
     .description('Release an advisory file claim')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .requiredOption('--claim <claim_id>', 'Claim id')
+    .option('--claim <claim_id>', 'Claim id')
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; claim: string; json?: boolean }) => {
+    .action((options: { repo: string; claim?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      if (!options.claim) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'claims release requires --claim.', repoRoot, ['Missing: --claim <claim_id>']),
+          { json: options.json, prefix: 'claims release failed' },
+        );
+        return;
+      }
       try {
         success(options.json, { claim: releaseFileClaim(repoRoot, options.claim).claim });
       } catch (error) {
         fail(repoRoot, options.json, 'claims release failed', error);
+      }
+    });
+
+  claims
+    .command('reap')
+    .description('Release claims owned by stale or terminated agents')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--dry-run', 'Report reapable claims without releasing them')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; dryRun?: boolean; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      try {
+        const result = reapStaleClaims({ repoRoot, mode: options.dryRun ? 'dry_run' : 'apply' });
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, data: result, artifacts: [], warnings: [] }));
+          return;
+        }
+        printReapHuman(result);
+      } catch (error) {
+        fail(repoRoot, options.json, 'claims reap failed', error);
       }
     });
 }
@@ -192,5 +238,20 @@ function printHuman(data: Record<string, unknown>): void {
     console.log(`matching_claims: ${status.matching_claims.length}`);
     console.log(`can_claim_shared: ${status.can_claim_shared ? 'yes' : 'no'}`);
     console.log(`can_claim_exclusive: ${status.can_claim_exclusive ? 'yes' : 'no'}`);
+  }
+}
+
+function printReapHuman(result: { mode: string; stale_agents: Array<{ agent_id: string; agent_name: string; status: string }>; stale_claims: FileClaim[]; reaped_claims: FileClaim[] }): void {
+  console.log(`mode: ${result.mode}`);
+  console.log(`stale_agents: ${result.stale_agents.length}`);
+  for (const agent of result.stale_agents) {
+    console.log(`  ${agent.agent_id} ${agent.agent_name} (${agent.status})`);
+  }
+  console.log(`stale_claims: ${result.stale_claims.length}`);
+  for (const claim of result.stale_claims) {
+    console.log(`  ${claim.claim_id} ${claim.path} agent=${claim.agent_id}`);
+  }
+  if (result.mode === 'apply') {
+    console.log(`reaped: ${result.reaped_claims.length}`);
   }
 }

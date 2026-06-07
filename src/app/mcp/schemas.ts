@@ -320,6 +320,44 @@ export const EVIDENCE_SCAN_INPUT_SCHEMA: JsonSchema = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Phase Coordination-4D-cleanup: conflicts + claims reap input schemas
+// ---------------------------------------------------------------------------
+
+export const CONFLICTS_LIST_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['detected', 'resolved'],
+      description: 'Filter by conflict status: detected | resolved.',
+    },
+    conflict_type: {
+      type: 'string',
+      enum: ['claim_denied', 'stale_claim'],
+      description: 'Filter by conflict type: claim_denied | stale_claim.',
+    },
+  },
+};
+
+export const CONFLICT_RESOLVE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    conflict_id: { type: 'string', description: 'Id of the conflict to resolve.' },
+  },
+  required: ['conflict_id'],
+};
+
+export const CLAIMS_REAP_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    dry_run: { type: 'boolean', description: 'When true, report reapable claims without releasing them.' },
+  },
+};
+
 /** Helper for tool handlers: verify a positive integer or return undefined. */
 export function validatePositiveInteger(
   value: unknown,

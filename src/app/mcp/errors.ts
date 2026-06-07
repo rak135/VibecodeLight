@@ -58,7 +58,11 @@ export type McpErrorCode =
   | 'FINALIZE_CHECK_FAILED'
   // Phase Coordination-4C: watcher evidence tools.
   | 'EVIDENCE_LIST_FAILED'
-  | 'EVIDENCE_SCAN_FAILED';
+  | 'EVIDENCE_SCAN_FAILED'
+  // Phase Coordination-4D-cleanup: claims reap + conflict tools.
+  | 'CLAIMS_REAP_FAILED'
+  | 'CONFLICTS_LIST_FAILED'
+  | 'CONFLICT_RESOLVE_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -233,6 +237,21 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'Scan reads the git working tree and writes only generated evidence state. Verify the bound path is a git repository, then retry if the failure is transient.',
+  },
+  CLAIMS_REAP_FAILED: {
+    retryable: true,
+    suggestion:
+      'Reap releases claims from stale/terminated agents. Verify coordination state is accessible, then retry if the failure is transient.',
+  },
+  CONFLICTS_LIST_FAILED: {
+    retryable: true,
+    suggestion:
+      'Listing conflicts is read-only and degrades to an empty list on a missing file. Retry only if transient.',
+  },
+  CONFLICT_RESOLVE_FAILED: {
+    retryable: true,
+    suggestion:
+      'Verify the conflict_id exists (vibecode_conflicts_list) and retry if the failure is transient.',
   },
 };
 

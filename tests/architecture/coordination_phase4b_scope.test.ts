@@ -97,8 +97,8 @@ describe('Coordination Phase 4B scope boundary', () => {
     // Phase 4B added no MCP tool (commit guard is CLI-only). The registry has
     // since grown with Phase 4C watcher evidence tools (29), but it still
     // exposes NO commit/guard mutation tool — which is what this pins.
-    expect(tools).toHaveLength(29);
-    expect(VIBECODE_MCP_TOOL_NAMES).toHaveLength(29);
+    expect(tools).toHaveLength(32);
+    expect(VIBECODE_MCP_TOOL_NAMES).toHaveLength(32);
     for (const name of VIBECODE_MCP_TOOL_NAMES) {
       expect(name).not.toMatch(/commit|guard/i);
     }

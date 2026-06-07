@@ -45,6 +45,9 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_finalize_check',
     'vibecode_evidence_list',
     'vibecode_evidence_scan',
+    'vibecode_claims_reap',
+    'vibecode_conflicts_list',
+    'vibecode_conflict_resolve',
   ]),
 });
 
@@ -78,6 +81,9 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_finalize_check: 'Read-only finalize check: classify the dirty working tree against an agent’s active advisory claims (not a commit guard).',
   vibecode_evidence_list: 'List watcher evidence events (advisory; non-enforcing). Read-only.',
   vibecode_evidence_scan: 'Scan the dirty git working tree into advisory evidence (writes only generated coordination state; no git/source mutation).',
+  vibecode_claims_reap: 'Release claims owned by stale or terminated agents (writes only generated coordination state).',
+  vibecode_conflicts_list: 'List recorded coordination conflicts (claim_denied, stale_claim). Read-only.',
+  vibecode_conflict_resolve: 'Mark a coordination conflict as resolved (writes only generated coordination state).',
 });
 
 /**

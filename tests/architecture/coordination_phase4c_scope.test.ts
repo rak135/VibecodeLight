@@ -126,7 +126,7 @@ describe('Coordination Phase 4C scope boundary', () => {
 
   test('MCP exposes exactly two evidence tools and still no commit/guard/source-mutation tool', () => {
     const tools = buildVibecodeMcpTools();
-    expect(tools).toHaveLength(29);
+    expect(tools).toHaveLength(32);
     expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_evidence_list');
     expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_evidence_scan');
     const evidenceTools = VIBECODE_MCP_TOOL_NAMES.filter((n) => n.includes('evidence'));

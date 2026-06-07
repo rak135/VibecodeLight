@@ -67,6 +67,10 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   // shell, git mutation, or the terminal.
   'vibecode_evidence_list',
   'vibecode_evidence_scan',
+  // Phase Coordination-4D-cleanup: claims reap + conflict history.
+  'vibecode_claims_reap',
+  'vibecode_conflicts_list',
+  'vibecode_conflict_resolve',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

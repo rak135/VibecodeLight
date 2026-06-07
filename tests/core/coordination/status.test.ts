@@ -29,7 +29,7 @@ describe('getCoordinationStatus (shared core service)', () => {
     expect(result.state_file).toBe(getCoordinationPaths(repo.repoRoot).stateFile);
     expect(result.state_file_exists).toBe(false);
     expect(result.version).toBe(1);
-    expect(result.summary).toEqual({ agents: 0, claims: 0, conflicts: 0, handoffs: 0 });
+    expect(result.summary).toEqual({ agents: 0, claims: 0, conflicts: 0, handoffs: 0, unresolved_conflicts: 0, stale_claims: 0 });
     expect(result.state.agents).toEqual([]);
     expect(result.state.claims).toEqual([]);
 
@@ -42,7 +42,7 @@ describe('getCoordinationStatus (shared core service)', () => {
     const result = getCoordinationStatus(repo.repoRoot);
     expect(result.state_file_exists).toBe(true);
     expect(result.last_updated).toBe('2026-06-06T00:00:00.000Z');
-    expect(result.summary).toEqual({ agents: 0, claims: 0, conflicts: 0, handoffs: 0 });
+    expect(result.summary).toEqual({ agents: 0, claims: 0, conflicts: 0, handoffs: 0, unresolved_conflicts: 0, stale_claims: 0 });
   });
 
   test('reports persisted advisory claim counts without mutating state', () => {
@@ -52,7 +52,7 @@ describe('getCoordinationStatus (shared core service)', () => {
     const before = fs.readFileSync(getCoordinationPaths(repo.repoRoot).stateFile, 'utf8');
     const result = getCoordinationStatus(repo.repoRoot);
 
-    expect(result.summary).toEqual({ agents: 1, claims: 1, conflicts: 0, handoffs: 0 });
+    expect(result.summary).toEqual({ agents: 1, claims: 1, conflicts: 0, handoffs: 0, unresolved_conflicts: 0, stale_claims: 0 });
     expect(fs.readFileSync(getCoordinationPaths(repo.repoRoot).stateFile, 'utf8')).toBe(before);
   });
 

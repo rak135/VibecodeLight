@@ -9,7 +9,12 @@ import {
   buildClaimsListTool,
   buildClaimStatusTool,
   buildClaimReleaseTool,
+  buildClaimsReapTool,
 } from './tools/claims.js';
+import {
+  buildConflictsListTool,
+  buildConflictResolveTool,
+} from './tools/conflicts.js';
 import { buildArtifactReadTool } from './tools/artifact_read.js';
 import { buildArtifactsListTool } from './tools/artifacts_list.js';
 import { buildCodeGraphContextTool } from './tools/codegraph_context.js';
@@ -128,6 +133,10 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     // only generated .vibecode/coordination/events.jsonl — no git/source mutation).
     buildEvidenceListTool(),
     buildEvidenceScanTool(),
+    // Phase Coordination-4D-cleanup: claims reap + conflict history.
+    buildClaimsReapTool(),
+    buildConflictsListTool(),
+    buildConflictResolveTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -175,4 +184,8 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   // Phase Coordination-4C
   'vibecode_evidence_list',
   'vibecode_evidence_scan',
+  // Phase Coordination-4D-cleanup
+  'vibecode_claims_reap',
+  'vibecode_conflicts_list',
+  'vibecode_conflict_resolve',
 ]);
