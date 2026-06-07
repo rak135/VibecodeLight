@@ -55,6 +55,25 @@ describe('platform marker commands', () => {
       expect(linuxCmd).toContain('\\$');
     });
 
+    test('marker with backtick is escaped on posix', () => {
+      const marker = 'test`value';
+      const linuxCmd = buildMarkerCommand(marker, 'linux');
+      expect(linuxCmd).toContain('\\`');
+      expect(linuxCmd).toMatch(/test\\`value/);
+    });
+
+    test('marker with backslash is escaped on posix', () => {
+      const marker = 'test\\value';
+      const linuxCmd = buildMarkerCommand(marker, 'linux');
+      expect(linuxCmd).toContain('\\\\');
+    });
+
+    test('marker with double quote is escaped on win32', () => {
+      const marker = 'test"value';
+      const winCmd = buildMarkerCommand(marker, 'win32');
+      expect(winCmd).toContain('``"');
+    });
+
     test('defaults to process.platform when platform not provided', () => {
       const cmd = buildMarkerCommand('VIBECODE_OK');
       expect(typeof cmd).toBe('string');
@@ -91,6 +110,18 @@ describe('platform marker commands', () => {
       expect(marker.command).toContain('printf');
       expect(marker.command).toContain(marker.marker);
       expect(marker.newline).toBe('\n');
+    });
+
+    test('win32 marker with double quote uses buildMarkerCommand escaping', () => {
+      const marker = platformEchoMarker('win32');
+      const cmd = marker.command;
+      expect(cmd).toBe(buildMarkerCommand(marker.marker, 'win32'));
+    });
+
+    test('linux marker with double quote uses buildMarkerCommand escaping', () => {
+      const marker = platformEchoMarker('linux');
+      const cmd = marker.command;
+      expect(cmd).toBe(buildMarkerCommand(marker.marker, 'linux'));
     });
   });
 });

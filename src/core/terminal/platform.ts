@@ -17,8 +17,5 @@ export function buildGitStatusCommand(marker: string, platform: typeof process.p
 
 export function platformEchoMarker(platform: typeof process.platform = process.platform): PlatformEchoMarker {
   const marker = `VIBECODE_PTY_OK_${Date.now()}`;
-  if (platform === 'win32') {
-    return { command: `Write-Output "${marker}"`, marker, newline: '\r' };
-  }
-  return { command: `printf "${marker}\\n"`, marker, newline: '\n' };
+  return { command: buildMarkerCommand(marker, platform), marker, newline: platform === 'win32' ? '\r' : '\n' };
 }

@@ -81,6 +81,27 @@ export function buildArgs(opts: ScanInvokeOptions, pythonCommand?: string): stri
   ];
 }
 
+function filterUndefinedValues(
+  env: Record<string, string | undefined>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+export function buildSpawnEnv(
+  optsEnv?: Record<string, string | undefined>,
+): Record<string, string> | undefined {
+  if (!optsEnv) {
+    return undefined;
+  }
+  return filterUndefinedValues({ ...process.env, ...optsEnv });
+}
+
 export async function invokeScan(opts: ScanInvokeOptions): Promise<void> {
   const candidates = resolvePythonCommand(opts, opts.env ?? process.env);
   const attemptedCommands: string[] = [];
@@ -92,7 +113,7 @@ export async function invokeScan(opts: ScanInvokeOptions): Promise<void> {
     const result = spawnSync(cmd, args, {
       cwd: opts.scannerDir,
       encoding: 'utf8',
-      env: opts.env as Record<string, string> | undefined,
+      env: buildSpawnEnv(opts.env),
     });
     if (result.status === 0) {
       return;

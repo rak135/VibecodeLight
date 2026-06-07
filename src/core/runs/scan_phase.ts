@@ -1,11 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
 
 import { RunManifest } from '../models/index.js';
 import { buildSkillsCatalog, writeSkillsCatalog } from '../skills/catalog.js';
 import { getWorkspacePaths } from '../workspace/paths.js';
-import { formatScannerFailureDiagnostic } from '../scanning/scanner_subprocess.js';
+import { invokeScan } from '../scanning/scanner_subprocess.js';
+import { buildScannerConfig } from '../scanning/scanner_config.js';
 import { writeExternalToolsArtifact } from '../scanning/external_tools.js';
 import { detectCodeGraph } from '../../adapters/codegraph/codegraph_cli.js';
 import type { TaskIntent } from '../../adapters/task_normalizer/types.js';
@@ -70,38 +70,38 @@ export async function performScanPhase(opts: {
   const catalog = buildSkillsCatalog({ repoRoot: opts.repoRoot });
   writeSkillsCatalog(path.join(runDir, 'skills', 'skills_catalog.json'), catalog);
 
-  const scannerConfigPath = path.join(runDir, 'scanner_config.json');
-  const scannerConfig = {
+  const scannerConfig = buildScannerConfig({
     run_id,
     task: opts.task,
     repo_root: opts.repoRoot,
     out_dir: 'scan',
-    normalized_english_task: opts.taskIntent?.enabled && opts.taskIntent.ok
-      ? opts.taskIntent.normalized_english_task
-      : '',
-    search_hints: opts.taskIntent?.enabled && opts.taskIntent.ok
-      ? opts.taskIntent.search_hints
-      : [],
-    keyword_groups: opts.taskIntent?.enabled && opts.taskIntent.ok
-      ? opts.taskIntent.keyword_groups
-      : {},
-    _provenance_note: 'normalized signals from Task Normalizer; Python scanner uses these for expanded keyword matching',
-  };
-  fs.writeFileSync(scannerConfigPath, `${JSON.stringify(scannerConfig, null, 2)}\n`, 'utf8');
-
-  const scannerArgs = [
-    '-m', 'vibecode_scanner',
-    '--repo', opts.repoRoot,
-    '--task', opts.task,
-    '--scanner-config', scannerConfigPath,
-    '--out', scanDir,
-  ];
-
-  const result = spawnSync('python', scannerArgs, {
-    cwd: SCANNER_DIR,
-    encoding: 'utf8',
-    timeout: 120000,
   });
+
+  const scannerConfigPath = path.join(runDir, 'scanner_config.json');
+  fs.writeFileSync(scannerConfigPath, `${JSON.stringify({ ...scannerConfig, normalized_english_task: opts.taskIntent?.enabled && opts.taskIntent.ok ? opts.taskIntent.normalized_english_task : '', search_hints: opts.taskIntent?.enabled && opts.taskIntent.ok ? opts.taskIntent.search_hints : [], keyword_groups: opts.taskIntent?.enabled && opts.taskIntent.ok ? opts.taskIntent.keyword_groups : {}, _provenance_note: 'normalized signals from Task Normalizer; Python scanner uses these for expanded keyword matching' }, null, 2)}\n`, 'utf8');
+
+  try {
+    await invokeScan({
+      scannerDir: SCANNER_DIR,
+      config: scannerConfig,
+      repoRoot: opts.repoRoot,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    const runManifestPath = path.join(runDir, 'run_manifest.json');
+    let manifest: RunManifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(runManifestPath, 'utf8')) as RunManifest;
+    } catch {
+      return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic: message };
+    }
+    const errorManifest: RunManifest = { ...manifest, status: 'error' };
+    writeRunManifest(runManifestPath, errorManifest);
+    await updateCurrent(paths.vibecode, errorManifest);
+
+    return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic: message };
+  }
 
   const runManifestPath = path.join(runDir, 'run_manifest.json');
   let manifest: RunManifest;
@@ -118,36 +118,8 @@ export async function performScanPhase(opts: {
     return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic };
   }
 
-  if (result.status !== 0) {
-    const errorManifest: RunManifest = {
-      ...manifest,
-      status: 'error',
-    };
-    writeRunManifest(runManifestPath, errorManifest);
-    await updateCurrent(paths.vibecode, errorManifest);
-
-    const diagnostic = formatScannerFailureDiagnostic({
-      cwd: SCANNER_DIR,
-      repoRoot: opts.repoRoot,
-      result,
-    });
-    return { status: 'error', run_id, runDir, scanDir, vibecodePath: paths.vibecode, diagnostic };
-  }
-
-  // Parse scanner stdout JSON summary if present
-  let artifacts: Record<string, string> = {};
-  if (result.stdout && result.stdout.trim()) {
-    try {
-      const parsed = JSON.parse(result.stdout.trim());
-      if (parsed && typeof parsed === 'object' && parsed.artifacts && typeof parsed.artifacts === 'object') {
-        artifacts = parsed.artifacts as Record<string, string>;
-      }
-    } catch {
-      // Not JSON output - that's fine
-    }
-  }
-
   // Read scan_manifest.json for artifact list and warnings (authoritative)
+  let artifacts: Record<string, string> = {};
   let warnings: string[] = [];
   const scanManifestPath = path.join(scanDir, 'scan_manifest.json');
   if (fs.existsSync(scanManifestPath)) {
