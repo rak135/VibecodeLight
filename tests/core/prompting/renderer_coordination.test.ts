@@ -67,7 +67,11 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     );
     // Phase 4A: MCP agents are told to run the finalize check tool before the final report.
     expect(content).toContain('vibecode_finalize_check');
-    expect(content).toContain('commit guard is not active yet');
+    // Phase 4B: the scoped commit guard is CLI-only, so even MCP agents are pointed at it;
+    // finalize check is mentioned before the commit guard, and broad staging is forbidden.
+    expect(content).toContain('vibecode commit guard --repo <path> --agent agent-1');
+    expect(content).toContain('git add -A');
+    expect(content.indexOf('finalize check')).toBeLessThan(content.indexOf('vibecode commit guard'));
     // MCP agents are not told to shell out to the CLI claims/finalize commands.
     expect(content).not.toContain('vibecode claims add');
     expect(content).not.toContain('vibecode finalize check');
@@ -93,7 +97,9 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     expect(content).toContain('Handoffs are not implemented yet. Do not invent handoff commands.');
     // Phase 4A: CLI agents are told to run the finalize check CLI command.
     expect(content).toContain('vibecode finalize check --repo <path> --agent agent-1');
-    expect(content).toContain('commit guard is not active yet');
+    // Phase 4B: the scoped commit guard CLI command and the git add -A prohibition.
+    expect(content).toContain('vibecode commit guard --repo <path> --agent agent-1');
+    expect(content).toContain('git add -A');
     expect(content).not.toContain('vibecode_claim_add');
     expect(content).not.toContain('vibecode_finalize_check');
   });

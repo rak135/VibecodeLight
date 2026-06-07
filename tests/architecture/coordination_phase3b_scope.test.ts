@@ -39,16 +39,18 @@ describe('Coordination Phase 3B scope boundary', () => {
 
   test('Phase 3B does not introduce watchers, guards, git mutation, handoffs, UI, or hard locks', () => {
     // Patterns target real implementation constructs, not the visible advisory
-    // disclaimers (e.g. "finalize/commit guards are not active in this phase"
-    // or "Do not invent handoff commands"), which are allowed prose.
+    // disclaimers (e.g. the rendered coordination block's "never use git add -A"
+    // or "Do not invent handoff commands"), which are allowed prose. The git
+    // mutation rules therefore match argv literals (`'add', ...` / `'commit', …`)
+    // — the form real execution would take — not documentation strings.
     const forbidden: Array<{ label: string; regex: RegExp }> = [
       { label: 'fs.watch', regex: /\bfs\.watch\s*\(/ },
       { label: 'watchFile', regex: /\bwatchFile\s*\(/ },
       { label: 'chokidar', regex: /\bchokidar\b/ },
       { label: 'finalize guard', regex: /finalize[A-Za-z]*Guard|[Gg]uard[A-Za-z]*Finalize/ },
       { label: 'commit guard', regex: /commit[A-Za-z]*Guard|[Gg]uard[A-Za-z]*Commit/ },
-      { label: 'git add', regex: /git\s+add\b/ },
-      { label: 'git commit', regex: /git\s+commit\b/ },
+      { label: 'git add (argv)', regex: /['"]add['"]\s*,/ },
+      { label: 'git commit (argv)', regex: /['"]commit['"]\s*,/ },
       { label: 'handoff implementation', regex: /handoff[A-Z_]|createHandoff|HandoffRecord|requestHandoff|acceptHandoff/ },
       { label: 'UI import', regex: /\b(react|electron)\b|from\s+['"][^'"]*desktop/i },
       { label: 'chmod', regex: /\bchmod(?:Sync)?\s*\(/ },

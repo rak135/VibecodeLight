@@ -1158,6 +1158,35 @@ command is `vibecode finalize check --repo <path> --agent <agent_id> --json`
 Coordination-4A is a read-only **check** only — it is **not** a commit guard,
 file watcher, handoff workflow, or any git-mutating / source-locking behavior.
 
+Scoped commit guard (Phase Coordination-4B, CLI-only):
+
+```powershell
+vibecode commit guard --agent <agent_id> --json
+vibecode commit guard --run <run_id> --json
+vibecode commit guard --run <run_id> --dry-run --json
+vibecode commit guard --agent <agent_id> --message "feat(x): ..." --json
+```
+
+This is the first git-mutating coordination behavior. It runs the Phase 4A
+finalize check first and, only if the check is not blocked, creates a scoped
+commit containing **exactly** the changed files the check classified as
+`claimed_by_agent`. Staging is always by explicit pathspec (`git add -- <paths>`)
+— never `git add -A`, never broad staging — and the guard never runs
+`reset`/`stash`/`clean`/`checkout`/`restore`. If the git index already contains
+unrelated staged files it blocks with `GIT_INDEX_NOT_CLEAN` rather than touching
+them (in a shared working tree they may belong to another agent/user). Generated
+`.vibecode/` runtime paths and files unclaimed or claimed by another active agent
+are never staged. `--dry-run` reports the would-stage set without staging or
+committing. The commit message gets a `Vibecode-Run` / `Vibecode-Agent` footer,
+and (when a `run_id` is given) a `commit_guard.json` result is written under the
+run's generated `coordination/` state. All mutation is reversible by normal git
+history.
+
+Because VibecodeMCP is strictly read-only, the commit guard is **CLI-only** in
+Phase 4B — there is intentionally **no** `vibecode_commit_guard` MCP tool. MCP
+agents run the finalize check via `vibecode_finalize_check` and then invoke the
+CLI `vibecode commit guard` when the task asks for a commit.
+
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
 not add a permission profile, an allow/deny list, or any approval mutation. MCP-2
