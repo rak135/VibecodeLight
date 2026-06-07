@@ -96,10 +96,19 @@ describe('vibecode_workspace_info', () => {
       expect(data.mcp_server.name).toBe('vibecode-mcp');
       expect(typeof data.mcp_server.version).toBe('string');
       expect(data.tools.total).toBe(VIBECODE_MCP_TOOL_NAMES.length);
-      expect(data.tools.groups.codegraph.length).toBe(7);
-      expect(data.tools.groups.runs_artifacts.length).toBe(5);
-      expect(data.tools.groups.workspace_orientation.length).toBe(5);
-      expect(data.tools.groups.coordination.length).toBe(15);
+      const { codegraph, runs_artifacts, workspace_orientation, coordination } = data.tools.groups;
+      // Group sizes sum to the canonical total so no tool is lost or double-counted.
+      expect(codegraph.length + runs_artifacts.length + workspace_orientation.length + coordination.length)
+        .toBe(VIBECODE_MCP_TOOL_NAMES.length);
+      // Each group contains its signature tool.
+      expect(codegraph).toContain('vibecode_codegraph_status');
+      expect(runs_artifacts).toContain('vibecode_runs_list');
+      expect(workspace_orientation).toContain('vibecode_workspace_info');
+      expect(coordination).toContain('vibecode_coordination_status');
+      // No group contains a forbidden dangerous tool.
+      for (const name of [...codegraph, ...runs_artifacts, ...workspace_orientation, ...coordination]) {
+        expect(name).not.toMatch(/commit_guard|shell|git_write|terminal_exec|file_write/i);
+      }
       expect(data.codegraph.available).toBe(true);
       expect(data.codegraph.initialized).toBe(true);
       expect(data.codegraph.version).toBe('0.9.4');

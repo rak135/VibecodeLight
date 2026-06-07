@@ -8,14 +8,18 @@ import { runPromptPipeline } from '../../src/core/prompting/pipeline.js';
 import { describe, expect, test } from 'vitest';
 
 /**
- * BOUNDARY TESTS (permanent): Tests 1-8 pin import-direction invariants
- * between core/app/scanner/LLM layers. These are permanent architecture guards.
+ * PERMANENT (tests 1-8): Import-direction invariants between core/app/scanner/LLM
+ * layers. These are permanent architecture guards.
  *
- * TEMPORARY (tests 9-11): Pin exact CodeGraph write surface artifact list
- * and byte-identical current mirror. Canonical replacement:
- * codegraph_step_parity.test.ts for artifact surface; convert to
- * arrayContaining shape test when artifact set is frozen.
- * Do not add new assertions here.
+ * PERMANENT (test 9): Artifact consistency — current final_prompt mirror must be
+ * byte-identical to the run output final_prompt. This is a permanent safety
+ * invariant (send reads the mirror and must send exactly what was previewed).
+ *
+ * TEMPORARY (tests 10-11): Pin exact CodeGraph write surface artifact list.
+ * Canonical replacement: codegraph_step_parity.test.ts for artifact surface;
+ * convert to arrayContaining shape test when artifact set is frozen.
+ * Remove tests 10-11 when codegraph_step_parity.test.ts is the sole canonical
+ * CodeGraph artifact test. Do not add new assertions here.
  */
 
 const repoRoot = path.resolve(__dirname, '../..');

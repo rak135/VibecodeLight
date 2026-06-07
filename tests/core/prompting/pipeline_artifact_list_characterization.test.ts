@@ -7,11 +7,12 @@ import { describe, expect, test } from 'vitest';
 import { runPromptPipeline } from '../../../src/core/prompting/pipeline.js';
 
 /**
- * TEMPORARY: Pins exact pipeline artifact list including generated paths
- * outside the run directory. Should be replaced by pipeline.test.ts with
- * arrayContaining shape assertions when the artifact contract is frozen.
- * Remove when pipeline.test.ts covers the same artifact set with stable
- * shape tests. Do not add new assertions here.
+ * TEMPORARY: Pins the result.artifacts array shape and result.progressEventsPath
+ * contract — aspects that pipeline.test.ts does NOT yet cover. pipeline.test.ts
+ * checks file existence on disk but does not assert the runtime return-contract
+ * (artifact list shape, uniqueness, progressEventsPath). When pipeline.test.ts
+ * adds arrayContaining shape assertions for result.artifacts and
+ * result.progressEventsPath, delete this file. Do not add new assertions here.
  */
 
 function makeRepo(prefix: string): string {
