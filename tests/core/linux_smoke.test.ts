@@ -110,18 +110,18 @@ describe('Linux smoke — user profile XDG path', () => {
 });
 
 describe('Linux smoke — scanner python resolver', () => {
-  test('python3 is the default fallback', () => {
-    expect(resolvePythonCommand({}, {})).toBe('python3');
+  test('python3 and python are the default fallback candidates', () => {
+    expect(resolvePythonCommand({}, {})).toEqual(['python3', 'python']);
   });
 
   test('VIBECODE_PYTHON env wins over default', () => {
-    expect(resolvePythonCommand({}, { VIBECODE_PYTHON: '/usr/bin/python3.11' })).toBe('/usr/bin/python3.11');
+    expect(resolvePythonCommand({}, { VIBECODE_PYTHON: '/usr/bin/python3.11' })).toEqual(['/usr/bin/python3.11']);
   });
 
   test('explicit pythonPath wins over env', () => {
     expect(resolvePythonCommand(
       { pythonPath: '/explicit/python3' },
       { VIBECODE_PYTHON: '/usr/bin/python3.11' },
-    )).toBe('/explicit/python3');
+    )).toEqual(['/explicit/python3']);
   });
 });

@@ -8,7 +8,11 @@ const rendererOutput = path.join(repoRoot, 'dist-desktop', 'app', 'desktop', 're
 const xtermSource = path.join(repoRoot, 'node_modules', '@xterm', 'xterm');
 const xtermVendorOutput = path.join(rendererOutput, 'vendor', 'xterm');
 
-execFileSync('npx', ['tsc', '--project', 'tsconfig.desktop.json'], { stdio: 'inherit' });
+if (process.platform === 'win32') {
+  execSync('npx tsc --project tsconfig.desktop.json', { stdio: 'inherit' });
+} else {
+  execFileSync('npx', ['tsc', '--project', 'tsconfig.desktop.json'], { stdio: 'inherit' });
+}
 fs.rmSync(rendererOutput, { recursive: true, force: true });
 fs.cpSync(rendererSource, rendererOutput, { recursive: true });
 
@@ -34,9 +38,14 @@ if (!fs.existsSync(canvasAddonSrc)) {
 }
 fs.copyFileSync(canvasAddonSrc, path.join(xtermVendorOutput, 'addon-canvas.js'));
 
-const electronBin = process.platform === 'win32'
-  ? path.join(repoRoot, 'node_modules', '.bin', 'electron.cmd')
-  : path.join(repoRoot, 'node_modules', '.bin', 'electron');
+const electronBin = require('electron');
+
+if (typeof electronBin !== 'string' || !fs.existsSync(electronBin)) {
+  throw new Error(
+    `Could not resolve Electron executable via require('electron'). ` +
+    `Run "pnpm install" to restore the electron package.`,
+  );
+}
 
 execFileSync(electronBin, ['dist-desktop/app/desktop/main.js'], {
   stdio: 'inherit',

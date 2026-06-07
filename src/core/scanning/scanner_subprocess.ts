@@ -22,15 +22,15 @@ export interface ScannerSpawnResult {
 export function resolvePythonCommand(
   opts: Pick<ScanInvokeOptions, 'pythonPath'>,
   env: Record<string, string | undefined> = process.env,
-): string {
+): string[] {
   if (opts.pythonPath) {
-    return opts.pythonPath;
+    return [opts.pythonPath];
   }
   const fromEnv = env.VIBECODE_PYTHON?.trim();
   if (fromEnv) {
-    return fromEnv;
+    return [fromEnv];
   }
-  return 'python3';
+  return ['python3', 'python'];
 }
 
 function tailLines(value: string | undefined, maxLines: number): string {
@@ -63,8 +63,8 @@ export function formatScannerFailureDiagnostic(opts: {
   );
 }
 
-export function buildArgs(opts: ScanInvokeOptions): string[] {
-  const pythonPath = resolvePythonCommand(opts, opts.env ?? process.env);
+export function buildArgs(opts: ScanInvokeOptions, pythonCommand?: string): string[] {
+  const pythonPath = pythonCommand ?? resolvePythonCommand(opts, opts.env ?? process.env)[0];
   const paths = getScannerConfigPaths(opts.repoRoot, opts.config.run_id);
   return [
     pythonPath,
@@ -82,21 +82,38 @@ export function buildArgs(opts: ScanInvokeOptions): string[] {
 }
 
 export async function invokeScan(opts: ScanInvokeOptions): Promise<void> {
-  const [cmd, ...args] = buildArgs(opts);
-  const result = spawnSync(cmd, args, {
-    cwd: opts.scannerDir,
-    encoding: 'utf8',
-  });
-  if (result.status !== 0) {
-    throw new Error(
-      formatScannerFailureDiagnostic({
-        cwd: opts.scannerDir,
-        repoRoot: opts.repoRoot,
-        result,
-        attemptedCommands: [cmd, 'python3', 'python'],
-      }),
-    );
+  const candidates = resolvePythonCommand(opts, opts.env ?? process.env);
+  const attemptedCommands: string[] = [];
+  let lastResult: ScannerSpawnResult | undefined;
+
+  for (const pythonCmd of candidates) {
+    attemptedCommands.push(pythonCmd);
+    const [cmd, ...args] = buildArgs(opts, pythonCmd);
+    const result = spawnSync(cmd, args, {
+      cwd: opts.scannerDir,
+      encoding: 'utf8',
+      env: opts.env as Record<string, string> | undefined,
+    });
+    if (result.status === 0) {
+      return;
+    }
+    lastResult = {
+      status: result.status,
+      signal: result.signal,
+      stdout: result.stdout ?? undefined,
+      stderr: result.stderr ?? undefined,
+      error: result.error ?? undefined,
+    };
   }
+
+  throw new Error(
+    formatScannerFailureDiagnostic({
+      cwd: opts.scannerDir,
+      repoRoot: opts.repoRoot,
+      result: lastResult!,
+      attemptedCommands,
+    }),
+  );
 }
 
 export class ScannerSubprocess {

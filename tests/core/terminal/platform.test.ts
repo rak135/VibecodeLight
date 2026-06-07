@@ -5,7 +5,8 @@
  * - Windows platforms must produce Write-Output commands.
  * - POSIX platforms (linux/darwin) must produce printf commands.
  * - The marker value is preserved in the generated command.
- * - git marker command also respects platform selection.
+ * - Special characters in markers are escaped for shell safety.
+ * - git marker command uses ; to avoid timeouts when git status fails.
  */
 import { describe, expect, test } from 'vitest';
 
@@ -41,13 +42,17 @@ describe('platform marker commands', () => {
       expect(linuxCmd).toContain(marker);
     });
 
-    test('marker with special characters is quoted', () => {
-      const marker = 'hello world';
-      const winCmd = buildMarkerCommand(marker, 'win32');
+    test('marker with special characters is escaped on posix', () => {
+      const marker = 'hello"world';
       const linuxCmd = buildMarkerCommand(marker, 'linux');
+      expect(linuxCmd).toContain('\\"');
+      expect(linuxCmd).not.toContain('"hello"world');
+    });
 
-      expect(winCmd).toContain(`"${marker}"`);
-      expect(linuxCmd).toContain(`"${marker}`);
+    test('marker with dollar sign is escaped on posix', () => {
+      const marker = 'test$value';
+      const linuxCmd = buildMarkerCommand(marker, 'linux');
+      expect(linuxCmd).toContain('\\$');
     });
 
     test('defaults to process.platform when platform not provided', () => {
@@ -65,9 +70,9 @@ describe('platform marker commands', () => {
       expect(cmd).toContain('git status --short');
     });
 
-    test('linux uses && to chain commands', () => {
+    test('linux uses semicolon to avoid timeout when git status fails', () => {
       const cmd = buildGitStatusCommand('GIT_MARKER', 'linux');
-      expect(cmd).toContain('&&');
+      expect(cmd).toContain(';');
       expect(cmd).toContain('printf');
       expect(cmd).toContain('git status --short');
     });

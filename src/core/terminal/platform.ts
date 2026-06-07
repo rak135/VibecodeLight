@@ -6,14 +6,13 @@ export interface PlatformEchoMarker {
 
 export function buildMarkerCommand(marker: string, platform: typeof process.platform = process.platform): string {
   if (platform === 'win32') {
-    return `Write-Output "${marker}"`;
+    return `Write-Output "${marker.replace(/"/g, '``"')}"`;
   }
-  return `printf "${marker}\\n"`;
+  return `printf "${marker.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`')}\\n"`;
 }
 
 export function buildGitStatusCommand(marker: string, platform: typeof process.platform = process.platform): string {
-  const chain = platform === 'win32' ? ';' : '&&';
-  return `git status --short${chain} ${buildMarkerCommand(marker, platform)}`;
+  return `git status --short; ${buildMarkerCommand(marker, platform)}`;
 }
 
 export function platformEchoMarker(platform: typeof process.platform = process.platform): PlatformEchoMarker {
