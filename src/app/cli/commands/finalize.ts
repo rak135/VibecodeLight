@@ -118,4 +118,10 @@ function printHuman(result: FinalizeCheckResult): void {
       console.log(`  [${warning.code}] ${warning.path ?? ''} ${warning.message}`);
     }
   }
+  if (result.recommended_cli_commands.length > 0) {
+    console.log('recommended_cli_commands:');
+    for (const cmd of result.recommended_cli_commands) {
+      console.log(`  - ${cmd}`);
+    }
+  }
 }

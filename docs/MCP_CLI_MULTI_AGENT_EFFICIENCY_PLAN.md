@@ -1985,6 +1985,54 @@ as a first-class count, sourced from `getGitChangesSummary`'s classification
 counts. Generated `.vibecode/` paths remain excluded from unclaimed-source
 warnings.
 
+### Phase 1A dogfood follow-up — implemented
+
+Dogfood found three bounded usability gaps. All three are fixed:
+
+**1. Bootstrap warning for active claims on clean files.**
+`session_bootstrap` now detects when other-agent active claims cover files
+that are NOT dirty in the working tree. These are flagged with a
+`POSSIBLY_STALE_ACTIVE_CLAIMS` warning including claim ids, agent ids, and
+sample paths (bounded by `max_items`). The warning does NOT auto-release
+claims; it recommends `vibecode claims list` and `vibecode claims reap` as
+next actions. Active claims on dirty files are NOT flagged.
+
+**2. Finalize OK now recommends commit guard.**
+`getFinalizeCheck` returns a new `recommended_cli_commands` field. When
+status is `ok` or `warning` with committable claimed files, it includes:
+- `vibecode commit guard --repo <repo> --agent <id> --dry-run --json`
+- `vibecode commit guard --repo <repo> --agent <id> --message "<msg>" --json`
+
+When finalize is blocked, no commit guard command is recommended. MCP and CLI
+expose equivalent recommendation data.
+
+**3. Standalone agents register now requires mode/task.**
+Both CLI `vibecode agents register` and MCP `vibecode_agent_register` now
+require `--agent-mode` / `agent_mode` (read_only | build) and `--task` /
+`task` (non-empty string). Missing or invalid values return structured
+`MISSING_REQUIRED_OPTION` or `INVALID_ARGUMENT` errors. Legacy agents without
+mode/task can no longer be created through the normal agent-facing register
+commands. The session bootstrap `register=true` flow continues to work.
+
+**Tests added:**
+- `tests/core/agent_session/bootstrap.test.ts` — 6 tests covering stale
+  active claim warnings, clean vs dirty file distinction, bounded details,
+  recommended next commands.
+- `tests/core/coordination/finalize_check.test.ts` — 6 tests covering commit
+  guard recommendations for ok/blocked/warning states.
+- `tests/app/cli/finalize_commands.test.ts` — 2 tests covering CLI
+  recommended_cli_commands output.
+- `tests/app/mcp/finalize_tool.test.ts` — 2 tests covering MCP
+  recommended_cli_commands output.
+- `tests/app/cli/agents_commands.test.ts` — 5 tests covering CLI register
+  with/without mode/task, invalid mode, empty task.
+- `tests/app/mcp/phase1a_enforcement.test.ts` — 5 tests covering MCP
+  agent_register with/without mode/task, invalid mode, empty task.
+
+**Existing tests updated:** 3 test files updated to pass `--agent-mode` and
+`--task` to `agents register` CLI calls; 2 MCP test files updated to pass
+`agent_mode` and `task` to `vibecode_agent_register` calls.
+
 ### Next batch
 
 Phase 2 (make coordination harder to skip): bulk claims with intent, finalize

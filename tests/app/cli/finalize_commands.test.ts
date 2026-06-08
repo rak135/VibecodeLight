@@ -211,4 +211,33 @@ describe('vibecode finalize check (CLI)', () => {
     expect(env.data?.changed_files.find((f) => f.path === 'src/alpha.ts')?.classification).toBe('claimed_by_agent');
     expect(env.data?.changed_files.find((f) => f.path === 'src/beta.ts')?.classification).toBe('claimed_by_other_active_agent');
   });
+
+  test('ok status with claimed files includes recommended_cli_commands with commit guard', async () => {
+    const repo = makeRepo('vibecode-cli-fc-rec-ok-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
+    write(repo, 'src/a.ts');
+
+    const result = await runCli(['finalize', 'check', '--agent', agent.agent_id, '--repo', repo, '--json']);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).toBe('ok');
+    const data = env.data as unknown as { recommended_cli_commands: string[] };
+    expect(data.recommended_cli_commands).toBeDefined();
+    expect(data.recommended_cli_commands.some((c) => c.includes('commit guard') && c.includes('--dry-run'))).toBe(true);
+    expect(data.recommended_cli_commands.some((c) => c.includes('commit guard') && c.includes('--message'))).toBe(true);
+  });
+
+  test('blocked status does NOT include commit guard in recommended_cli_commands', async () => {
+    const repo = makeRepo('vibecode-cli-fc-rec-blocked-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    write(repo, 'src/a.ts');
+
+    const result = await runCli(['finalize', 'check', '--agent', agent.agent_id, '--repo', repo, '--json']);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.data?.status).toBe('blocked');
+    const data = env.data as unknown as { recommended_cli_commands: string[] };
+    expect(data.recommended_cli_commands).toBeDefined();
+    expect(data.recommended_cli_commands.some((c) => c.includes('commit guard'))).toBe(false);
+  });
 });

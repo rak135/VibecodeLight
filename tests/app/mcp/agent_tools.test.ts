@@ -35,7 +35,7 @@ describe('VibecodeMCP agent tools', () => {
 
     const result = await tool.handler({
       context: ctx(repo.repoRoot),
-      arguments: { name: 'Codex A', type: 'codex' },
+      arguments: { name: 'Codex A', type: 'codex', agent_mode: 'build', task: 'test task' },
       requestId: null,
     });
     expect(result.isError).toBe(false);
@@ -91,7 +91,7 @@ describe('VibecodeMCP agent tools', () => {
     const tool = buildAgentRegisterTool();
     const result = await tool.handler({
       context: ctx(repo.repoRoot),
-      arguments: { name: 'X', type: 'gpt' },
+      arguments: { name: 'X', type: 'gpt', agent_mode: 'build', task: 'x' },
       requestId: null,
     });
     expect(result.isError).toBe(true);

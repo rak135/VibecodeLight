@@ -330,3 +330,82 @@ describe('getFinalizeCheck — git integration', () => {
     expect(git(['status', '--porcelain=v1'], repo).stdout).toBe(statusBefore);
   });
 });
+
+describe('getFinalizeCheck — commit guard recommendations', () => {
+  test('ok status with claimed dirty files includes dry-run commit guard command', () => {
+    const repo = makeRepo('vibecode-fc-rec-ok-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
+    write(repo, 'src/a.ts');
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
+    expect(result.status).toBe('ok');
+    expect(result.recommended_cli_commands).toBeDefined();
+    expect(result.recommended_cli_commands.length).toBeGreaterThan(0);
+    const dryRun = result.recommended_cli_commands.find((c) => c.includes('commit guard') && c.includes('--dry-run'));
+    expect(dryRun).toBeDefined();
+    expect(dryRun).toContain(agent.agent_id);
+    const realCommit = result.recommended_cli_commands.find((c) => c.includes('commit guard') && !c.includes('--dry-run'));
+    expect(realCommit).toBeDefined();
+    expect(realCommit).toContain('--message');
+  });
+
+  test('blocked status by unclaimed dirty file does NOT include commit guard command', () => {
+    const repo = makeRepo('vibecode-fc-rec-blocked-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    write(repo, 'src/a.ts');
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
+    expect(result.status).toBe('blocked');
+    const commitGuard = result.recommended_cli_commands.find((c) => c.includes('commit guard'));
+    expect(commitGuard).toBeUndefined();
+  });
+
+  test('blocked status by read_only agent does NOT include commit guard command', () => {
+    const repo = makeRepo('vibecode-fc-rec-readonly-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'read_only', task: 'inspect' } });
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
+    expect(result.status).toBe('blocked');
+    const commitGuard = result.recommended_cli_commands.find((c) => c.includes('commit guard'));
+    expect(commitGuard).toBeUndefined();
+  });
+
+  test('blocked status by invalid agent session does NOT include commit guard command', () => {
+    const repo = makeRepo('vibecode-fc-rec-invalid-');
+    // Register a legacy agent without mode/task.
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
+    expect(result.status).toBe('blocked');
+    const commitGuard = result.recommended_cli_commands.find((c) => c.includes('commit guard'));
+    expect(commitGuard).toBeUndefined();
+  });
+
+  test('warning state with own committable files still recommends commit guard', () => {
+    const repo = makeRepo('vibecode-fc-rec-warn-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
+    write(repo, 'src/alpha.ts');
+    write(repo, 'src/beta.ts');
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: a.agent_id });
+    expect(result.status).toBe('warning');
+    // A has committable files (alpha.ts), so commit guard should be recommended.
+    const dryRun = result.recommended_cli_commands.find((c) => c.includes('commit guard') && c.includes('--dry-run'));
+    expect(dryRun).toBeDefined();
+  });
+
+  test('clean working tree with no changed files does not recommend commit guard', () => {
+    const repo = makeRepo('vibecode-fc-rec-clean-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+
+    const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
+    expect(result.status).toBe('ok');
+    // No changed files = nothing to commit.
+    const commitGuard = result.recommended_cli_commands.find((c) => c.includes('commit guard'));
+    expect(commitGuard).toBeUndefined();
+  });
+});

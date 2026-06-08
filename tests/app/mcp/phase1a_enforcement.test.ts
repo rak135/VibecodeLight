@@ -9,6 +9,7 @@ import { buildSessionBootstrapTool } from '../../../src/app/mcp/tools/session_bo
 import { buildGitChangesTool } from '../../../src/app/mcp/tools/git_changes.js';
 import { buildClaimAddTool } from '../../../src/app/mcp/tools/claims.js';
 import { buildFinalizeCheckTool } from '../../../src/app/mcp/tools/finalize_check.js';
+import { buildAgentRegisterTool } from '../../../src/app/mcp/tools/agents.js';
 import { registerAgent, markAgentTerminated } from '../../../src/core/coordination/agents.js';
 import { HARD_MAX_BOOTSTRAP_ITEMS, HARD_MAX_GIT_CHANGES_FILES } from '../../../src/app/mcp/schemas.js';
 import type { McpServerContext } from '../../../src/app/mcp/index.js';
@@ -338,6 +339,78 @@ describe('Phase 1A MCP input validation / hard caps', () => {
       const data = result.structuredContent.data as { status: string; blocks: Array<{ code: string }> };
       expect(data.status).toBe('blocked');
       expect(data.blocks[0].code).toBe('READ_ONLY_AGENT');
+    });
+  });
+
+  // =========================================================================
+  // Fix 3: MCP agent_register requires mode/task
+  // =========================================================================
+  describe('MCP agent_register requires mode/task', () => {
+    test('register without agent_mode fails with INVALID_ARGUMENT', async () => {
+      const result = await buildAgentRegisterTool().handler({
+        context: ctx(repo.repoRoot),
+        arguments: { name: 'Bot', type: 'codex', task: 'do work' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+      expect(result.structuredContent.error?.message).toContain('agent_mode');
+    });
+
+    test('register without task fails with INVALID_ARGUMENT', async () => {
+      const result = await buildAgentRegisterTool().handler({
+        context: ctx(repo.repoRoot),
+        arguments: { name: 'Bot', type: 'codex', agent_mode: 'build' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+      expect(result.structuredContent.error?.message).toContain('task');
+    });
+
+    test('register with valid agent_mode and task succeeds', async () => {
+      const result = await buildAgentRegisterTool().handler({
+        context: ctx(repo.repoRoot),
+        arguments: { name: 'Bot', type: 'codex', agent_mode: 'build', task: 'implement feature' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const agent = result.structuredContent.data as { agent: { metadata?: { operating_mode?: string; task?: string } } };
+      expect(agent.agent.metadata?.operating_mode).toBe('build');
+      expect(agent.agent.metadata?.task).toBe('implement feature');
+    });
+
+    test('register with invalid agent_mode fails with INVALID_ARGUMENT', async () => {
+      const result = await buildAgentRegisterTool().handler({
+        context: ctx(repo.repoRoot),
+        arguments: { name: 'Bot', type: 'codex', agent_mode: 'observer', task: 'x' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+    });
+
+    test('register with empty/whitespace task fails with INVALID_ARGUMENT', async () => {
+      const result = await buildAgentRegisterTool().handler({
+        context: ctx(repo.repoRoot),
+        arguments: { name: 'Bot', type: 'codex', agent_mode: 'build', task: '   ' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+      expect(result.structuredContent.error?.message).toContain('task');
+    });
+
+    test('bootstrap register flow still works', async () => {
+      const result = await tool().handler({
+        context: ctx(repo.repoRoot),
+        arguments: { register: true, agent_mode: 'build', task: 'fix auth' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as SessionBootstrapResult;
+      expect(data.current_agent?.operating_mode).toBe('build');
+      expect(data.current_agent?.task).toBe('fix auth');
     });
   });
 });

@@ -46,6 +46,10 @@ function renderText(result: FinalizeCheckResult): string {
     lines.push('', 'warnings:');
     for (const warning of result.warnings) lines.push(`  - [${warning.code}] ${warning.path ?? ''} ${warning.message}`);
   }
+  if (result.recommended_cli_commands.length > 0) {
+    lines.push('', 'recommended_cli_commands:');
+    for (const cmd of result.recommended_cli_commands) lines.push(`  - ${cmd}`);
+  }
   lines.push('', 'Advisory finalize check — read-only; not a commit guard.');
   return lines.join('\n');
 }

@@ -42,7 +42,7 @@ describe('prompt coordination binding (CLI)', () => {
     runCli(['context', 'finalize', 'latest', '--repo', tmpRepo], tmpRepo);
 
     // Register an agent to bind to.
-    const reg = runCli(['agents', 'register', '--name', 'Alice', '--type', 'claude', '--json', '--repo', tmpRepo], tmpRepo);
+    const reg = runCli(['agents', 'register', '--name', 'Alice', '--type', 'claude', '--agent-mode', 'build', '--task', 'test task', '--json', '--repo', tmpRepo], tmpRepo);
     expect(reg.status).toBe(0);
     agentId = JSON.parse(reg.stdout.trim()).data.agent.agent_id;
   });

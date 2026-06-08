@@ -98,6 +98,7 @@ export interface FinalizeCheckResult {
   blocks: FinalizeIssue[];
   warnings: FinalizeIssue[];
   summary: FinalizeCheckSummary;
+  recommended_cli_commands: string[];
 }
 
 function toIso(now: Date | string | undefined): string {
@@ -133,6 +134,7 @@ function blockedResult(args: {
     blocks: [args.block],
     warnings: [],
     summary: emptySummary(),
+    recommended_cli_commands: [],
   };
 }
 
@@ -456,6 +458,17 @@ export function getFinalizeCheck(input: FinalizeCheckInput): FinalizeCheckResult
   const status: FinalizeCheckResult['status'] =
     blocks.length > 0 ? 'blocked' : warnings.length > 0 ? 'warning' : 'ok';
 
+  // Build commit guard recommendations when there are committable files.
+  const recommended_cli_commands: string[] = [];
+  const agentIdForCmd = agent.agent_id;
+  const hasOwnCommittedFiles = summary.allowed_count > 0;
+  if (status !== 'blocked' && hasOwnCommittedFiles) {
+    recommended_cli_commands.push(
+      `vibecode commit guard --repo <repo> --agent ${agentIdForCmd} --dry-run --json`,
+      `vibecode commit guard --repo <repo> --agent ${agentIdForCmd} --message "<message>" --json`,
+    );
+  }
+
   return {
     ok: true,
     status,
@@ -466,5 +479,6 @@ export function getFinalizeCheck(input: FinalizeCheckInput): FinalizeCheckResult
     blocks,
     warnings,
     summary,
+    recommended_cli_commands,
   };
 }

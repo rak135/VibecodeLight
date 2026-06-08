@@ -48,7 +48,10 @@ describe('vibecode agents (CLI)', () => {
   afterEach(() => repo.cleanup());
 
   async function register(name = 'Codex A', type = 'codex'): Promise<{ agent_id: string }> {
-    const res = await runCli(['agents', 'register', '--repo', repo.repoRoot, '--name', name, '--type', type, '--json']);
+    const res = await runCli([
+      'agents', 'register', '--repo', repo.repoRoot, '--name', name, '--type', type,
+      '--agent-mode', 'build', '--task', 'test task', '--json',
+    ]);
     expect(res.exitCode).toBe(0);
     const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
     return env.data.agent as { agent_id: string };
@@ -56,7 +59,8 @@ describe('vibecode agents (CLI)', () => {
 
   test('register --json returns a stable success envelope with the created agent', async () => {
     const res = await runCli([
-      'agents', 'register', '--repo', repo.repoRoot, '--name', 'Codex A', '--type', 'codex', '--json',
+      'agents', 'register', '--repo', repo.repoRoot, '--name', 'Codex A', '--type', 'codex',
+      '--agent-mode', 'build', '--task', 'test task', '--json',
     ]);
     expect(res.exitCode).toBe(0);
     expect(res.errors).toEqual([]);
@@ -107,7 +111,8 @@ describe('vibecode agents (CLI)', () => {
 
   test('invalid agent type returns a structured validation error', async () => {
     const res = await runCli([
-      'agents', 'register', '--repo', repo.repoRoot, '--name', 'X', '--type', 'gpt', '--json',
+      'agents', 'register', '--repo', repo.repoRoot, '--name', 'X', '--type', 'gpt',
+      '--agent-mode', 'build', '--task', 'x', '--json',
     ]);
     expect(res.exitCode).toBe(1);
     const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
@@ -132,5 +137,63 @@ describe('vibecode agents (CLI)', () => {
     const agents = env.data.agents as Array<{ agent_id: string }>;
     expect(agents).toHaveLength(1);
     expect(agents[0].agent_id).toBe(agent_id);
+  });
+
+  test('register without --agent-mode fails with structured error', async () => {
+    const res = await runCli([
+      'agents', 'register', '--repo', repo.repoRoot, '--name', 'Bot', '--type', 'codex', '--task', 'do work', '--json',
+    ]);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error.code).toBe('MISSING_REQUIRED_OPTION');
+    expect(env.error.message).toContain('--agent-mode');
+  });
+
+  test('register without --task fails with structured error', async () => {
+    const res = await runCli([
+      'agents', 'register', '--repo', repo.repoRoot, '--name', 'Bot', '--type', 'codex', '--agent-mode', 'build', '--json',
+    ]);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error.code).toBe('MISSING_REQUIRED_OPTION');
+    expect(env.error.message).toContain('--task');
+  });
+
+  test('register with --agent-mode and --task succeeds', async () => {
+    const res = await runCli([
+      'agents', 'register', '--repo', repo.repoRoot, '--name', 'Bot', '--type', 'codex',
+      '--agent-mode', 'build', '--task', 'implement feature', '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    expect(env.ok).toBe(true);
+    const agent = env.data.agent as { metadata?: { operating_mode?: string; task?: string } };
+    expect(agent.metadata?.operating_mode).toBe('build');
+    expect(agent.metadata?.task).toBe('implement feature');
+  });
+
+  test('register with invalid --agent-mode fails with structured error', async () => {
+    const res = await runCli([
+      'agents', 'register', '--repo', repo.repoRoot, '--name', 'Bot', '--type', 'codex',
+      '--agent-mode', 'observer', '--task', 'x', '--json',
+    ]);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error.code).toBe('INVALID_ARGUMENT');
+    expect(env.error.message).toContain('read_only');
+  });
+
+  test('register with empty --task fails with structured error', async () => {
+    const res = await runCli([
+      'agents', 'register', '--repo', repo.repoRoot, '--name', 'Bot', '--type', 'codex',
+      '--agent-mode', 'build', '--task', '   ', '--json',
+    ]);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error.code).toBe('MISSING_REQUIRED_OPTION');
   });
 });

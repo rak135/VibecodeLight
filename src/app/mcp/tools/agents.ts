@@ -6,6 +6,7 @@ import {
 } from '../../../core/coordination/agents.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import { isAgentType, type AgentSession } from '../../../core/coordination/types.js';
+import { isAgentOperatingMode } from '../../../core/coordination/agent_operating_mode.js';
 import { buildMcpError, type McpErrorCode } from '../errors.js';
 import { formatError, formatSimpleSuccess, type McpToolFormattedResult } from '../format.js';
 import {
@@ -60,12 +61,12 @@ function agentLines(agent: AgentSession): string[] {
 export function buildAgentRegisterTool(): McpToolDefinition {
   const inputSchema: JsonSchema = AGENT_REGISTER_INPUT_SCHEMA;
   const TOOL_NAME = 'vibecode_agent_register';
-  const ALLOWED_KEYS = new Set(['name', 'type', 'terminal_session_id', 'pid']);
+  const ALLOWED_KEYS = new Set(['name', 'type', 'agent_mode', 'task', 'terminal_session_id', 'pid']);
   return {
     name: TOOL_NAME,
     title: 'Register agent session',
     description:
-      'Register a persistent multi-agent coordination session for the bound repo (advisory). Writes only generated .vibecode/coordination/state.json; no source-file locks. Returns the created agent session.',
+      'Register a persistent multi-agent coordination session for the bound repo (advisory). Requires agent_mode (read_only | build) and task. Writes only generated .vibecode/coordination/state.json; no source-file locks. Returns the created agent session.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();
@@ -87,6 +88,11 @@ export function buildAgentRegisterTool(): McpToolDefinition {
       if (!isAgentType(args.type)) {
         return fail('INVALID_ARGUMENT', `invalid type: expected one of claude|codex|hermes|opencode|custom, got ${JSON.stringify(args.type)}`);
       }
+      if (!isAgentOperatingMode(args.agent_mode)) {
+        return fail('INVALID_ARGUMENT', `invalid agent_mode: expected read_only | build, got ${JSON.stringify(args.agent_mode)}`);
+      }
+      const task = validateNonEmptyString(args.task, 'task');
+      if (!task.ok) return fail('INVALID_ARGUMENT', task.message);
       const pid = validatePositiveInteger(args.pid, 'pid');
       if (!pid.ok) return fail('INVALID_ARGUMENT', pid.message);
       const terminalSessionId =
@@ -99,6 +105,7 @@ export function buildAgentRegisterTool(): McpToolDefinition {
           agent_type: args.type,
           terminal_session_id: terminalSessionId,
           pid: pid.value ?? null,
+          metadata: { operating_mode: args.agent_mode, task: task.value },
         });
       } catch (err) {
         if (err instanceof CoordinationError) {

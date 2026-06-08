@@ -11,6 +11,7 @@ import {
 } from '../../../core/coordination/agents.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import type { AgentSession } from '../../../core/coordination/types.js';
+import { isAgentOperatingMode } from '../../../core/coordination/agent_operating_mode.js';
 import {
   type EmitCliStructuredError,
   type MakeCliStructuredError,
@@ -80,6 +81,8 @@ export function registerAgentsCommands(
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--name <name>', 'Human-friendly agent name')
     .option('--type <type>', 'Agent type: claude | codex | hermes | opencode | custom')
+    .option('--agent-mode <mode>', 'Operating mode: read_only | build (required)')
+    .option('--task <text>', 'Task/intent for the session (required)')
     .option('--terminal-session-id <id>', 'Owning terminal session id')
     .option('--pid <pid>', 'OS process id')
     .option('--json', 'Output canonical JSON envelope')
@@ -87,17 +90,37 @@ export function registerAgentsCommands(
       repo: string;
       name?: string;
       type?: string;
+      agentMode?: string;
+      task?: string;
       terminalSessionId?: string;
       pid?: string;
       json?: boolean;
     }) => {
       const repoRoot = path.resolve(options.repo);
-      if (!options.name || !options.type) {
+      const missing: string[] = [];
+      if (!options.name) missing.push('--name');
+      if (!options.type) missing.push('--type');
+      if (!options.agentMode) missing.push('--agent-mode');
+      if (!options.task || options.task.trim().length === 0) missing.push('--task');
+      if (missing.length > 0) {
         emitCliStructuredError(
-          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'agents register requires --name and --type.', repoRoot, [
-            ...(options.name ? [] : ['Missing: --name <name>']),
-            ...(options.type ? [] : ['Missing: --type <type>']),
-          ]),
+          makeCliStructuredError(
+            'MISSING_REQUIRED_OPTION',
+            `agents register requires ${missing.join(', ')}.`,
+            repoRoot,
+            missing.map((m) => `Missing: ${m} <value>`),
+          ),
+          { json: options.json, prefix: 'agents register failed' },
+        );
+        return;
+      }
+      if (!isAgentOperatingMode(options.agentMode)) {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            'INVALID_ARGUMENT',
+            `invalid --agent-mode: expected read_only | build, got ${JSON.stringify(options.agentMode)}`,
+            repoRoot,
+          ),
           { json: options.json, prefix: 'agents register failed' },
         );
         return;
@@ -109,6 +132,7 @@ export function registerAgentsCommands(
           agent_type: options.type!,
           terminal_session_id: options.terminalSessionId ?? null,
           pid: Number.isFinite(pid) ? pid : null,
+          metadata: { operating_mode: options.agentMode!, task: options.task!.trim() },
         });
         return { agent };
       });

@@ -411,6 +411,7 @@ function recommendations(args: {
   registered: boolean;
   hasAgentId: boolean;
   operatingMode: AgentOperatingMode | null;
+  hasStaleCleanClaims: boolean;
 }): { tools: string[]; commands: string[] } {
   const tools: string[] = [];
   const commands: string[] = [];
@@ -440,6 +441,13 @@ function recommendations(args: {
     commands.push(
       'vibecode claims add --repo <path> --agent <agent_id> --path <path> --json',
       'vibecode finalize check --repo <path> --agent <agent_id> --json',
+    );
+  }
+  if (args.hasStaleCleanClaims) {
+    tools.push('vibecode_claims_list', 'vibecode_claims_reap');
+    commands.push(
+      'vibecode claims list --repo <repo> --json',
+      'vibecode claims reap --repo <repo> --dry-run --json',
     );
   }
   return { tools, commands };
@@ -595,6 +603,36 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     })),
   };
 
+  // --- stale active claim detection (other-agent claims on clean files) ---
+  let hasStaleCleanClaims = false;
+  if (otherActiveClaims.length > 0 && changes.ok) {
+    const dirtyPaths = new Set(changes.files.map((f) => f.path));
+    const staleCleanClaims: typeof otherActiveClaims = [];
+    for (const claim of otherActiveClaims) {
+      if (!dirtyPaths.has(claim.path)) {
+        staleCleanClaims.push(claim);
+      }
+    }
+    if (staleCleanClaims.length > 0) {
+      hasStaleCleanClaims = true;
+      const bounded = staleCleanClaims.slice(0, maxItems);
+      const samplePaths = bounded.map((c) => c.path);
+      const claimIds = bounded.map((c) => c.claim_id);
+      const agentIds = [...new Set(bounded.map((c) => c.agent_id))];
+      warnings.push(
+        notice(
+          'POSSIBLY_STALE_ACTIVE_CLAIMS',
+          'warning',
+          `${staleCleanClaims.length} active claim(s) from other agent(s) cover files that are not dirty — possibly stale/forgotten after previous work.`
+            + ` Claims: ${claimIds.join(', ')}.`
+            + ` Agents: ${agentIds.join(', ')}.`
+            + ` Sample paths: ${samplePaths.join(', ')}.`
+            + ` Use 'vibecode claims list' or 'vibecode claims reap' to inspect/release.`,
+        ),
+      );
+    }
+  }
+
   // --- codegraph status ---
   const codegraphProvider = input.codegraphStatus ?? defaultCodeGraphStatus;
   let codegraph: BootstrapCodeGraphStatus;
@@ -633,6 +671,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     registered: Boolean(currentAgent),
     hasAgentId: Boolean(input.agent_id),
     operatingMode: currentAgent ? getAgentOperatingMode(currentAgent) : null,
+    hasStaleCleanClaims,
   });
 
   return {

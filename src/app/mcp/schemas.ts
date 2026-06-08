@@ -229,10 +229,16 @@ export const AGENT_REGISTER_INPUT_SCHEMA: JsonSchema = {
       enum: [...AGENT_TYPES],
       description: 'Agent type: claude | codex | hermes | opencode | custom.',
     },
+    agent_mode: {
+      type: 'string',
+      enum: [...AGENT_OPERATING_MODES],
+      description: 'Operating mode: read_only | build. Required.',
+    },
+    task: { type: 'string', description: 'Task/intent for the session. Required.' },
     terminal_session_id: { type: 'string', description: 'Owning terminal session id, if any.' },
     pid: { ...POSITIVE_INT, description: 'OS process id, if known (positive integer).' },
   },
-  required: ['name', 'type'],
+  required: ['name', 'type', 'agent_mode', 'task'],
 };
 
 export const AGENT_HEARTBEAT_INPUT_SCHEMA: JsonSchema = {

@@ -255,3 +255,99 @@ describe('getSessionBootstrap — coordination summaries', () => {
     expect(result.claims.own).toHaveLength(2);
   });
 });
+
+describe('getSessionBootstrap — stale active claim warnings for clean files', () => {
+  test('active other-agent claim on a clean file produces a POSSIBLY_STALE_ACTIVE_CLAIMS warning', async () => {
+    const repo = makeRepo('vibecode-bs-stale-clean-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    // B claims src/theirs.ts but does NOT dirty it (the file does not exist in the working tree).
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/theirs.ts', mode: 'exclusive' });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
+    expect(staleWarnings.length).toBeGreaterThan(0);
+    const warning = staleWarnings[0];
+    expect(warning.message).toContain('possibly stale');
+    expect(warning.message).toContain('claims list');
+    expect(warning.message).toContain('claims reap');
+  });
+
+  test('POSSIBLY_STALE_ACTIVE_CLAIMS warning includes claim ids, agent ids, and sample paths', async () => {
+    const repo = makeRepo('vibecode-bs-stale-detail-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean1.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean2.ts', mode: 'shared' });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
+    expect(staleWarnings.length).toBeGreaterThan(0);
+    // The warning message should reference the claim details.
+    const warning = staleWarnings[0];
+    expect(warning.message).toContain(b.agent_id);
+    expect(warning.message).toContain('src/clean1.ts');
+  });
+
+  test('POSSIBLY_STALE_ACTIVE_CLAIMS warning is bounded by max_items', async () => {
+    const repo = makeRepo('vibecode-bs-stale-bound-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    for (let i = 0; i < 10; i += 1) {
+      addFileClaim(repo, { agent_id: b.agent_id, path: `src/clean${i}.ts`, mode: 'exclusive' });
+    }
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, max_items: 3, ...baseOpts });
+    const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
+    // Should have at least one warning, and the details should be bounded.
+    expect(staleWarnings.length).toBeGreaterThan(0);
+  });
+
+  test('active other-agent claim on a dirty file is NOT flagged as stale', async () => {
+    const repo = makeRepo('vibecode-bs-stale-dirty-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    // B claims src/theirs.ts AND the file is dirty in the working tree.
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/theirs.ts', mode: 'exclusive' });
+    write(repo, 'src/theirs.ts');
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
+    // The dirty-file claim should NOT be flagged as stale.
+    expect(staleWarnings).toHaveLength(0);
+    // The other_active claims summary should still work.
+    expect(result.claims.counts.other_active).toBe(1);
+  });
+
+  test('existing other_active claims summary still works alongside stale warnings', async () => {
+    const repo = makeRepo('vibecode-bs-stale-summary-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    // One clean-file claim (stale) and one dirty-file claim (legitimate).
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/dirty.ts', mode: 'exclusive' });
+    write(repo, 'src/dirty.ts');
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    // Both claims are other_active.
+    expect(result.claims.counts.other_active).toBe(2);
+    // Only the clean-file claim produces a stale warning.
+    const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
+    expect(staleWarnings.length).toBeGreaterThan(0);
+    expect(staleWarnings[0].message).toContain('src/clean.ts');
+    expect(staleWarnings[0].message).not.toContain('src/dirty.ts');
+  });
+
+  test('recommended next commands include claims list and claims reap when stale warning present', async () => {
+    const repo = makeRepo('vibecode-bs-stale-recs-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean.ts', mode: 'exclusive' });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    expect(result.recommended_cli_commands.some((c) => c.includes('claims list'))).toBe(true);
+    expect(result.recommended_cli_commands.some((c) => c.includes('claims reap'))).toBe(true);
+    expect(result.recommended_next_tools).toContain('vibecode_claims_list');
+    expect(result.recommended_next_tools).toContain('vibecode_claims_reap');
+  });
+});
