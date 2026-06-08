@@ -404,6 +404,25 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .term-surface .xterm { height: 100%; }
 
+/* Single-scrollbar invariant: the custom scroll rail (below) is the ONLY
+   visible right-side scroll control for a terminal tile. Suppress xterm's own
+   scrollbar chrome so it does not double up with the rail. The viewport stays
+   scrollable — only the scrollbar UI is hidden — so wheel/scroll behaviour is
+   unchanged. xterm v6 reserves no gutter for the native scrollbar, so hiding it
+   does not shift the terminal content. Covers both the native viewport
+   scrollbar and xterm v6's VS Code-style overlay slider. */
+.tile-term-shell .xterm-viewport {
+  scrollbar-width: none; /* Firefox / Gecko */
+}
+.tile-term-shell .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chromium / Electron */
+}
+.tile-term-shell .xterm-scrollable-element > .scrollbar {
+  display: none; /* xterm v6 VS Code-style overlay slider, if present */
+}
+
 /* ------------- Per-terminal scroll rail -------------
    A browser-like vertical scrollbar bound to the real xterm scrollback buffer
    (see scroll_rail.js). One rail per terminal tile, on the right edge. It is
@@ -485,24 +504,50 @@ input, textarea, select { font: inherit; color: inherit; }
   70% { box-shadow: inset 0 0 0 12px transparent; }
   100% { box-shadow: inset 0 0 0 0 transparent; }
 }
-/* Alternate-screen / full-screen TUI: xterm keeps no scrollback, so the rail
-   cannot scroll history. Show a thin dimmed marker (non-interactive) rather
-   than disappearing, so the limitation is visible and honest. */
-.scroll-rail.scroll-rail-alt {
-  opacity: 0.5;
-  pointer-events: none;
+/* Up/down step button (top of the rail). Shown only in TUI mode, where it
+   forwards a wheel notch to the app. Mirrors the jump button at the bottom. */
+.scroll-rail-step {
+  flex: none;
+  width: 100%;
+  height: 22px;
+  display: none; /* toggled to flex by JS in TUI mode */
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--tx-fast), color var(--tx-fast);
 }
-.scroll-rail.scroll-rail-alt .scroll-rail-track {
+.scroll-rail-step:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* Alternate-screen / full-screen TUI (vim, htop, OpenCode): xterm keeps no
+   scrollback here and the app owns its scroll position. The rail stays VISIBLE
+   and INTERACTIVE — up/down buttons and wheel-over-rail forward wheel input to
+   the app exactly like a real mouse wheel — but the track is an indeterminate
+   groove rather than a positioned thumb, because the exact position is
+   unknowable. We must not paint a fake exact thumb. */
+.scroll-rail.scroll-rail-tui {
+  opacity: 1;
+  pointer-events: auto;
+}
+.scroll-rail.scroll-rail-tui .scroll-rail-track {
   background: repeating-linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.06) 0,
-    rgba(255, 255, 255, 0.06) 3px,
-    transparent 3px,
-    transparent 7px
+    rgba(255, 255, 255, 0.07) 0,
+    rgba(255, 255, 255, 0.07) 2px,
+    transparent 2px,
+    transparent 6px
   );
-  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.04);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.05);
+  cursor: ns-resize;
 }
-.scroll-rail.scroll-rail-alt .scroll-rail-thumb {
+.scroll-rail.scroll-rail-tui .scroll-rail-thumb {
   display: none;
 }
 

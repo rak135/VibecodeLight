@@ -1,23 +1,28 @@
 // Per-terminal scroll rail — controller logic and DOM builder.
 //
-// The controller binds to a single xterm.Terminal instance and exposes
-// scroll state + actions. The DOM builder creates the visual rail element.
-// Each terminal tile gets its own controller + rail — no shared state.
+// The controller binds to a single xterm.Terminal instance and exposes scroll
+// state + actions. The DOM builder creates the visual rail element. Each
+// terminal tile gets its own controller + rail — no shared state.
 //
-// Alternate-screen / fullscreen TUI limitation: xterm.js exposes the
-// alternate buffer's baseY as 0, so the rail thumb fills the track and
-// the jump-to-bottom button hides. This is correct graceful degradation —
-// alternate-screen apps manage their own viewport and scrollback is not
-// meaningful.
+// Two scroll worlds, two strategies:
+//
+//   scrollback mode (normal buffer): the rail mirrors xterm's real scrollback.
+//     It reads ybase/ydisp from the buffer and drives the viewport through the
+//     xterm scroll API (scrollLines / scrollToBottom). The thumb shows the exact
+//     position.
+//
+//   tui mode (alternate buffer): a full-screen TUI (vim, htop, Bubble-Tea apps
+//     such as OpenCode) redraws the same viewport every frame and keeps NO xterm
+//     scrollback, so the xterm scroll API does nothing useful. These apps scroll
+//     their OWN content in response to mouse-wheel input: xterm encodes the wheel
+//     as a mouse escape sequence (mouse-tracking apps) or as arrow keys (plain
+//     pagers) and sends it to the PTY. The rail reproduces that input by
+//     dispatching a synthetic `wheel` event on the xterm root element — exactly
+//     the node and event xterm's own wheel handler listens on — so the app
+//     scrolls just as if the user had used a real wheel. The rail CANNOT know the
+//     app's internal scroll position, so it shows an indeterminate state instead
+//     of a fake exact thumb, and jump-to-bottom / drag-to-position are disabled.
 (function () {
-  if (typeof window === 'undefined') {
-    // Node/test environment — export pure logic only.
-    if (typeof module !== 'undefined') {
-      module.exports = { computeScrollState, createScrollRailController };
-    }
-    return;
-  }
-
   // -----------------------------------------------------------------------
   // Pure scroll state computation (testable without DOM or xterm)
   // -----------------------------------------------------------------------
@@ -26,11 +31,11 @@
     var totalRows = buffer.length;
     var baseY = buffer.baseY;
     var viewportY = buffer.viewportY;
-    // xterm.js keeps NO scrollback for the alternate screen buffer: a
-    // full-screen TUI (vim, htop, Bubble-Tea apps such as OpenCode) redraws
-    // the same viewport every frame, so there is no history to scroll. We
-    // surface this so the rail can degrade visibly instead of pretending.
+    // xterm.js keeps NO scrollback for the alternate screen buffer, so when it
+    // is active we are in TUI mode: position is unknowable and actions must be
+    // forwarded as wheel input rather than driven through the scroll API.
     var isAlt = buffer.type === 'alternate';
+    var mode = isAlt ? 'tui' : 'scrollback';
 
     var isAtBottom = viewportY >= baseY;
     var thumbRatio = totalRows <= viewportRows ? 1 : viewportRows / totalRows;
@@ -44,6 +49,10 @@
 
     return {
       isAlt: isAlt,
+      mode: mode,
+      // In TUI mode the app owns its scroll position; the rail must not pretend
+      // to know it. Callers render an indeterminate rail when this is true.
+      indeterminate: isAlt,
       isAtBottom: isAtBottom,
       thumbRatio: thumbRatio,
       thumbPosition: thumbPosition,
@@ -51,7 +60,46 @@
       viewportRows: viewportRows,
       baseY: baseY,
       viewportY: viewportY,
+      // Whether the running app has enabled mouse reporting. Filled in by the
+      // controller (read from xterm's public modes API); informational only.
+      mouseTracking: false,
       hasNewOutput: false,
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Wheel forwarding — reproduce real mouse-wheel input for TUI mode
+  // -----------------------------------------------------------------------
+  //
+  // Builds the default browser wheel sender. It dispatches a synthetic `wheel`
+  // event on `terminal.element` (the `.xterm` root), which is the exact element
+  // xterm binds its wheel handler to. xterm then does whatever a real wheel
+  // would: forward a mouse escape to mouse-tracking apps, or send arrow keys to
+  // plain alt-screen pagers. xterm does not gate on `event.isTrusted`, so the
+  // synthetic event is honoured.
+  //
+  // Returns a no-op-safe sender in non-browser/test environments; tests inject
+  // their own `sendWheel` and assert on it instead.
+  function makeDefaultWheelSender(terminal) {
+    return function sendWheel(direction) {
+      if (typeof window === 'undefined' || typeof window.WheelEvent !== 'function') return;
+      var el = terminal && terminal.element;
+      if (!el || typeof el.dispatchEvent !== 'function') return;
+      var rect = (el.getBoundingClientRect && el.getBoundingClientRect())
+        || { left: 0, top: 0, width: 0, height: 0 };
+      var ev = new window.WheelEvent('wheel', {
+        // One line per notch (DOM_DELTA_LINE === 1). xterm forwards per notch,
+        // so each call scrolls the app by one wheel step.
+        deltaY: direction === 'up' ? -1 : 1,
+        deltaMode: 1,
+        // Aim at the centre of the terminal so mouse-tracking apps map the wheel
+        // event to a cell inside their viewport.
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      });
+      el.dispatchEvent(ev);
     };
   }
 
@@ -59,7 +107,16 @@
   // Controller — binds to one xterm terminal instance
   // -----------------------------------------------------------------------
 
-  function createScrollRailController(terminal) {
+  function createScrollRailController(terminal, options) {
+    options = options || {};
+    // Lines per wheel notch when driving real scrollback (scrollback mode).
+    var WHEEL_STEP = options.wheelStep || 3;
+    // Wheel notches synthesised per page action in TUI mode. TUIs typically
+    // scroll a fixed amount per notch regardless of delta magnitude, so a page
+    // is several discrete notches rather than one large delta.
+    var PAGE_NOTCHES = options.pageNotches || 3;
+    var sendWheel = options.sendWheel || makeDefaultWheelSender(terminal);
+
     var listeners = [];
     var disposed = false;
     // Sticky "new output arrived while scrolled up" flag. xterm fires onScroll
@@ -68,11 +125,28 @@
     var hasNewOutput = false;
     var lastLength = terminal.buffer.active.length;
 
+    function isTui() {
+      try {
+        return terminal.buffer.active.type === 'alternate';
+      } catch (_e) {
+        return false;
+      }
+    }
+
+    function readMouseTracking() {
+      try {
+        var m = terminal.modes;
+        return !!(m && m.mouseTrackingMode && m.mouseTrackingMode !== 'none');
+      } catch (_e) {
+        return false;
+      }
+    }
+
     // Recompute the flag from the latest buffer state. Growth while parked
-    // above the bottom raises the flag; reaching the bottom clears it; the
-    // alternate screen never raises it (no scrollback there).
+    // above the bottom raises the flag; reaching the bottom clears it; TUI mode
+    // never raises it (no scrollback there).
     function refreshNewOutput(state) {
-      if (state.isAlt) {
+      if (state.mode === 'tui') {
         hasNewOutput = false;
       } else {
         if (state.totalRows > lastLength && !state.isAtBottom) hasNewOutput = true;
@@ -83,30 +157,59 @@
       return state;
     }
 
-    function getState() {
-      var state = computeScrollState(terminal.buffer.active, terminal.rows);
-      state.hasNewOutput = hasNewOutput;
+    function decorate(state) {
+      state.mouseTracking = readMouseTracking();
       return state;
     }
 
+    function getState() {
+      var state = computeScrollState(terminal.buffer.active, terminal.rows);
+      state.hasNewOutput = hasNewOutput;
+      return decorate(state);
+    }
+
+    // -- Actions. Each routes by mode: scrollback drives the real xterm
+    //    scrollback; tui forwards wheel-like input (and never claims a position).
+
     function scrollToBottom() {
+      if (isTui()) return; // bottom is unknowable in a TUI; jump is disabled
       hasNewOutput = false;
       terminal.scrollToBottom();
     }
 
     function scrollLines(n) {
+      // Raw passthrough used by scrollback-mode interactions.
       terminal.scrollLines(n);
     }
 
+    function wheelLikeUp() {
+      if (isTui()) sendWheel('up');
+      else terminal.scrollLines(-WHEEL_STEP);
+    }
+
+    function wheelLikeDown() {
+      if (isTui()) sendWheel('down');
+      else terminal.scrollLines(WHEEL_STEP);
+    }
+
     function pageUp() {
-      terminal.scrollLines(-terminal.rows);
+      if (isTui()) {
+        for (var i = 0; i < PAGE_NOTCHES; i++) sendWheel('up');
+      } else {
+        terminal.scrollLines(-terminal.rows);
+      }
     }
 
     function pageDown() {
-      terminal.scrollLines(terminal.rows);
+      if (isTui()) {
+        for (var i = 0; i < PAGE_NOTCHES; i++) sendWheel('down');
+      } else {
+        terminal.scrollLines(terminal.rows);
+      }
     }
 
     function scrollToRatio(ratio) {
+      if (isTui()) return; // exact position is unknowable in a TUI; drag disabled
       var baseY = terminal.buffer.active.baseY;
       var currentY = terminal.buffer.active.viewportY;
       var targetY = Math.round(ratio * baseY);
@@ -124,7 +227,7 @@
 
     function notifyListeners() {
       if (disposed) return;
-      var state = refreshNewOutput(computeScrollState(terminal.buffer.active, terminal.rows));
+      var state = decorate(refreshNewOutput(computeScrollState(terminal.buffer.active, terminal.rows)));
       for (var i = 0; i < listeners.length; i++) {
         try { listeners[i](state); } catch (_e) { /* best-effort */ }
       }
@@ -146,6 +249,8 @@
       getState: getState,
       scrollToBottom: scrollToBottom,
       scrollLines: scrollLines,
+      wheelLikeUp: wheelLikeUp,
+      wheelLikeDown: wheelLikeDown,
       pageUp: pageUp,
       pageDown: pageDown,
       scrollToRatio: scrollToRatio,
@@ -155,57 +260,43 @@
   }
 
   // -----------------------------------------------------------------------
-  // DOM builder — creates the visual rail element for a terminal tile
+  // Rail DOM update (pure: operates on the passed element handles, so it is
+  // testable without a real DOM)
   // -----------------------------------------------------------------------
 
-  function createScrollRailElement() {
-    var rail = document.createElement('div');
-    rail.className = 'scroll-rail';
-    rail.setAttribute('aria-hidden', 'true');
-
-    var track = document.createElement('div');
-    track.className = 'scroll-rail-track';
-
-    var thumb = document.createElement('div');
-    thumb.className = 'scroll-rail-thumb';
-
-    var jumpBtn = document.createElement('button');
-    jumpBtn.className = 'scroll-rail-jump';
-    jumpBtn.type = 'button';
-    jumpBtn.title = 'Jump to bottom';
-    jumpBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 16 16" fill="none">'
-      + '<path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
-      + '</svg>';
-
-    track.appendChild(thumb);
-    rail.appendChild(track);
-    rail.appendChild(jumpBtn);
-
-    return { rail: rail, track: track, thumb: thumb, jumpBtn: jumpBtn };
-  }
-
   function updateScrollRailDom(elements, state) {
+    var rail = elements.rail;
+    var track = elements.track;
     var thumb = elements.thumb;
     var jumpBtn = elements.jumpBtn;
-    var rail = elements.rail;
+    var upBtn = elements.upBtn;
 
-    // Alternate-screen / full-screen TUI: scrollback is not available. Show a
-    // dimmed, non-interactive marker (CSS) instead of vanishing, so the user
-    // can see the limitation rather than wondering if the rail is broken.
-    if (state.isAlt) {
+    if (state.mode === 'tui') {
+      // Full-screen TUI / alternate screen: keep the rail VISIBLE and
+      // INTERACTIVE (up/down + wheel forwarding), but show an indeterminate
+      // track — never a positioned thumb, because the app owns its scroll
+      // position and we cannot know it.
       rail.classList.remove('scroll-rail-active');
-      rail.classList.add('scroll-rail-alt');
-      rail.title = 'Scrollback is unavailable while a full-screen (alt-screen) program is running';
-      thumb.style.height = '100%';
-      thumb.style.top = '0';
-      jumpBtn.style.display = 'none';
+      rail.classList.add('scroll-rail-tui');
+      rail.setAttribute('title', 'Full-screen app: scroll up/down (position is app-controlled)');
+      thumb.style.display = 'none';
+      thumb.style.top = '';
+      thumb.style.height = '';
+      if (upBtn) upBtn.style.display = 'flex';
+      jumpBtn.style.display = 'flex';
       jumpBtn.classList.remove('scroll-rail-jump-new');
+      jumpBtn.setAttribute('title', 'Scroll down');
       return;
     }
-    rail.classList.remove('scroll-rail-alt');
-    rail.removeAttribute('title');
 
-    // Hide rail entirely when there's no scrollback
+    // Scrollback mode.
+    rail.classList.remove('scroll-rail-tui');
+    rail.removeAttribute('title');
+    if (upBtn) upBtn.style.display = 'none'; // up button is a TUI-only affordance
+    thumb.style.display = '';
+    jumpBtn.setAttribute('title', 'Jump to bottom');
+
+    // Hide the rail entirely when there's no scrollback.
     var hasScrollback = state.thumbRatio < 1;
     rail.classList.toggle('scroll-rail-active', hasScrollback);
 
@@ -217,7 +308,7 @@
       return;
     }
 
-    // Thumb size and position
+    // Thumb size and position (exact).
     var thumbPct = Math.max(state.thumbRatio * 100, 6); // min height so it stays grabbable
     var maxTop = 100 - thumbPct;
     var topPct = state.thumbPosition * maxTop;
@@ -230,34 +321,126 @@
     jumpBtn.classList.toggle('scroll-rail-jump-new', !state.isAtBottom && !!state.hasNewOutput);
   }
 
-  // Wire mouse interactions on a rail to a controller
+  var publicApi = {
+    computeScrollState: computeScrollState,
+    createScrollRailController: createScrollRailController,
+    updateScrollRailDom: updateScrollRailDom,
+  };
+
+  if (typeof window === 'undefined') {
+    // Node/test environment — export pure logic only (no DOM builders).
+    if (typeof module !== 'undefined') {
+      module.exports = publicApi;
+    }
+    return;
+  }
+
+  // -----------------------------------------------------------------------
+  // DOM builder — creates the visual rail element for a terminal tile
+  // -----------------------------------------------------------------------
+
+  var CHEVRON_DOWN = '<svg width="10" height="10" viewBox="0 0 16 16" fill="none">'
+    + '<path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '</svg>';
+  var CHEVRON_UP = '<svg width="10" height="10" viewBox="0 0 16 16" fill="none">'
+    + '<path d="M4 10l4-4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '</svg>';
+
+  function createScrollRailElement() {
+    var rail = document.createElement('div');
+    rail.className = 'scroll-rail';
+    rail.setAttribute('aria-hidden', 'true');
+
+    // Up button — shown only in TUI mode (scroll the app up).
+    var upBtn = document.createElement('button');
+    upBtn.className = 'scroll-rail-step scroll-rail-up';
+    upBtn.type = 'button';
+    upBtn.title = 'Scroll up';
+    upBtn.style.display = 'none';
+    upBtn.innerHTML = CHEVRON_UP;
+
+    var track = document.createElement('div');
+    track.className = 'scroll-rail-track';
+
+    var thumb = document.createElement('div');
+    thumb.className = 'scroll-rail-thumb';
+
+    // Bottom button — jump-to-bottom in scrollback mode, scroll-down in TUI mode.
+    var jumpBtn = document.createElement('button');
+    jumpBtn.className = 'scroll-rail-jump';
+    jumpBtn.type = 'button';
+    jumpBtn.title = 'Jump to bottom';
+    jumpBtn.innerHTML = CHEVRON_DOWN;
+
+    track.appendChild(thumb);
+    rail.appendChild(upBtn);
+    rail.appendChild(track);
+    rail.appendChild(jumpBtn);
+
+    return { rail: rail, upBtn: upBtn, track: track, thumb: thumb, jumpBtn: jumpBtn };
+  }
+
+  // Wire mouse interactions on a rail to a controller. Handlers read the live
+  // mode from the controller so the same rail serves both scrollback and TUI.
   function bindScrollRailEvents(elements, controller) {
+    var rail = elements.rail;
     var track = elements.track;
     var thumb = elements.thumb;
     var jumpBtn = elements.jumpBtn;
+    var upBtn = elements.upBtn;
     var dragging = false;
     var dragStartY = 0;
     var dragStartThumbTop = 0;
 
+    function modeNow() {
+      try { return controller.getState().mode; } catch (_e) { return 'scrollback'; }
+    }
+
+    if (upBtn) {
+      upBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        controller.wheelLikeUp();
+      });
+    }
+
     jumpBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       e.preventDefault();
-      controller.scrollToBottom();
+      if (modeNow() === 'tui') controller.wheelLikeDown();
+      else controller.scrollToBottom();
     });
 
-    // Track click — page towards the click, like a native scrollbar gutter:
-    // clicking above the thumb pages up, below it pages down.
+    // Wheel over the rail strip forwards wheel-like input. The rail overlays the
+    // terminal's right edge, so without this, wheel events here would be lost.
+    rail.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.deltaY < 0) controller.wheelLikeUp();
+      else if (e.deltaY > 0) controller.wheelLikeDown();
+    }, { passive: false });
+
+    // Track click — page towards the click. In scrollback mode it pages past the
+    // thumb like a native gutter; in TUI mode (no thumb) it pages by half.
     track.addEventListener('mousedown', function (e) {
       if (e.target === thumb || thumb.contains(e.target)) return; // thumb drag handled separately
       e.stopPropagation();
       e.preventDefault();
+      if (modeNow() === 'tui') {
+        var trackRect = track.getBoundingClientRect();
+        if (e.clientY < trackRect.top + trackRect.height / 2) controller.pageUp();
+        else controller.pageDown();
+        return;
+      }
       var thumbRect = thumb.getBoundingClientRect();
       if (e.clientY < thumbRect.top) controller.pageUp();
       else controller.pageDown();
     });
 
-    // Thumb drag
+    // Thumb drag — scrollback mode only (the thumb is hidden in TUI mode, and
+    // scrollToRatio is a no-op there).
     thumb.addEventListener('mousedown', function (e) {
+      if (modeNow() === 'tui') return;
       e.stopPropagation();
       e.preventDefault();
       dragging = true;
