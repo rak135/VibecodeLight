@@ -15,7 +15,10 @@ import {
   HARD_MAX_ARTIFACT_CHUNK_BYTES,
   readRunArtifactChunk,
 } from '../../../core/runs/artifact_pagination.js';
-import { resolveRunDir as resolveRunDirCore } from '../../../core/runs/run_resolver.js';
+import {
+  normalizeRunSelector,
+  resolveRunDir as resolveRunDirCore,
+} from '../../../core/runs/run_resolver.js';
 import { getWorkspacePaths } from '../../../core/workspace/paths.js';
 import type { TaskIntent } from '../../../adapters/task_normalizer/types.js';
 
@@ -155,7 +158,10 @@ function buildArtifactReadEnvelope(args: {
 }): ArtifactReadEnvelope {
   let resolvedRun: { runId: string; runDir: string };
   try {
-    resolvedRun = resolveRunDir(args.repoRoot, args.run);
+    // Mirror the MCP run-selector convention (current == latest == current
+    // pointer) so `runs artifact-read --run current` matches the MCP tool and
+    // the advertised CLI contract.
+    resolvedRun = resolveRunDir(args.repoRoot, normalizeRunSelector(args.run));
   } catch (err) {
     return {
       ok: false,

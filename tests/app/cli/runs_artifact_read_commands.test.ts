@@ -38,6 +38,15 @@ function writeRun(repoRoot: string, runId: string, files: Record<string, string>
   }
 }
 
+/** Point `.vibecode/current` at a run id so `latest`/`current` resolve to it. */
+function writeCurrentPointer(repoRoot: string, runId: string): void {
+  fs.writeFileSync(
+    path.join(repoRoot, '.vibecode', 'current', 'run_manifest.json'),
+    JSON.stringify({ run_id: runId, created_at: '2026-06-05T00:00:00Z', task: 't' }, null, 2),
+    'utf8',
+  );
+}
+
 async function runCli(args: string[]): Promise<{ stdout: string; logs: string[]; errors: string[]; exitCode: number }> {
   let stdout = '';
   const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown): boolean => {
@@ -215,6 +224,96 @@ describe('CLI / MCP parity (artifact continuation)', () => {
       expect(cliData.content_sha256).toBe(createHash('sha256').update(Buffer.from(content, 'utf8')).digest('hex'));
     } finally {
       repo.cleanup();
+    }
+  });
+});
+
+describe('vibecode runs artifact-read run selector (current/latest/explicit)', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => {
+    repo = makeRepo('vibecode-cli-artread-sel-');
+    vi.resetModules();
+  });
+  afterEach(() => {
+    repo.cleanup();
+    vi.resetModules();
+  });
+
+  test('--run current resolves the current pointer (parity with MCP run_id "current")', async () => {
+    writeRun(repo.repoRoot, 'rcur', { 'output/final_prompt.md': '# current run\nbody\n' });
+    writeCurrentPointer(repo.repoRoot, 'rcur');
+    const cli = await runCli(['runs', 'artifact-read', '--run', 'current', '--artifact', 'final_prompt', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(0);
+    const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; data: Record<string, unknown> };
+    expect(envelope.ok).toBe(true);
+    expect(envelope.data.run_id).toBe('rcur');
+    expect(envelope.data.content).toBe('# current run\nbody\n');
+  });
+
+  test('--run latest resolves the current pointer (unchanged)', async () => {
+    writeRun(repo.repoRoot, 'rcur', { 'output/final_prompt.md': '# latest run\n' });
+    writeCurrentPointer(repo.repoRoot, 'rcur');
+    const cli = await runCli(['runs', 'artifact-read', '--run', 'latest', '--artifact', 'final_prompt', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(0);
+    const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; data: Record<string, unknown> };
+    expect(envelope.ok).toBe(true);
+    expect(envelope.data.run_id).toBe('rcur');
+  });
+
+  test('--run current and --run latest resolve to the same run', async () => {
+    writeRun(repo.repoRoot, 'rcur', { 'output/final_prompt.md': '# same\n' });
+    writeRun(repo.repoRoot, 'rold', { 'output/final_prompt.md': '# old\n' });
+    writeCurrentPointer(repo.repoRoot, 'rcur');
+    const cur = await runCli(['runs', 'artifact-read', '--run', 'current', '--artifact', 'final_prompt', '--repo', repo.repoRoot, '--json']);
+    const latest = await runCli(['runs', 'artifact-read', '--run', 'latest', '--artifact', 'final_prompt', '--repo', repo.repoRoot, '--json']);
+    const curData = (JSON.parse(cur.logs[0]) as { data: Record<string, unknown> }).data;
+    const latestData = (JSON.parse(latest.logs[0]) as { data: Record<string, unknown> }).data;
+    expect(curData.run_id).toBe('rcur');
+    expect(latestData.run_id).toBe('rcur');
+    expect(curData.run_id).toBe(latestData.run_id);
+  });
+
+  test('--run <explicit-id> still resolves the explicit run, not the current pointer', async () => {
+    writeRun(repo.repoRoot, 'r1', { 'output/final_prompt.md': '# explicit\n' });
+    writeRun(repo.repoRoot, 'rcur', { 'output/final_prompt.md': '# current\n' });
+    writeCurrentPointer(repo.repoRoot, 'rcur');
+    const cli = await runCli(['runs', 'artifact-read', '--run', 'r1', '--artifact', 'final_prompt', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(0);
+    const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; data: Record<string, unknown> };
+    expect(envelope.data.run_id).toBe('r1');
+    expect(envelope.data.content).toBe('# explicit\n');
+  });
+
+  test('CLI --run current matches MCP run_id "current" on key fields', async () => {
+    const content = 'parity日body\u{1F600}\n'.repeat(80);
+    writeRun(repo.repoRoot, 'rcur', { 'output/context_pack.md': content });
+    writeCurrentPointer(repo.repoRoot, 'rcur');
+
+    const cli = await runCli(['runs', 'artifact-read', '--run', 'current', '--artifact', 'context_pack', '--byte-offset', '7', '--max-bytes', '321', '--repo', repo.repoRoot, '--json']);
+    const cliData = (JSON.parse(cli.logs[0]) as { data: Record<string, unknown> }).data;
+
+    const tool = buildArtifactReadTool();
+    const mcp = await tool.handler({
+      context: ctx(repo.repoRoot),
+      arguments: { run_id: 'current', artifact: 'context_pack', byte_offset: 7, max_bytes: 321 },
+      requestId: null,
+    });
+    const mcpData = mcp.structuredContent.data as Record<string, unknown>;
+
+    for (const field of [
+      'run_id',
+      'artifact',
+      'relative_path',
+      'byte_offset',
+      'requested_max_bytes',
+      'bytes_read',
+      'total_bytes',
+      'has_more',
+      'next_byte_offset',
+      'content_sha256',
+      'content',
+    ]) {
+      expect(cliData[field]).toEqual(mcpData[field]);
     }
   });
 });

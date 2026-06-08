@@ -66,6 +66,22 @@ export function resolveRunDir(
   return assertSafeRunId(runSelector, paths.runs);
 }
 
+/**
+ * Normalize a run selector to the convention shared by every adapter (MCP, CLI,
+ * Desktop): the aliases `latest` and `current` BOTH resolve to the
+ * `.vibecode/current` pointer. There is no chronological-latest distinction yet
+ * (see the efficiency-plan Phase 1A notes), so `current` is intentionally an
+ * alias of `latest`. Any other value is returned trimmed and treated as an
+ * explicit run id by {@link resolveRunDir}.
+ *
+ * Keeping this mapping in one place is what stops the MCP `_run_select.ts` helper
+ * and the CLI `runs artifact-read` command from drifting on what `current` means.
+ */
+export function normalizeRunSelector(selector: string): string {
+  const trimmed = typeof selector === 'string' ? selector.trim() : '';
+  return trimmed === 'current' ? 'latest' : trimmed;
+}
+
 /** Resolve an explicit run id only; unlike resolveRunDir, `latest` is not special. */
 export function resolveExplicitRunDir(
   repoRoot: string,

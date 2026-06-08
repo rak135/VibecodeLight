@@ -102,8 +102,10 @@ MCP:
 - MCP handlers call core/adapters directly. They do not shell out through CLI.
 - MCP output uses a bounded text block plus `structuredContent`.
 - MCP text output is capped at `MCP_TEXT_OUTPUT_LIMIT` of 16000 bytes.
-- `vibecode_artifact_read` accepts `run_id`, `artifact`, and `max_bytes`; it
-  does not support `byte_offset` or continuation.
+- `vibecode_artifact_read` accepts `run_id`, `artifact`, `byte_offset`, and
+  `max_bytes` and supports byte-offset continuation (Phase 1B-1 — see §14B).
+  (Pre-Phase-1B-1 it accepted only `run_id`/`artifact`/`max_bytes` with no
+  continuation.)
 
 CLI:
 
@@ -300,7 +302,10 @@ Recommended fix:
 
 ### 4. Artifact Truncation / Continuation Risk
 
-Current behavior:
+> RESOLVED in Phase 1B-1 (see §14B). The text below is the original
+> pre-Phase-1B-1 problem statement, kept for history.
+
+Current behavior (pre-Phase-1B-1):
 
 - `artifact_read` truncates by max bytes and reports `truncated`.
 - There is no `byte_offset`, `next_offset`, or reliable continuation.
@@ -1292,7 +1297,10 @@ Tests:
 
 ### artifact continuation
 
-Current behavior:
+> IMPLEMENTED in Phase 1B-1 (see §14B for the as-built contract). This
+> sub-section is the original spec; the implementation wins where it differs.
+
+Current behavior (pre-Phase-1B-1):
 
 - `artifact_read` supports `max_bytes` only.
 
@@ -1901,8 +1909,9 @@ standardized in this batch).
 - `current`/`latest` both mean the current pointer (no chronological-latest).
 - `codegraph.stale` is always `false` (stale-index detection is later).
 - `scan` reports availability only — no `scan_summary`.
-- No artifact-read continuation, no tool profiles, no bulk claims, no
-  `vibecode agent protocol` command, no MCP commit tool.
+- No tool profiles, no bulk claims, no `vibecode agent protocol` command, no
+  MCP commit tool. (Artifact-read continuation was a Phase 1A limitation too,
+  but has since been added in Phase 1B-1 — see §14B.)
 - Coordination remains advisory: no source-file locks; claims are enforced
   at the agent-mode level (read_only cannot claim), but file-level locking
   is not implemented.
@@ -2128,6 +2137,16 @@ characterization test. `runs artifact-read --json` emits the canonical envelope
 `{ ok, data, artifacts, warnings }` with the same `data` fields as the MCP tool;
 without `--json` it prints a short human summary plus the chunk content. CLI-only
 agents therefore never need to read `.vibecode/runs/...` files directly.
+
+**Run selection (`--run`):** `current`, `latest`, or an explicit run id. Both
+`current` and `latest` resolve to the `.vibecode/current` pointer — the same
+convention the MCP tool uses for `run_id` (Phase 1A: there is no
+chronological-latest distinction yet). This mapping is centralized in
+`normalizeRunSelector` (`src/core/runs/run_resolver.ts`) and shared by the CLI
+command and the MCP `_run_select.ts` helper so the two cannot drift on what
+`current` means. (A Phase 1B-1 review fix: the CLI previously treated `--run
+current` as a literal run id, which did not match the advertised contract or the
+MCP behavior.)
 
 ### Continuation workflow
 

@@ -1,5 +1,5 @@
 import { LlmAdapterError } from '../../../adapters/llm/errors.js';
-import { resolveRunDir } from '../../../core/runs/run_resolver.js';
+import { normalizeRunSelector, resolveRunDir } from '../../../core/runs/run_resolver.js';
 import { buildMcpError } from '../errors.js';
 import { formatError, type McpToolFormattedResult } from '../format.js';
 
@@ -21,7 +21,8 @@ export function selectRunForMcp(args: {
 }): RunSelectionResult {
   const normalized = args.selector.trim();
   const alias = normalized === 'latest' || normalized === 'current' ? normalized : 'explicit';
-  const coreSelector = alias === 'current' ? 'latest' : normalized;
+  // Shared convention with the CLI: current == latest == current pointer.
+  const coreSelector = normalizeRunSelector(normalized);
 
   try {
     const { runId, runDir } = resolveRunDir(args.repoRoot, coreSelector);
