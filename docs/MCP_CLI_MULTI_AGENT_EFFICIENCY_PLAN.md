@@ -1,0 +1,1761 @@
+# MCP/CLI Multi-Agent Efficiency Plan
+
+This document is the implementation guide for the next VibecodeLight MCP/CLI
+agent-efficiency phases. It is intentionally concrete. It describes what exists
+now, what is missing, what to build first, and which tests prove that coding
+agents actually use Vibecode instead of falling back to raw `rg`, `find`, and
+`git`.
+
+File: `docs/MCP_CLI_MULTI_AGENT_EFFICIENCY_PLAN.md`.
+
+Source-of-truth posture:
+
+- Code and tests are stronger evidence than documentation.
+- Existing architecture docs remain useful for ownership boundaries, but some
+  MCP and coordination sections are stale.
+- The two latest MCP/CLI efficiency review files were not found in the repo by
+  filename/content search. This plan is derived from current code, tests, and
+  docs.
+
+## 1. Executive Summary
+
+Current state:
+
+- VibecodeLight has a real MCP server, a broad CLI, CodeGraph adapters, run
+  artifact readers, project-instruction access, Agent Guidance, and a tested
+  advisory multi-agent coordination core.
+- MCP currently exposes 32 tools. That is too many for a fresh coding agent to
+  choose from without guidance.
+- CLI has stronger coordination coverage than MCP in one important area:
+  `vibecode commit guard` is CLI-only and is the only implemented scoped git
+  commit guard.
+- Claims, conflicts, evidence, finalize checks, and commit guard are useful, but
+  the safe workflow is too many calls and too easy to skip.
+
+Main problem:
+
+- Vibecode does not yet make the safe coordinated path shorter than raw shell
+  work. A practical agent still reaches for `rg`, `git status`, and direct file
+  reads because bootstrap, git changes, scan intelligence, and artifact reads
+  are not combined into a compact workflow.
+
+Core direction:
+
+- Add one-call session bootstrap.
+- Add claim-aware git/change awareness.
+- Expose deterministic scan intelligence through bounded agent-facing tools.
+- Add artifact continuation.
+- Reduce default MCP tool surface through profiles.
+- Make the agent operating protocol visible in MCP, CLI, and terminal startup.
+
+First priority:
+
+- Build `session_bootstrap` plus `git_changes` as one small, tested batch.
+  Without these, every other coordination improvement still depends on agents
+  remembering a long manual checklist.
+
+What must not be built yet:
+
+- More desktop UI as a substitute for missing core workflow.
+- Hard source-file locks.
+- MCP commit mutation by default.
+- More CodeGraph surface before fuzzy resolve and stale-index warnings.
+- Subagent orchestration before parent/child identity and basic claims are
+  reliable.
+
+## 2. Product Goal
+
+VibecodeLight should make the safe coordinated path shorter and easier than raw
+shell work.
+
+Practical target:
+
+- A fresh agent calls one bootstrap tool/command and knows the repo root, branch,
+  dirty files, active agents, current claims, unresolved conflicts, current run,
+  available artifacts, scan/CodeGraph status, project instructions, warnings,
+  blockers, and next best tools.
+- An agent claims files before editing because the claim workflow is obvious,
+  short, and returned directly from bootstrap/change responses.
+- An agent validates and commits only its own claimed files because finalize and
+  commit guard are the easy path.
+- A CLI-only agent can follow the same protocol without MCP.
+
+Goals by workflow:
+
+| Workflow | Goal |
+| --- | --- |
+| Single-agent implementation | Orient in one call, find relevant files, claim/edit/validate/finalize with minimal raw shell fallback. |
+| Single-agent review/debugging | See dirty files, run artifacts, recent evidence, CodeGraph/scan context, and affected tests without reading generated files by hand. |
+| Two-agent parallel work | Agents can see each other, claim disjoint files, avoid overlapping claims, finalize independently, and commit only owned files. |
+| Subagent work | Parent and child agents have explicit identity, scope, claims, and handoff metadata. Not built before basic workflow is short. |
+| CLI-only fallback agents | Every safe MCP workflow has an equivalent stable `--json` CLI path. |
+| MCP-capable agents | MCP exposes fewer higher-value tools and returns recommended next actions. |
+
+## 3. Current Verified State
+
+### Verified In Code
+
+MCP:
+
+- `src/app/mcp/tool_registry.ts` registers 32 tools.
+- Tools are repo-bound through server context. Tool schemas do not accept `repo`.
+- MCP handlers call core/adapters directly. They do not shell out through CLI.
+- MCP output uses a bounded text block plus `structuredContent`.
+- MCP text output is capped at `MCP_TEXT_OUTPUT_LIMIT` of 16000 bytes.
+- `vibecode_artifact_read` accepts `run_id`, `artifact`, and `max_bytes`; it
+  does not support `byte_offset` or continuation.
+
+CLI:
+
+- `src/app/cli/index.ts` registers prompt, scan, runs, context, flash, desktop,
+  terminal, CodeGraph, MCP, Agent Guidance, and coordination commands.
+- Coordination CLI commands exist for `coordination status`, `agents`,
+  `claims`, `conflicts`, `finalize check`, `evidence`, and `commit guard`.
+- `vibecode commit guard` is intentionally CLI-only and git-mutating.
+
+Coordination:
+
+- Coordination state is generated state under `.vibecode/coordination/state.json`.
+- Agents register and heartbeat. Stale status is computed from heartbeat age.
+- Claims are advisory. No source files are locked.
+- Exclusive claims conflict with any overlapping active claim. Shared claims
+  can overlap other shared claims.
+- Claim denial records a generated conflict record on a best-effort basis.
+- Evidence scan observes changed git files and writes generated evidence events.
+- Finalize check is read-only and classifies dirty files relative to the
+  current agent's active claims.
+- Commit guard runs finalize first, stages explicit pathspecs only, blocks
+  unrelated staged files, and commits only files classified `claimed_by_agent`.
+
+Run/artifact access:
+
+- Artifact reads use `RUN_SHOW_ARTIFACTS` allowlist and realpath containment.
+- Current allowlist covers prompt/context/flash/run/terminal and CodeGraph
+  artifacts.
+- Most deterministic scan artifacts are not directly exposed through
+  `vibecode_artifact_read`.
+
+CodeGraph:
+
+- Read-only query commands exist: status, search, context, files, callers,
+  callees, impact.
+- CLI maintenance commands exist for status/init/sync/reindex/binary/transport
+  and upstream CodeGraph MCP self-test/config.
+- Query commands do not auto-init, auto-sync, or mutate `.codegraph/`.
+
+### Verified In Tests
+
+MCP:
+
+- Registry count/name parity and guidance-description behavior are tested.
+- Tool schemas reject unknown `repo` arguments.
+- Security tests assert no MCP source write/shell/git/terminal mutation tool is
+  registered.
+- Artifact read tests cover allowlist, aliases, max byte truncation, traversal
+  rejection, missing artifact, and source-file rejection.
+- MCP/CLI parity tests cover existing artifact reads.
+- Workspace status tests prove it summarizes changed files without raw diffs.
+
+Coordination:
+
+- Agent register/list/heartbeat/status behavior is tested in CLI and MCP.
+- Claims add/list/status/release behavior is tested in core, CLI, and MCP.
+- Claim denial and conflict recording are tested.
+- Stale/terminated claim cleanup is tested.
+- Finalize tests cover missing/stale agents, run binding, unclaimed blocks,
+  other-agent warnings, generated paths, and non-overlapping parallel work.
+- Commit guard tests prove dry-run, scoped staging, exact claimed-file commits,
+  unrelated staged-file blocking, path safety, metadata footers, and no broad git
+  commands.
+- Evidence tests prove manual scans write generated evidence only and do not
+  mutate git/source.
+
+### Documented But Not Fully Proven
+
+- Agent Guidance is intended to steer agents toward MCP first and CLI fallback.
+  Default guidance exists, but only a small subset of tools has useful default
+  per-tool notes.
+- CodeGraph docs say real dogfood found `context` more useful than other
+  commands, but there is no benchmark proving CodeGraph beats `rg` for fresh
+  agents.
+- Multi-agent UI and handoff design docs describe future targets, not current
+  implementation.
+
+### Known Docs Drift Or Uncertainty
+
+- `docs/MULTI_AGENT_COORDINATION.md` states finalize guard, commit guard,
+  conflict persistence, and watcher are not yet implemented. Current code/tests
+  show finalize check, commit guard, conflicts, evidence, and live watcher
+  pieces now exist.
+- Some CodeGraph docs still describe Vibecode as not implementing its own MCP
+  server in older phase wording. Current code has a native repo-bound Vibecode
+  MCP server that wraps CodeGraph and more.
+- The public/stable CLI lists in some docs do not fully reflect the current
+  coordination command surface.
+- `tool_registry.ts` comments still summarize the registry as older MCP phases,
+  while the actual registry includes coordination tools.
+
+### Current MCP Tools
+
+| Group | Tools |
+| --- | --- |
+| Bootstrap/orientation | `vibecode_workspace_info`, `vibecode_workspace_status`, `vibecode_mcp_guidance`, `vibecode_project_instructions` |
+| Workspace/git status | `vibecode_workspace_status` |
+| CodeGraph/navigation | `vibecode_codegraph_status`, `vibecode_codegraph_search`, `vibecode_codegraph_context`, `vibecode_codegraph_files`, `vibecode_codegraph_callers`, `vibecode_codegraph_callees`, `vibecode_codegraph_impact` |
+| Run/artifact access | `vibecode_runs_list`, `vibecode_current_run`, `vibecode_run_get`, `vibecode_artifacts_list`, `vibecode_artifact_read`, `vibecode_codegraph_usage` |
+| Coordination/agents | `vibecode_coordination_status`, `vibecode_agent_register`, `vibecode_agent_heartbeat`, `vibecode_agents_list`, `vibecode_agent_status` |
+| Claims/conflicts | `vibecode_claim_add`, `vibecode_claims_list`, `vibecode_claim_status`, `vibecode_claim_release`, `vibecode_claims_reap`, `vibecode_conflicts_list`, `vibecode_conflict_resolve` |
+| Finalize/evidence | `vibecode_finalize_check`, `vibecode_evidence_list`, `vibecode_evidence_scan` |
+
+### Current CLI Commands Relevant To Agents
+
+| Area | Commands |
+| --- | --- |
+| Workspace/config | `vibecode init`, `vibecode doctor`, `vibecode config paths/show/providers/models/init-local/sync` |
+| Runs/artifacts | `vibecode scan`, `vibecode context-build`, `vibecode prompt`, `vibecode runs list`, `vibecode runs show`, `vibecode flash run/validate`, `vibecode context finalize` |
+| CodeGraph | `vibecode codegraph status/search/context/files/callers/callees/impact/init/sync/reindex/transport/binary/mcp` |
+| MCP setup | `vibecode mcp serve/tools/config/install/doctor` |
+| Agent Guidance | `vibecode agent-guidance status/apply/preflight` |
+| Coordination | `vibecode coordination status`, `vibecode agents register/list/heartbeat/status/terminate`, `vibecode claims add/list/status/release/reap`, `vibecode conflicts list/resolve`, `vibecode finalize check`, `vibecode evidence list/scan/watch`, `vibecode commit guard` |
+
+## 4. Core Problems To Solve
+
+### 1. No One-Call Session Bootstrap / Orientation
+
+Current behavior:
+
+- MCP agents are told to call `workspace_info` and `workspace_status`.
+- Multi-agent safety also requires separate calls to register/list agents,
+  list claims, list conflicts, list artifacts, read instructions, and inspect
+  dirty files.
+
+Why agents bypass it:
+
+- Raw `git status` plus `rg` is faster than assembling 6 to 9 Vibecode calls.
+
+Single-agent impact:
+
+- Agent loses time at startup and does not see current run/artifact context.
+
+Multi-agent impact:
+
+- Agent may start editing before noticing active claims or unresolved conflicts.
+
+Recommended fix:
+
+- Add `vibecode_session_bootstrap` and `vibecode agent bootstrap --json`.
+
+### 2. Weak Or Incomplete Git/Change Awareness
+
+Current behavior:
+
+- `workspace_status` returns branch/head/dirty counts and a few first paths.
+- `getGitChangedFiles` has rich data, but it is only directly consumed by
+  finalize/evidence/commit guard.
+
+Why agents bypass it:
+
+- Agents need full changed file lists, staged state, renamed/deleted files, and
+  claim classifications. They run `git status`, `git diff --stat`, and
+  `git diff --name-only`.
+
+Single-agent impact:
+
+- Agent can miss unrelated dirty files before editing or finalizing.
+
+Multi-agent impact:
+
+- Agents cannot quickly see unclaimed dirty files, other-agent claimed dirty
+  files, or what commit guard will skip.
+
+Recommended fix:
+
+- Add `vibecode_git_changes` and `vibecode git changes --json`.
+
+### 3. Scan Artifact Intelligence Not Convenient Enough
+
+Current behavior:
+
+- Deterministic scan creates useful artifacts.
+- MCP/CLI artifact allowlist does not expose most scanner artifacts directly.
+
+Why agents bypass it:
+
+- Scanner intelligence is less convenient than `rg --files`, direct reads, and
+  source grep.
+
+Single-agent impact:
+
+- File inventory, commands, tests, imports, entrypoints, and symbols do not
+  reliably help the agent orient.
+
+Multi-agent impact:
+
+- Agents cannot use scan-derived test and command suggestions as shared
+  coordination evidence.
+
+Recommended fix:
+
+- Add `vibecode_scan_summary` and direct bounded scan artifact reads.
+
+### 4. Artifact Truncation / Continuation Risk
+
+Current behavior:
+
+- `artifact_read` truncates by max bytes and reports `truncated`.
+- There is no `byte_offset`, `next_offset`, or reliable continuation.
+
+Why agents bypass it:
+
+- If an artifact is large, direct file reads feel safer.
+
+Single-agent impact:
+
+- Agent may act on partial `final_prompt`, `context_pack`, or `flash_output`.
+
+Multi-agent impact:
+
+- Agents may miss coordination instructions or warnings in truncated artifacts.
+
+Recommended fix:
+
+- Add byte-offset continuation and UTF-8 safe slicing.
+
+### 5. Too Many MCP Tools By Default
+
+Current behavior:
+
+- All 32 tools are exposed by default.
+
+Why agents bypass it:
+
+- Tool choice is noisy. The safe path is not visually obvious.
+
+Single-agent impact:
+
+- Agents overuse CodeGraph or skip artifacts because the first tool to call is
+  unclear.
+
+Multi-agent impact:
+
+- Claim/finalize tools are buried among many optional tools.
+
+Recommended fix:
+
+- Add MCP tool profiles and default to `standard`, not all tools.
+
+### 6. Coordination Is Too Easy To Skip
+
+Current behavior:
+
+- Claims are advisory and manually invoked.
+- Finalize/commit guard work only when called.
+
+Why agents bypass it:
+
+- The normal coding-agent loop is read/edit/test/report. Claiming is an extra
+  mental step.
+
+Single-agent impact:
+
+- Agent can leave unclaimed dirty files and discover this only at finalize.
+
+Multi-agent impact:
+
+- Agents can edit the same file if they skip claims.
+
+Recommended fix:
+
+- Put claim status and next claim commands in bootstrap/git changes.
+- Add bulk claims with intent.
+- Add terminal protocol banner/preflight.
+
+### 7. Commit Safety Gap Between CLI And MCP
+
+Current behavior:
+
+- CLI has `commit guard`.
+- MCP has no commit mutation tool by design.
+
+Why agents bypass it:
+
+- MCP-capable agents that stay inside MCP must switch to CLI for safe commits.
+
+Single-agent impact:
+
+- Agent may run raw `git add`/`git commit`.
+
+Multi-agent impact:
+
+- Raw commits can include another agent's dirty files.
+
+Recommended fix:
+
+- Keep commit mutation CLI-only for now, but make MCP finalize return the exact
+  `vibecode commit guard` command to run. Revisit MCP commit only after profiles
+  and explicit opt-in permissions exist.
+
+### 8. Weak Agent Operating Protocol
+
+Current behavior:
+
+- Guidance tells agents to use MCP first and CLI fallback.
+- It does not give a short, complete, enforced operating protocol.
+
+Why agents bypass it:
+
+- Agents follow easy instructions. Long scattered docs lose to familiar shell
+  habits.
+
+Single-agent impact:
+
+- Agents do not consistently bootstrap, claim, finalize, and report.
+
+Multi-agent impact:
+
+- Agents do not coordinate unless prompted manually.
+
+Recommended fix:
+
+- Add `vibecode agent protocol --json|--markdown` and expose the same protocol
+  through MCP server instructions, bootstrap output, terminal preflight, and
+  optional generated instructions.
+
+### 9. CodeGraph Not Yet Proven Better Than `rg`
+
+Current behavior:
+
+- CodeGraph search/context/files/callers/callees/impact exist.
+- Docs admit `rg` remains better for literals.
+- Callers/callees need exact indexed symbols.
+
+Why agents bypass it:
+
+- If a CodeGraph query misses or returns low-signal results once, agents revert
+  to `rg`.
+
+Single-agent impact:
+
+- Agent spends time on graph tools without confidence.
+
+Multi-agent impact:
+
+- Shared navigation advice may be stale or misleading.
+
+Recommended fix:
+
+- Add fuzzy resolve and stale-index warnings before adding more CodeGraph tools.
+
+### 10. Missing Subagent Identity / Handoff / Notice Board
+
+Current behavior:
+
+- Agent type exists, but there is no parent/child relationship, task scope,
+  notice board, or handoff protocol.
+
+Why agents bypass it:
+
+- Subagents have no first-class place to say what they own or report results.
+
+Single-agent impact:
+
+- Not relevant until subagents are used.
+
+Multi-agent impact:
+
+- Parent agents cannot safely delegate tests/docs/refactors without manual
+  coordination.
+
+Recommended fix:
+
+- Defer until Phase 4. First make bootstrap, git changes, claims, and finalize
+  short and reliable.
+
+## 5. Desired Agent Operating Protocol
+
+Every agent should follow this protocol.
+
+| Step | MCP support now | CLI support now | Current gap | Target behavior | Test evidence needed |
+| --- | --- | --- | --- | --- | --- |
+| 1. Bootstrap / identify session | Partial: `workspace_info`, `workspace_status` | Partial: several commands | Too many calls | One `session_bootstrap` call/command | Bootstrap aggregation tests |
+| 2. Register or confirm agent identity | `agent_register`, `agent_heartbeat` | `agents register`, `agents heartbeat` | Not part of bootstrap | Bootstrap can register or instruct exact register command | Register-in-bootstrap tests |
+| 3. Inspect active agents | `agents_list`, `coordination_status` | `agents list`, `coordination status` | Separate calls | Included in bootstrap | Active/stale agent fixture |
+| 4. Inspect current claims/conflicts | Claims/conflict tools | Claims/conflict commands | Separate calls | Included in bootstrap and git changes | Claim/conflict summary tests |
+| 5. Inspect git changes | Shallow `workspace_status`; finalize requires agent | Raw helper hidden behind commands | No full standalone command/tool | `git_changes` with claim classification | Git category/classification tests |
+| 6. Read project instructions | `project_instructions` | No exact direct equivalent except docs/raw files and scan | CLI fallback weak | `agent bootstrap` includes bounded instruction metadata and next read | CLI parity tests |
+| 7. Read relevant run/context/scan artifacts | Artifacts list/read; no scan summary | Runs show artifact raw; no continuation | Scan intelligence hidden | Artifact continuation and scan summary | Allowlist/bounds tests |
+| 8. Claim files before editing | Claim tools | Claim commands | Single path only; no intent | Bulk claim with intent and next action | Bulk denial/partial tests |
+| 9. Edit only claimed files | Not enforceable | Not enforceable | Advisory only | Bootstrap/finalize/evidence make violations obvious | Dogfood tests |
+| 10. Run relevant checks | Agent shell only | Agent shell only | No validation evidence model | Bootstrap/scan suggests checks; final report records checks | Later validation evidence tests |
+| 11. Finalize before commit | `finalize_check` | `finalize check` | Not enough next-action guidance | Finalize returns exact next command | Finalize next-action tests |
+| 12. Commit only own claimed files through guard | No MCP commit | `commit guard` | MCP agents must switch to CLI | MCP finalize points to CLI guard; CLI remains source of truth | Commit guard workflow tests |
+| 13. Release claims or mark done | Claim release; no MCP terminate | Claim release; agents terminate | No done workflow | `agent done` or protocol output with release/terminate | Agent done tests later |
+| 14. Produce final report | Manual | Manual | No generated summary | Bootstrap/finalize/commit outputs enough data to report | Dogfood report assertions |
+
+Skipping behavior:
+
+- If an agent skips bootstrap, it may miss active claims/conflicts.
+- If an agent skips claims, finalize blocks its unclaimed dirty files.
+- If an agent skips finalize/commit guard and uses raw git, Vibecode cannot
+  prevent cross-agent commits today.
+
+## 6. MCP vs CLI Responsibility Split
+
+Direction:
+
+- CLI remains the source-of-truth and fallback interface.
+- MCP is the efficient agent-facing adapter.
+- MCP exposes fewer higher-value tools by default.
+- Mutating operations are explicit and minimal.
+- Raw git is discouraged where a Vibecode guard exists.
+
+Belongs in MCP:
+
+- Session bootstrap.
+- Workspace/git summaries without full diffs.
+- Project instructions and guidance.
+- Bounded run/artifact reads with continuation.
+- Bounded scan summaries and allowlisted scan artifact reads.
+- CodeGraph read-only navigation.
+- Coordination register/heartbeat/list.
+- Advisory claims.
+- Conflict list/resolve where generated-state mutation is acceptable.
+- Finalize check.
+- Evidence list/manual scan if clearly labeled generated-state only.
+
+Belongs in CLI only:
+
+- `commit guard` for now.
+- CodeGraph maintenance: init, sync, reindex, binary config, transport config.
+- MCP config/install/doctor.
+- Agent Guidance apply/preflight that writes external agent config.
+- Long-running evidence watch.
+- Desktop smoke/terminal demo.
+
+Must have MCP/CLI parity:
+
+- Bootstrap.
+- Git changes.
+- Scan summary/read.
+- Artifact read continuation.
+- Coordination status, agents, claims, conflicts.
+- Finalize check.
+- Read-only CodeGraph queries.
+
+Should never be exposed through default MCP:
+
+- Arbitrary file read.
+- Shell exec.
+- Raw `git add`, `git commit`, `git reset`, `git checkout`, `git clean`,
+  `git stash`.
+- Source-file write.
+- Terminal stdin write.
+- Full raw diffs by default.
+- Agent approval/permission mutation.
+
+Write tools acceptable in MCP:
+
+- Generated coordination state writes: register, heartbeat, claim add/release,
+  claims reap, conflict resolve, evidence scan.
+- These must remain clearly labeled as generated-state only.
+
+CLI-only agent behavior:
+
+- Run `vibecode agent bootstrap --repo <path> --json`.
+- Register/heartbeat if not already registered.
+- Claim before editing.
+- Use `vibecode git changes --agent <id> --json`.
+- Use `vibecode finalize check --agent <id> --json`.
+- Use `vibecode commit guard --agent <id> --message "<subject>" --json`.
+- Use raw `rg` only when Vibecode scan/CodeGraph cannot answer the query.
+
+## 7. Proposed Tool Profiles
+
+Do not default to all tools. The default must make the safe path obvious.
+
+### minimal
+
+Intended user/agent:
+
+- Fresh MCP-capable agent that only needs startup, instructions, and artifacts.
+
+Included:
+
+- `vibecode_session_bootstrap`
+- `vibecode_project_instructions`
+- `vibecode_artifacts_list`
+- `vibecode_artifact_read`
+- `vibecode_git_changes`
+
+Excluded:
+
+- CodeGraph symbol relationship tools.
+- Conflict resolution/reap/admin tools.
+- Evidence scan.
+
+Why it exists:
+
+- Lowest cognitive load for simple single-agent tasks.
+
+### standard
+
+Recommended default profile.
+
+Intended user/agent:
+
+- Normal coding agent in a Vibecode terminal.
+
+Included:
+
+- Everything in `minimal`
+- `vibecode_scan_summary`
+- `vibecode_scan_artifact_read`
+- `vibecode_codegraph_search`
+- `vibecode_codegraph_context`
+- `vibecode_codegraph_files`
+- `vibecode_agent_register`
+- `vibecode_agent_heartbeat`
+- `vibecode_claim_add`
+- `vibecode_claims_list`
+- `vibecode_claim_release`
+- `vibecode_finalize_check`
+
+Excluded:
+
+- `vibecode_codegraph_callers`
+- `vibecode_codegraph_callees`
+- `vibecode_codegraph_impact`
+- `vibecode_claim_status`
+- `vibecode_claims_reap`
+- `vibecode_conflict_resolve`
+- `vibecode_evidence_scan`
+- run-list/admin overlap tools unless surfaced through bootstrap.
+
+Why it exists:
+
+- It gives the common safe path without presenting every optional tool.
+
+### multi-agent
+
+Intended user/agent:
+
+- Agents explicitly working in parallel.
+
+Included:
+
+- Everything in `standard`
+- `vibecode_coordination_status`
+- `vibecode_agents_list`
+- `vibecode_agent_status`
+- `vibecode_claim_status`
+- `vibecode_claims_reap`
+- `vibecode_conflicts_list`
+- `vibecode_conflict_resolve`
+- `vibecode_evidence_list`
+- `vibecode_evidence_scan`
+
+Excluded:
+
+- CodeGraph maintenance.
+- Commit mutation.
+
+Why it exists:
+
+- Makes team-state tools available without making them default noise for every
+  single-agent task.
+
+### review-admin
+
+Intended user/agent:
+
+- Reviewer/debugger/admin session.
+
+Included:
+
+- `vibecode_session_bootstrap`
+- `vibecode_git_changes`
+- `vibecode_artifacts_list`
+- `vibecode_artifact_read`
+- `vibecode_runs_list`
+- `vibecode_run_get`
+- `vibecode_codegraph_status`
+- `vibecode_codegraph_search`
+- `vibecode_codegraph_context`
+- `vibecode_codegraph_files`
+- `vibecode_codegraph_callers`
+- `vibecode_codegraph_callees`
+- `vibecode_codegraph_impact`
+- `vibecode_coordination_status`
+- `vibecode_agents_list`
+- `vibecode_claims_list`
+- `vibecode_conflicts_list`
+- `vibecode_evidence_list`
+- `vibecode_finalize_check`
+
+Excluded:
+
+- Generated-state mutators unless explicitly requested.
+
+Why it exists:
+
+- Read-only by default for review/debugging.
+
+Profile configuration:
+
+- `vibecode mcp serve --profile standard`
+- `vibecode mcp tools --profile standard --json`
+- Terminal sessions should default to `standard`.
+- Desktop/admin settings may expose `minimal`, `standard`, `multi-agent`, and
+  `review-admin`.
+
+## 8. Phase Plan
+
+### Phase 1  Make The Safe Path Obvious And Short
+
+Goal:
+
+- A fresh agent can begin safely with one call and can inspect changed files
+  without raw `git status`.
+
+Scope:
+
+- `session_bootstrap` MCP tool.
+- `vibecode agent bootstrap --json` CLI command.
+- `git_changes` MCP tool/CLI command.
+- Artifact continuation.
+- Scan summary/read exposure.
+- `recommended_next_tools` in new responses.
+- `vibecode agent protocol --json|--markdown`.
+
+Explicit non-goals:
+
+- No MCP commit tool.
+- No hard locks.
+- No subagent model.
+- No desktop coordination UI changes.
+- No CodeGraph feature expansion beyond status/stale data needed by bootstrap.
+
+Proposed files/modules:
+
+- `src/core/agent_session/bootstrap.ts`
+- `src/core/workspace/git_changes_summary.ts`
+- `src/core/runs/artifact_pagination.ts`
+- `src/core/runs/scan_artifacts.ts`
+- `src/app/mcp/tools/session_bootstrap.ts`
+- `src/app/mcp/tools/git_changes.ts`
+- `src/app/mcp/tools/scan_summary.ts`
+- `src/app/cli/commands/agent.ts`
+- `src/app/cli/commands/git_changes.ts`
+- `tests/core/agent_session/bootstrap.test.ts`
+- `tests/app/mcp/session_bootstrap.test.ts`
+- `tests/app/cli/agent_bootstrap_commands.test.ts`
+
+MCP contract changes:
+
+- Add `vibecode_session_bootstrap`.
+- Add `vibecode_git_changes`.
+- Add `vibecode_scan_summary`.
+- Add `vibecode_scan_artifact_read` or extend `vibecode_artifact_read` with
+  explicit scan artifact names.
+- Add continuation fields to artifact read.
+
+CLI contract changes:
+
+- Add `vibecode agent bootstrap --repo <path> --json`.
+- Add `vibecode agent protocol --json|--markdown`.
+- Add `vibecode git changes --repo <path> [--agent <id>] --json`.
+- Add `vibecode scan summary --run <id|current|latest> --json`.
+- Add JSON artifact read with offset/limit if keeping raw `runs show --artifact`
+  as an exception.
+
+Tests to add:
+
+- Bootstrap aggregation and MCP/CLI parity.
+- Git changes categories and claim classifications.
+- Artifact continuation with UTF-8 boundaries.
+- Scan artifact allowlist and bounded summaries.
+- Recommended next tools present on success and common blocked states.
+
+Acceptance criteria:
+
+- A new agent can call one bootstrap command/tool and receive enough state to
+  decide whether it can edit.
+- A CLI-only agent can follow the same protocol without raw `git status`.
+- Large artifacts can be read in chunks without partial-context traps.
+- Scan intelligence is available without manual `.vibecode` browsing.
+
+Why this phase comes before the next:
+
+- Coordination cannot become reliable while agents need many calls just to know
+  what is safe.
+
+### Phase 2  Make Multi-Agent Coordination Harder To Skip
+
+Goal:
+
+- Claim/finalize/commit guard become the obvious shortest workflow for active
+  coding agents.
+
+Scope:
+
+- Bulk claims with intent.
+- Claim-aware `git_changes` classifications.
+- Finalize output with exact next action.
+- Commit guard workflow improvements.
+- Tool profiles.
+- Terminal preflight/protocol banner.
+- Stronger CLI-only guidance.
+
+Explicit non-goals:
+
+- No source-file locks.
+- No automatic edits or commits.
+- No subagent handoff model.
+- No raw diff exposure by default.
+
+Proposed files/modules:
+
+- `src/core/coordination/claim_batch.ts`
+- `src/core/coordination/protocol.ts`
+- `src/app/mcp/tool_profiles.ts`
+- `src/app/mcp/tools/protocol.ts`
+- `src/app/cli/commands/agent.ts`
+- Existing `claims`, `finalize`, `commit`, and Agent Guidance modules.
+
+MCP contract changes:
+
+- Add optional `paths` array and `intent` metadata to `vibecode_claim_add`, or
+  add `vibecode_claims_add`.
+- Add `recommended_next_tools` and `recommended_cli_commands` to finalize and
+  claim-denial outputs.
+- Add profile selection to MCP server/tools list.
+
+CLI contract changes:
+
+- Add `vibecode claims add --paths <path...> --intent <text> --json`.
+- Add `vibecode agent done --agent <id> --release-claims --json` if needed.
+- `finalize check --json` returns exact `commit guard` command when unblocked.
+
+Tests to add:
+
+- Bulk claim all-or-none and partial-denial behavior.
+- Claim intent persists and appears in bootstrap/claims list.
+- Tool profiles expose expected names and exclude rare/admin tools.
+- Finalize recommends commit guard command.
+- CLI-only protocol output matches MCP bootstrap protocol.
+
+Acceptance criteria:
+
+- A normal agent does not need to remember command syntax after bootstrap.
+- Claim denial gives a direct next step.
+- Finalize gives a direct commit-guard command when safe.
+
+Why this phase comes before the next:
+
+- Navigation improvements do not matter if agents can still edit and commit
+  unsafely.
+
+### Phase 3  Improve Repo Navigation Intelligence
+
+Goal:
+
+- Vibecode scan/CodeGraph tools should beat raw `rg` for orientation and test
+  selection on unfamiliar work.
+
+Scope:
+
+- Task-aware scan summary.
+- CodeGraph fuzzy resolve.
+- Stale CodeGraph index warnings.
+- Affected tests.
+- File/symbol/test mapping.
+
+Explicit non-goals:
+
+- No full AST parser unless regex/import/test maps prove insufficient.
+- No fake precision scores.
+- No new CodeGraph tools that just wrap low-value upstream commands.
+
+Proposed files/modules:
+
+- `src/core/scanning/scan_summary.ts`
+- `src/core/navigation/affected_tests.ts`
+- `src/adapters/codegraph/codegraph_resolve.ts`
+- `src/app/mcp/tools/codegraph_resolve.ts`
+- Python scanner modules remain deterministic and read-only.
+
+MCP contract changes:
+
+- Add `vibecode_codegraph_resolve`.
+- Extend `vibecode_scan_summary` with `task` and `sections`.
+- Add `vibecode_affected_tests` if the output is useful enough.
+
+CLI contract changes:
+
+- Add `vibecode codegraph resolve <query> --json`.
+- Add `vibecode scan summary --task <task> --json`.
+- Add `vibecode tests affected --paths <path...> --json` if implemented.
+
+Tests to add:
+
+- Fuzzy resolve returns suggestions for known local symbols.
+- Stale warning appears when index state is not trustworthy.
+- Affected tests map changed source files to tests from scan/import data.
+- Dogfood scenario compares Vibecode navigation against raw `rg`.
+
+Acceptance criteria:
+
+- For unfamiliar feature work, the agent reaches a correct file faster with
+  Vibecode tools than with raw `rg`.
+
+Why this phase comes before subagents/UI:
+
+- Multi-agent task splitting depends on knowing file/test ownership accurately.
+
+### Phase 4  Subagents, Handoff, And Team Workflow
+
+Goal:
+
+- Parent agents can delegate scoped work to subagents without confusing claims,
+  ownership, or reports.
+
+Scope:
+
+- Parent/child agent identity.
+- Subagent claim ownership and inherited context.
+- Notice board / agent messages.
+- Handoff protocol.
+- Per-agent work summaries.
+
+Explicit non-goals:
+
+- No autonomous orchestration framework.
+- No hidden prompt injection.
+- No automatic conflict resolution.
+
+Proposed files/modules:
+
+- `src/core/coordination/subagents.ts`
+- `src/core/coordination/notices.ts`
+- `src/core/coordination/handoffs.ts`
+- `src/app/mcp/tools/agent_messages.ts`
+- `src/app/cli/commands/handoffs.ts`
+
+MCP contract changes:
+
+- Add parent/child fields to register/bootstrap outputs.
+- Add notice-board read/write generated-state tools.
+- Add handoff request/accept/decline when data model is pinned.
+
+CLI contract changes:
+
+- `vibecode agents register --parent <agent_id> --role <role> --task <text>`
+- `vibecode notices list/post --json`
+- `vibecode handoffs request/accept/decline --json`
+
+Tests to add:
+
+- Parent/child registration.
+- Subagent claims are visible under parent summary.
+- Handoff cannot silently transfer ownership without explicit accept.
+- Notice board writes generated state only.
+
+Acceptance criteria:
+
+- Parent and child agents can report scope, claims, validation, and handoff
+  status without manual side channels.
+
+Why this phase comes before UI:
+
+- UI should observe a stable team model, not define it.
+
+### Phase 5  UI / Observability After Core Works
+
+Goal:
+
+- Show coordination state and Vibecode usage clearly after the core protocol is
+  proven.
+
+Scope:
+
+- Read-only coordination panel.
+- MCP usage visibility.
+- Run/claim/conflict overview.
+- Dogfood dashboard.
+
+Explicit non-goals:
+
+- No UI-only workflow that bypasses CLI/MCP contracts.
+- No desktop mutation controls until CLI/MCP behavior is stable.
+
+Proposed files/modules:
+
+- Existing desktop coordination bridge/panel modules.
+- `src/core/coordination/overview.ts`
+- MCP usage log reader if exposed safely.
+
+MCP contract changes:
+
+- None required unless usage logs become agent-facing.
+
+CLI contract changes:
+
+- Optional `vibecode coordination overview --json`.
+
+Tests to add:
+
+- Desktop uses read-only core overview.
+- UI does not mutate coordination state.
+- Overview caps output and avoids raw diffs/secrets.
+
+Acceptance criteria:
+
+- Humans can see active agents, claims, conflicts, evidence, and recent guarded
+  commits without opening `.vibecode` files.
+
+Why this phase comes last:
+
+- Observability is valuable only after the underlying protocol is short and
+  used.
+
+## 9. Detailed Feature Specifications
+
+### session_bootstrap
+
+MCP name:
+
+- `vibecode_session_bootstrap`
+
+CLI command:
+
+- `vibecode agent bootstrap --repo <path> --json`
+
+Request shape:
+
+```json
+{
+  "agent_id": "agent-123",
+  "register": false,
+  "agent_name": "Codex terminal 1",
+  "agent_type": "codex",
+  "terminal_session_id": "term-1",
+  "include_instructions": true,
+  "include_scan_summary": true,
+  "max_items": 25
+}
+```
+
+Rules:
+
+- If `register` is true and no `agent_id` is supplied, create an agent session.
+- If `agent_id` is supplied, heartbeat or report exact next heartbeat command.
+- Read/write only generated coordination state when registering/heartbeating.
+- Never read arbitrary source files.
+- Bound all lists.
+
+Response shape:
+
+```json
+{
+  "repo_root": "C:/repo",
+  "git": {
+    "branch": "master",
+    "head": "abc123",
+    "dirty": true,
+    "changed_counts": {
+      "staged": 0,
+      "unstaged": 2,
+      "untracked": 1,
+      "deleted": 0,
+      "renamed": 0
+    },
+    "changed_files": []
+  },
+  "current_run": {
+    "run_id": "current",
+    "has_final_prompt": true,
+    "has_context_pack": true,
+    "available_artifacts": []
+  },
+  "agents": {
+    "current": null,
+    "active": [],
+    "stale": []
+  },
+  "claims": {
+    "own": [],
+    "other_active": [],
+    "stale": []
+  },
+  "conflicts": {
+    "unresolved": []
+  },
+  "evidence": {
+    "recent_count": 0,
+    "warning_count": 0,
+    "high_count": 0
+  },
+  "scan": {
+    "current_run_scan_available": true,
+    "recommended_sections": ["commands", "tests", "symbols", "imports"]
+  },
+  "codegraph": {
+    "available": true,
+    "initialized": true,
+    "stale": false
+  },
+  "project_instructions": {
+    "available": true,
+    "sources": ["AGENTS.md"]
+  },
+  "warnings": [],
+  "blockers": [],
+  "recommended_next_tools": [
+    "vibecode_git_changes",
+    "vibecode_claim_add",
+    "vibecode_scan_summary"
+  ],
+  "recommended_cli_commands": [
+    "vibecode git changes --repo <path> --agent <agent_id> --json"
+  ],
+  "agent_protocol": [
+    "claim before editing",
+    "edit only claimed files",
+    "run checks",
+    "finalize before commit",
+    "commit through vibecode commit guard"
+  ]
+}
+```
+
+Warnings/blockers:
+
+- Warn when repo is dirty and no agent is registered.
+- Warn when active other-agent claims overlap dirty files.
+- Block only invocation errors, not normal dirty state.
+
+Tests:
+
+- Bootstrap clean repo.
+- Bootstrap dirty repo.
+- Bootstrap with existing agents/claims/conflicts.
+- Bootstrap register mode writes only generated coordination state.
+- Bootstrap has MCP/CLI parity.
+- Bootstrap does not read arbitrary source files.
+- Bootstrap output is bounded and includes recommended next tools.
+
+### git_changes
+
+MCP name:
+
+- `vibecode_git_changes`
+
+CLI command:
+
+- `vibecode git changes --repo <path> [--agent <agent_id>] --json`
+
+Changed file categories:
+
+- `staged`
+- `unstaged`
+- `untracked`
+- `deleted`
+- `renamed`
+- `copied`
+- `type_changed`
+- `generated_or_ignored`
+
+Claim-aware classification:
+
+- `claimed_by_agent`
+- `claimed_by_other_active_agent`
+- `unclaimed`
+- `generated_or_ignored`
+- `stale_claim_overlap`
+- `unknown`
+
+Diff stat behavior:
+
+- Include compact `diff_stat` by default if available.
+- Do not include full diffs by default.
+- A future explicit `--include-diff --path <path>` may be added only with
+  bounded output and clear secret-risk warnings.
+
+Response shape:
+
+```json
+{
+  "repo_root": "C:/repo",
+  "head": "abc123",
+  "dirty": true,
+  "summary": {
+    "changed_count": 3,
+    "claimed_by_agent": 1,
+    "claimed_by_other_active_agent": 1,
+    "unclaimed": 1
+  },
+  "files": [
+    {
+      "path": "src/a.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true,
+      "untracked": false,
+      "classification": "claimed_by_agent",
+      "owning_claim_id": "claim-1",
+      "owning_agent_id": "agent-a"
+    }
+  ],
+  "diff_stat": "bounded text or null",
+  "warnings": [],
+  "recommended_next_tools": ["vibecode_claim_add", "vibecode_finalize_check"]
+}
+```
+
+Tests:
+
+- Covers every porcelain status category.
+- Classifies paths against active/stale/released claims.
+- Does not mutate git state.
+- Does not include full diff by default.
+- Handles non-git directory with structured failure/warning.
+- MCP/CLI parity.
+
+### scan_summary / scan artifact exposure
+
+MCP names:
+
+- `vibecode_scan_summary`
+- `vibecode_scan_artifact_read`
+
+CLI commands:
+
+- `vibecode scan summary --run <current|latest|run_id> --json`
+- `vibecode scan artifact-read --run <current|latest|run_id> --artifact <name> --json`
+
+Artifacts to summarize:
+
+- `file_inventory.json`
+- `commands.json`
+- `repo_instructions.json`
+- `symbols.json`
+- `imports.json`
+- `entrypoints.json`
+- `tests.json`
+- `tooling.json`
+- `schemas.json`
+- `keyword_hits.json`
+- `git_status.json`
+- `git_diff_stat.txt`
+
+Artifacts directly readable:
+
+- The same artifacts above, through a strict scan artifact allowlist.
+- No arbitrary `scan/<path>` reads.
+- No source-file reads.
+
+Size limits:
+
+- Summary default text max: 16000 bytes.
+- Structured lists default item cap: 50 per section.
+- Direct reads use artifact continuation.
+
+Response shape:
+
+```json
+{
+  "run_id": "20260608-000000-ABCD",
+  "scan_dir": ".vibecode/runs/<run>/scan",
+  "sections": {
+    "commands": [],
+    "tests": [],
+    "entrypoints": [],
+    "symbols": {
+      "total": 1200,
+      "items": []
+    }
+  },
+  "available_artifacts": [],
+  "missing_artifacts": [],
+  "warnings": [],
+  "recommended_next_tools": ["vibecode_artifact_read", "vibecode_codegraph_context"]
+}
+```
+
+Tests:
+
+- Summary reads only allowlisted scan artifacts.
+- Summary handles missing scan artifacts.
+- Summary caps large lists.
+- Direct read rejects traversal and non-allowlisted files.
+- MCP/CLI parity.
+
+### artifact continuation
+
+Current behavior:
+
+- `artifact_read` supports `max_bytes` only.
+
+Target fields:
+
+- `byte_offset`
+- `max_bytes`
+- `next_offset`
+- `total_bytes`
+- `bytes_read`
+- `content_sha256`
+- `truncated`
+
+UTF-8 safety:
+
+- Slicing must not split a UTF-8 code point.
+- `next_offset` must be a byte offset into the original file.
+- Reading chunks from `0 -> next_offset -> ...` must reconstruct the exact file.
+
+Structured metadata under truncation:
+
+- `structuredContent.data` must always include run id, relative path,
+  total bytes, byte offset, bytes read, next offset, and hash even when text
+  content is truncated.
+
+Tests:
+
+- Large ASCII artifact continuation.
+- Large multi-byte UTF-8 artifact continuation.
+- Reconstructed content equals original.
+- `next_offset` becomes null at EOF.
+- Offset beyond EOF returns structured validation error.
+- MCP/CLI parity.
+
+### tool profiles
+
+Profile names:
+
+- `minimal`
+- `standard`
+- `multi-agent`
+- `review-admin`
+- `all`
+
+Default profile:
+
+- `standard`
+
+CLI/MCP serve config:
+
+```powershell
+vibecode mcp serve --repo <path> --profile standard
+vibecode mcp tools --profile standard --json
+```
+
+Rules:
+
+- `all` exists for compatibility/admin, but is not default.
+- Profile selection must be visible in `workspace_info` and bootstrap.
+- Unknown profile is a structured error.
+
+Tests:
+
+- Each profile exposes exact expected tool names.
+- Default profile is `standard`.
+- `all` matches current full registry.
+- No profile exposes commit mutation.
+- Settings inventory handles profiles.
+
+### agent protocol / guidance
+
+How MCP agents see the protocol:
+
+- MCP server instructions include the short protocol.
+- `vibecode_session_bootstrap` returns `agent_protocol`.
+- Tool descriptions include short "when to use this" notes for bootstrap,
+  git changes, claims, finalize, artifacts, and scan summary.
+
+How CLI-only agents see the protocol:
+
+```powershell
+vibecode agent protocol --repo <path> --markdown
+vibecode agent protocol --repo <path> --json
+```
+
+Shell banner/preflight:
+
+- Terminal Agent Preflight should print a short banner or make one available
+  before starting agents.
+- It must not type hidden prompt text into PTY.
+- It may verify MCP config and point CLI-only agents to `agent bootstrap`.
+
+Generated instructions:
+
+- Do not silently rewrite `AGENTS.md`.
+- If generated repo-local instructions are added later, use an explicit command
+  such as `vibecode agent protocol install --target AGENTS.md --dry-run`.
+
+Tests:
+
+- Protocol output includes exact workflow.
+- MCP and CLI protocol text stay in parity.
+- Terminal preflight does not inject text into terminal stdin.
+- Guidance descriptions include useful notes for key tools.
+
+### commit/finalize workflow
+
+Current CLI commit guard behavior:
+
+- Runs finalize check first.
+- Blocks when finalize is blocked.
+- Commits only files classified `claimed_by_agent`.
+- Uses explicit pathspec staging.
+- Blocks pre-existing unrelated staged files.
+- Writes `commit_guard.json` under run coordination state when run id is
+  provided.
+
+Should MCP commit tool exist now?
+
+- No. Keep commit mutation CLI-only until profiles, protocol, and dogfood prove
+  agents consistently use finalize/commit guard.
+
+Safe default behavior:
+
+- MCP `finalize_check` returns exact `vibecode commit guard` command when safe.
+- CLI `finalize check` returns the same recommendation in JSON.
+- `commit guard --dry-run` remains the recommended first commit command.
+
+Dry-run behavior:
+
+- No staging.
+- No commit.
+- No `commit_guard.json` artifact write.
+- Shows would-stage, skipped files, blocks, and warnings.
+
+Tests:
+
+- Finalize includes recommended commit guard command when status is `ok` or
+  `warning` and committable files exist.
+- Finalize does not recommend commit when blocked.
+- Commit guard still never stages broad paths.
+- Commit guard leaves other-agent dirty files untouched.
+
+## 10. Dogfood / Benchmark Plan
+
+### Scenario A  Single Agent Unfamiliar Feature
+
+Goal:
+
+- Prove Vibecode helps find relevant files faster than raw `rg`.
+
+Setup:
+
+- Use a fixture or real VibecodeLight task with no known file path, for example
+  "change artifact read pagination behavior".
+- Start from clean repo.
+- Agent must call bootstrap first.
+
+Expected commands/tools:
+
+- `vibecode_session_bootstrap`
+- `vibecode_scan_summary`
+- `vibecode_codegraph_context`
+- `vibecode_codegraph_search`
+- Raw `rg` only after Vibecode tools fail to identify candidates.
+
+Measure:
+
+- Number of Vibecode tool/CLI calls.
+- Number of raw `rg`/`find`/`git` commands.
+- Time to first correct file.
+- Wrong files opened.
+- Tests selected.
+
+Pass criteria:
+
+- Agent reaches a correct source file and relevant test using Vibecode before
+  raw `rg`, or records why Vibecode failed.
+- Raw shell fallback count decreases over repeated runs.
+
+Failure signals:
+
+- Agent ignores bootstrap.
+- Agent uses raw `rg` first.
+- CodeGraph gives low-signal results and scan summary is not enough.
+
+### Scenario B  Two Agents Non-Overlapping Work
+
+Goal:
+
+- Prove two agents can claim different files, work, finalize, and commit without
+  conflict.
+
+Setup:
+
+- Agent A changes one source file and its test.
+- Agent B changes separate docs or a separate source/test pair.
+- Both start in the same working tree.
+
+Expected commands/tools:
+
+- Both call bootstrap first.
+- Both register or heartbeat.
+- Both claim before edit.
+- Both call git changes.
+- Both call finalize.
+- Both use `vibecode commit guard --dry-run`, then `commit guard`.
+- Both release claims or mark done.
+
+Pass criteria:
+
+- No overlapping active claims.
+- No unclaimed dirty files at finalize.
+- Commit guard for Agent A commits only Agent A files.
+- Commit guard for Agent B commits only Agent B files.
+- Final reports list claims, changed files, tests, commit hash, and known issues.
+
+Failure signals:
+
+- Raw `git add` or raw `git commit`.
+- Unclaimed dirty files at finalize.
+- One agent commits another agent's file.
+
+### Scenario C  Two Agents Competing For Same File
+
+Goal:
+
+- Prove overlapping work is denied, recorded, and recoverable.
+
+Setup:
+
+- Agent A claims `src/app/mcp/tool_registry.ts`.
+- Agent B tries to claim the same file exclusively.
+
+Expected commands/tools:
+
+- `vibecode_claim_add`
+- `vibecode_conflicts_list`
+- Bootstrap or claim response recommends wait, shared retry if compatible, or
+  request human/agent handoff.
+
+Pass criteria:
+
+- Claim denial is structured.
+- Conflict record exists.
+- Agent B does not edit the file.
+- No accidental commit of the other agent's work.
+
+Failure signals:
+
+- Agent B edits despite claim denial.
+- Conflict is not visible in bootstrap/conflict list.
+- Recommended next action is missing.
+
+### Scenario D  CLI-Only Agent
+
+Goal:
+
+- Prove a non-MCP agent can work safely without raw coordination.
+
+Setup:
+
+- Disable MCP for one terminal agent.
+
+Expected commands:
+
+```powershell
+vibecode agent bootstrap --repo . --register --json
+vibecode git changes --repo . --agent <id> --json
+vibecode claims add --repo . --agent <id> --paths <paths> --intent "<task>" --json
+vibecode finalize check --repo . --agent <id> --json
+vibecode commit guard --repo . --agent <id> --dry-run --json
+vibecode commit guard --repo . --agent <id> --message "<subject>" --json
+```
+
+Pass criteria:
+
+- CLI-only agent does not need MCP or direct `.vibecode` reads.
+- Raw `git status` is not needed for coordination.
+
+### Scenario E  Subagent Scenario Later
+
+Goal:
+
+- Prove parent/child identity and handoff once Phase 4 exists.
+
+Setup:
+
+- Parent agent delegates tests to child agent.
+
+Pass criteria:
+
+- Child has parent id, role, claims, validation result, and done/handoff record.
+
+## 11. Tests Required Before Implementation
+
+Add tests before production code.
+
+Required categories:
+
+- MCP/CLI parity for bootstrap, git changes, scan summary, and artifact
+  continuation.
+- Bootstrap aggregation: repo/git/current run/agents/claims/conflicts/evidence
+  artifacts/codegraph/instructions/recommended next tools.
+- Bootstrap generated-state mutation only when register/heartbeat requested.
+- `git_changes` classification for staged, unstaged, untracked, deleted,
+  renamed, copied, generated, claimed, other-claimed, stale-overlap, and
+  unclaimed files.
+- Artifact continuation with ASCII and multi-byte UTF-8.
+- Scan summary allowlist, bounds, missing artifacts, and no arbitrary file
+  access.
+- Tool profiles: expected inclusion/exclusion, default `standard`, no commit
+  mutation in any default profile.
+- Claim conflict behavior with bulk paths and intent metadata.
+- Finalize blocking behavior and exact next action recommendation.
+- Commit guard scope and no broad staging.
+- Stale claims and reap behavior remains generated-state only.
+- Dogfood-style multi-agent fixture.
+- No `.vibecode` commit leakage.
+- No arbitrary repo/source file access through MCP.
+- `recommended_next_tools` presence on bootstrap, claim denial, git changes,
+  and finalize outputs.
+
+Example test names:
+
+- `tests/app/mcp/session_bootstrap.test.ts`
+- `tests/app/cli/agent_bootstrap_commands.test.ts`
+- `tests/core/workspace/git_changes_summary.test.ts`
+- `tests/app/mcp/git_changes_tool.test.ts`
+- `tests/core/runs/artifact_continuation.test.ts`
+- `tests/app/mcp/scan_summary_tool.test.ts`
+- `tests/app/mcp/tool_profiles.test.ts`
+- `tests/integration/multi_agent_dogfood.test.ts`
+
+## 12. What Not To Build Yet
+
+More UI before core workflow is usable:
+
+- Premature because agents still need one-call bootstrap and git changes. UI
+  should observe stable core state, not invent workflow.
+
+HTTP MCP before stdio workflow is proven:
+
+- Premature because the current issue is workflow efficiency, not transport.
+
+Live file watcher as enforcement:
+
+- Current evidence/watchers are advisory. Do not pretend watcher events can
+  safely enforce ownership.
+
+Complex handoff before basic claims/commit guard are reliable:
+
+- Handoff will add state transitions. Build it only after claim/finalize/commit
+  workflows are short.
+
+More CodeGraph tools before fuzzy resolve/stale index:
+
+- More wrappers will not help if agents cannot resolve exact symbols or trust
+  index freshness.
+
+Raw diff exposure by default:
+
+- Full diffs may contain secrets or large content. Keep summaries default.
+
+Hard filesystem locks:
+
+- Locks add cross-platform failure modes and may fight editors/tools. Advisory
+  coordination plus guarded commit is the current pragmatic path.
+
+Magical automatic agent detection:
+
+- Agents should identify/register explicitly. Hidden detection will be brittle
+  across Codex, Claude, Hermes, OpenCode, shells, and terminals.
+
+MCP commit tool by default:
+
+- Commit mutation belongs in CLI until opt-in permissions, profiles, and
+  dogfood show safe behavior.
+
+## 13. Recommended Immediate Next Batch
+
+Chosen batch:
+
+- Implement `session_bootstrap` and `git_changes` only.
+
+Exact scope:
+
+- Add core bootstrap aggregation service.
+- Add core claim-aware git changes summary service.
+- Add MCP tools:
+  - `vibecode_session_bootstrap`
+  - `vibecode_git_changes`
+- Add CLI commands:
+  - `vibecode agent bootstrap --repo <path> --json`
+  - `vibecode git changes --repo <path> [--agent <id>] --json`
+- Add `recommended_next_tools` and `recommended_cli_commands` to both new
+  responses.
+- Do not implement scan summary, artifact continuation, profiles, or bulk
+  claims in this first batch.
+
+Exact files likely touched:
+
+- `src/core/agent_session/bootstrap.ts`
+- `src/core/workspace/git_changes_summary.ts`
+- `src/app/mcp/tools/session_bootstrap.ts`
+- `src/app/mcp/tools/git_changes.ts`
+- `src/app/mcp/tool_registry.ts`
+- `src/app/mcp/schemas.ts`
+- `src/app/cli/commands/agent.ts`
+- `src/app/cli/commands/git_changes.ts`
+- `src/app/cli/index.ts`
+- `tests/core/agent_session/bootstrap.test.ts`
+- `tests/core/workspace/git_changes_summary.test.ts`
+- `tests/app/mcp/session_bootstrap.test.ts`
+- `tests/app/mcp/git_changes_tool.test.ts`
+- `tests/app/cli/agent_bootstrap_commands.test.ts`
+- `tests/app/cli/git_changes_commands.test.ts`
+
+Tests first:
+
+1. Write failing core tests for bootstrap and git changes.
+2. Write failing MCP schema/handler tests.
+3. Write failing CLI command tests.
+4. Implement smallest code to pass.
+5. Run targeted tests, then relevant MCP/CLI/coordination suites.
+
+Acceptance criteria:
+
+- One MCP call gives enough orientation for a fresh coding agent.
+- One CLI command gives the same orientation for CLI-only agents.
+- Git changes output lists all changed files and classifies them relative to
+  active claims when `agent_id` is supplied.
+- No full diffs are exposed by default.
+- New tools/commands do not mutate source files or git.
+- Existing coordination and MCP security tests remain green.
+
+What must not be changed:
+
+- Do not add MCP commit mutation.
+- Do not change claim semantics from advisory to locking.
+- Do not rewrite existing architecture docs in the same batch.
+- Do not expose arbitrary artifact/source reads.
+- Do not alter Python scanner ownership.
+
+## 14. Appendix  Open Questions
+
+- Should MCP ever expose commit, or should commit guard remain CLI-only forever?
+- Should `standard` or `multi-agent` profile be default inside Vibecode terminal
+  sessions?
+- Should generated agent protocol be inserted into `AGENTS.md` by explicit
+  command, or kept separate as `vibecode agent protocol` output only?
+- Should scan artifacts be directly readable by agents, or should most access
+  go through summarized views?
+- Should claims become stricter than advisory, and if so, what enforcement layer
+  owns that without breaking normal editors and git workflows?
+- Should `session_bootstrap --register` be mutating by default in terminal
+  sessions, or should registration stay an explicit separate step?
+- Should `latest` mean chronological newest run or current pointer? Current MCP
+  behavior treats `latest/current` as the current pointer in several places;
+  this should be made explicit or renamed.
+- Should evidence watch become a default terminal background process, or remain
+  explicit until Windows watcher behavior is proven stable?
+- Should Agent Guidance include profile-specific tool notes, or should profile
+  selection itself carry enough guidance?
+- Should affected-tests use deterministic scan/import data first and CodeGraph
+  second, or depend on CodeGraph when available?
