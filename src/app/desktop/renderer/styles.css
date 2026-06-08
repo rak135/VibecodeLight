@@ -39,6 +39,9 @@
   --top-h: 52px;
   --tile-head-h: 36px;
   --rail-w: 44px;
+  /* Width of the per-terminal scroll rail (right edge of each terminal tile).
+     Sized as a comfortable hit target without covering terminal text. */
+  --scroll-rail-w: 18px;
   --left-w: 56px;
   --left-w-open: 216px;
   --right-w: 320px;
@@ -433,13 +436,16 @@ input, textarea, select { font: inherit; color: inherit; }
   top: 0;
   right: 0;
   bottom: 0;
-  width: 14px;
+  width: var(--scroll-rail-w);
   z-index: 6;
   display: flex;
   flex-direction: column;
   opacity: 0;
   transition: opacity var(--tx-fast);
   pointer-events: none;
+  /* The rail is a thin overlay control, not a link or text — keep the normal
+     arrow cursor everywhere on it (no hand/grab/resize affordances). */
+  cursor: default;
 }
 .scroll-rail.scroll-rail-active {
   opacity: 1;
@@ -457,21 +463,20 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .scroll-rail-thumb {
   position: absolute;
-  left: 3px;
+  left: 2px;
   right: 2px;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.32);
   transition: background var(--tx-fast);
-  cursor: grab;
-  min-height: 18px;
+  cursor: default;
+  min-height: 20px;
 }
 .scroll-rail.scroll-rail-active:hover .scroll-rail-thumb,
-.scroll-rail-thumb:hover {
+.scroll-rail-thumb:not(.scroll-rail-thumb-indeterminate):hover {
   background: rgba(255, 255, 255, 0.5);
 }
-.scroll-rail-thumb:active {
+.scroll-rail-thumb:not(.scroll-rail-thumb-indeterminate):active {
   background: rgba(255, 255, 255, 0.62);
-  cursor: grabbing;
 }
 .scroll-rail-jump {
   flex: none;
@@ -484,7 +489,7 @@ input, textarea, select { font: inherit; color: inherit; }
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--text-2);
-  cursor: pointer;
+  cursor: default;
   padding: 0;
   transition: background var(--tx-fast), color var(--tx-fast);
 }
@@ -517,7 +522,7 @@ input, textarea, select { font: inherit; color: inherit; }
   border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--text-2);
-  cursor: pointer;
+  cursor: default;
   padding: 0;
   transition: background var(--tx-fast), color var(--tx-fast);
 }
@@ -529,26 +534,37 @@ input, textarea, select { font: inherit; color: inherit; }
 /* Alternate-screen / full-screen TUI (vim, htop, OpenCode): xterm keeps no
    scrollback here and the app owns its scroll position. The rail stays VISIBLE
    and INTERACTIVE — up/down buttons and wheel-over-rail forward wheel input to
-   the app exactly like a real mouse wheel — but the track is an indeterminate
-   groove rather than a positioned thumb, because the exact position is
-   unknowable. We must not paint a fake exact thumb. */
+   the app exactly like a real mouse wheel. It uses the SAME width, placement and
+   groove as the normal scrollback rail; only the thumb switches to an
+   indeterminate variant, because the exact position is unknowable. We must not
+   paint a fake exact thumb. */
 .scroll-rail.scroll-rail-tui {
   opacity: 1;
   pointer-events: auto;
 }
 .scroll-rail.scroll-rail-tui .scroll-rail-track {
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0.07) 0,
-    rgba(255, 255, 255, 0.07) 2px,
-    transparent 2px,
-    transparent 6px
-  );
+  /* Same groove as the active scrollback track, so the control reads as one
+     consistent component across normal and TUI sessions. */
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.04) 40%);
   box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.05);
-  cursor: ns-resize;
+  cursor: default;
 }
-.scroll-rail.scroll-rail-tui .scroll-rail-thumb {
-  display: none;
+/* Indeterminate thumb: the SAME thumb component (width, insets, rounding) as the
+   real scrollback thumb, but it spans most of the track and is filled with a
+   diagonal "barber-pole" texture so it clearly signals "scrollable, position is
+   app-controlled" instead of pinning to a fake exact spot. */
+.scroll-rail-thumb.scroll-rail-thumb-indeterminate {
+  top: 8%;
+  bottom: 8%;
+  height: auto;
+  cursor: default;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.26) 0,
+    rgba(255, 255, 255, 0.26) 5px,
+    rgba(255, 255, 255, 0.12) 5px,
+    rgba(255, 255, 255, 0.12) 10px
+  );
 }
 
 /* ------------- Right rail ------------- */

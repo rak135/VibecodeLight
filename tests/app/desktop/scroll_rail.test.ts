@@ -372,6 +372,15 @@ describe('tui action routing', () => {
     ctrl.dispose();
   });
 
+  test('pageDown honors a configured pageNotches count', () => {
+    const t = tuiTerm();
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, pageNotches: 5 });
+    ctrl.pageDown();
+    expect(sendWheel).toHaveBeenCalledTimes(5);
+    ctrl.dispose();
+  });
+
   test('scrollToBottom is a no-op in TUI mode (the bottom is unknowable)', () => {
     const t = tuiTerm();
     const ctrl = ScrollRail.createScrollRailController(t, { sendWheel: vi.fn() });
@@ -385,6 +394,51 @@ describe('tui action routing', () => {
     const ctrl = ScrollRail.createScrollRailController(t, { sendWheel: vi.fn() });
     ctrl.scrollToRatio(0.5);
     expect(t.scrollLines).not.toHaveBeenCalled();
+    ctrl.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Strong bottom control (jumpDown)
+// ---------------------------------------------------------------------------
+// Protected invariant: the bottom control must move *substantially*, not a tiny
+// one-notch nudge. In TUI mode true jump-to-bottom is impossible (the app owns
+// its position), so jumpDown forwards a strong, configurable burst of wheel-down
+// notches — never the scrollback API. In scrollback mode it is a real
+// scroll-to-bottom.
+
+describe('strong bottom control (jumpDown)', () => {
+  function tuiTerm() {
+    return fakeTerminal({ rows: 24, buffer: { baseY: 0, viewportY: 0, length: 24, type: 'alternate' }, mouseTrackingMode: 'any' });
+  }
+
+  test('jumpDown forwards a strong burst of downward notches by default (not one nudge)', () => {
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(tuiTerm(), { sendWheel });
+    ctrl.jumpDown();
+    expect(sendWheel.mock.calls.length).toBeGreaterThan(3);
+    expect(sendWheel.mock.calls.every((c: unknown[]) => c[0] === 'down')).toBe(true);
+    ctrl.dispose();
+  });
+
+  test('jumpDown honors a configured tuiJumpNotches count and never drives scrollback', () => {
+    const t = tuiTerm();
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, tuiJumpNotches: 12 });
+    ctrl.jumpDown();
+    expect(sendWheel).toHaveBeenCalledTimes(12);
+    expect(t.scrollLines).not.toHaveBeenCalled();
+    expect(t.scrollToBottom).not.toHaveBeenCalled();
+    ctrl.dispose();
+  });
+
+  test('jumpDown is a real scroll-to-bottom in scrollback mode', () => {
+    const t = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 50, length: 124 } });
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel });
+    ctrl.jumpDown();
+    expect(t.scrollToBottom).toHaveBeenCalledTimes(1);
+    expect(sendWheel).not.toHaveBeenCalled();
     ctrl.dispose();
   });
 });
@@ -451,13 +505,70 @@ describe('updateScrollRailDom styling', () => {
     expect(els.jumpBtn.style.display).not.toBe('none');
   });
 
-  test('TUI mode does not claim an exact scroll position (no positioned thumb)', () => {
+  test('TUI mode shows an indeterminate thumb variant without claiming an exact position', () => {
     const els = fakeRailElements();
     ScrollRail.updateScrollRailDom(els, {
       mode: 'tui', indeterminate: true,
       thumbRatio: 0.3, thumbPosition: 0.5, isAtBottom: false, hasNewOutput: false,
     });
-    expect(els.thumb.style.display).toBe('none');
+    // Same component, kept visible — not a different hidden design.
+    expect(els.thumb.style.display).not.toBe('none');
+    // Marked as the indeterminate variant of the same thumb.
+    expect(els.thumb._classes.has('scroll-rail-thumb-indeterminate')).toBe(true);
+    // Never encodes a fake exact position (no inline top/height).
+    expect(els.thumb.style.top).toBeFalsy();
+    expect(els.thumb.style.height).toBeFalsy();
+  });
+
+  test('scrollback mode clears the TUI indeterminate thumb variant', () => {
+    const els = fakeRailElements();
+    els.thumb.classList.add('scroll-rail-thumb-indeterminate');
+    ScrollRail.updateScrollRailDom(els, {
+      mode: 'scrollback', indeterminate: false,
+      thumbRatio: 0.3, thumbPosition: 0.5, isAtBottom: false, hasNewOutput: false,
+    });
+    expect(els.thumb._classes.has('scroll-rail-thumb-indeterminate')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rail cursor + width invariants (CSS, functional not cosmetic)
+// ---------------------------------------------------------------------------
+// Protected invariant: the rail must not present a hand/grab/resize cursor (it
+// is a thin overlay control, not a link), and its hit target must be a named,
+// tunable width that is wider than the original cramped 14px.
+
+function readStylesCss(): Promise<string> {
+  return (async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    return readFileSync(resolve(process.cwd(), 'src/app/desktop/renderer/styles.css'), 'utf8');
+  })();
+}
+
+function railSection(css: string): string {
+  const start = css.indexOf('Per-terminal scroll rail');
+  const end = css.indexOf('------------- Right rail', start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  return css.slice(start, end);
+}
+
+describe('rail cursor invariant', () => {
+  test('the scroll rail never uses a hand/grab/resize cursor', async () => {
+    const section = railSection(await readStylesCss());
+    expect(section).not.toMatch(/cursor:\s*(pointer|grab|grabbing|ns-resize)/);
+    expect(section).toMatch(/cursor:\s*default/);
+  });
+});
+
+describe('rail width / hit target', () => {
+  test('rail width is a named CSS variable wider than the old 14px', async () => {
+    const css = await readStylesCss();
+    const m = css.match(/--scroll-rail-w:\s*(\d+)px/);
+    expect(m).toBeTruthy();
+    expect(Number(m![1])).toBeGreaterThan(14);
+    expect(css).toMatch(/\.scroll-rail\s*\{[^}]*width:\s*var\(--scroll-rail-w\)/);
   });
 });
 

@@ -113,8 +113,15 @@
     var WHEEL_STEP = options.wheelStep || 3;
     // Wheel notches synthesised per page action in TUI mode. TUIs typically
     // scroll a fixed amount per notch regardless of delta magnitude, so a page
-    // is several discrete notches rather than one large delta.
-    var PAGE_NOTCHES = options.pageNotches || 3;
+    // is several discrete notches rather than one large delta. Sized so a single
+    // track click / step-button tap moves a meaningful chunk, not a tiny nudge.
+    var PAGE_NOTCHES = options.pageNotches || 8;
+    // Strong best-effort downward burst for the bottom control in TUI mode. A
+    // full-screen app owns its scroll position, so a true jump-to-bottom is
+    // impossible; instead we forward a large run of wheel-down notches, which
+    // moves substantially in practice (e.g. to the end of an OpenCode list).
+    // This is honest best-effort, NOT a guaranteed jump. Configurable.
+    var TUI_JUMP_NOTCHES = options.tuiJumpNotches || 24;
     var sendWheel = options.sendWheel || makeDefaultWheelSender(terminal);
 
     var listeners = [];
@@ -208,6 +215,17 @@
       }
     }
 
+    // Strong downward action for the bottom control. In scrollback mode this is a
+    // real scroll-to-bottom. In TUI mode the bottom is unknowable, so we forward
+    // a strong burst of wheel-down notches (best-effort, not a guaranteed jump).
+    function jumpDown() {
+      if (isTui()) {
+        for (var i = 0; i < TUI_JUMP_NOTCHES; i++) sendWheel('down');
+      } else {
+        scrollToBottom();
+      }
+    }
+
     function scrollToRatio(ratio) {
       if (isTui()) return; // exact position is unknowable in a TUI; drag disabled
       var baseY = terminal.buffer.active.baseY;
@@ -253,6 +271,7 @@
       wheelLikeDown: wheelLikeDown,
       pageUp: pageUp,
       pageDown: pageDown,
+      jumpDown: jumpDown,
       scrollToRatio: scrollToRatio,
       onStateChange: onStateChange,
       dispose: dispose,
@@ -273,15 +292,17 @@
 
     if (state.mode === 'tui') {
       // Full-screen TUI / alternate screen: keep the rail VISIBLE and
-      // INTERACTIVE (up/down + wheel forwarding), but show an indeterminate
-      // track — never a positioned thumb, because the app owns its scroll
+      // INTERACTIVE (up/down + wheel forwarding). The thumb stays as the SAME
+      // visual component, switched to an indeterminate variant — it is never
+      // positioned to a fake exact spot, because the app owns its scroll
       // position and we cannot know it.
       rail.classList.remove('scroll-rail-active');
       rail.classList.add('scroll-rail-tui');
       rail.setAttribute('title', 'Full-screen app: scroll up/down (position is app-controlled)');
-      thumb.style.display = 'none';
+      thumb.style.display = '';
       thumb.style.top = '';
       thumb.style.height = '';
+      thumb.classList.add('scroll-rail-thumb-indeterminate');
       if (upBtn) upBtn.style.display = 'flex';
       jumpBtn.style.display = 'flex';
       jumpBtn.classList.remove('scroll-rail-jump-new');
@@ -292,6 +313,7 @@
     // Scrollback mode.
     rail.classList.remove('scroll-rail-tui');
     rail.removeAttribute('title');
+    thumb.classList.remove('scroll-rail-thumb-indeterminate');
     if (upBtn) upBtn.style.display = 'none'; // up button is a TUI-only affordance
     thumb.style.display = '';
     jumpBtn.setAttribute('title', 'Jump to bottom');
@@ -357,6 +379,7 @@
     upBtn.type = 'button';
     upBtn.title = 'Scroll up';
     upBtn.style.display = 'none';
+    upBtn.tabIndex = -1; // never steal focus from the terminal
     upBtn.innerHTML = CHEVRON_UP;
 
     var track = document.createElement('div');
@@ -370,6 +393,7 @@
     jumpBtn.className = 'scroll-rail-jump';
     jumpBtn.type = 'button';
     jumpBtn.title = 'Jump to bottom';
+    jumpBtn.tabIndex = -1; // never steal focus from the terminal
     jumpBtn.innerHTML = CHEVRON_DOWN;
 
     track.appendChild(thumb);
@@ -378,6 +402,54 @@
     rail.appendChild(jumpBtn);
 
     return { rail: rail, upBtn: upBtn, track: track, thumb: thumb, jumpBtn: jumpBtn };
+  }
+
+  // Press-and-hold repeater: fires an action on pointerdown, then (after a short
+  // delay) repeats it at a steady interval while the pointer is held down. This
+  // turns "click the down arrow over and over" into "hold to scroll". The action
+  // set is read live via getActions() so the same button serves both modes, and
+  // pointerdown is preventDefault-ed so the rail never steals terminal focus.
+  function addHoldRepeat(el, getActions, opts) {
+    opts = opts || {};
+    var delay = opts.delay || 350;
+    var interval = opts.interval || 110;
+    var holdTimer = null;
+    var repeatTimer = null;
+
+    function stop() {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+    }
+
+    function onPointerDown(e) {
+      if (e.button !== undefined && e.button !== 0) return; // primary button only
+      e.stopPropagation();
+      e.preventDefault(); // suppress focus + native button click
+      var actions = getActions();
+      if (!actions || !actions.first) return;
+      actions.first();
+      var repeat = actions.repeat;
+      if (!repeat) return;
+      stop();
+      holdTimer = setTimeout(function () {
+        repeatTimer = setInterval(repeat, interval);
+      }, delay);
+    }
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointerup', stop);
+    el.addEventListener('pointerleave', stop);
+    el.addEventListener('pointercancel', stop);
+    window.addEventListener('blur', stop);
+
+    return function dispose() {
+      stop();
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointerup', stop);
+      el.removeEventListener('pointerleave', stop);
+      el.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+    };
   }
 
   // Wire mouse interactions on a rail to a controller. Handlers read the live
@@ -391,25 +463,27 @@
     var dragging = false;
     var dragStartY = 0;
     var dragStartThumbTop = 0;
+    var holdDisposers = [];
 
     function modeNow() {
       try { return controller.getState().mode; } catch (_e) { return 'scrollback'; }
     }
 
+    // Up button (TUI-only affordance): tap = one page up, hold = keep paging up.
     if (upBtn) {
-      upBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        e.preventDefault();
-        controller.wheelLikeUp();
-      });
+      holdDisposers.push(addHoldRepeat(upBtn, function () {
+        return { first: controller.pageUp, repeat: controller.pageUp };
+      }));
     }
 
-    jumpBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      e.preventDefault();
-      if (modeNow() === 'tui') controller.wheelLikeDown();
-      else controller.scrollToBottom();
-    });
+    // Bottom button: in TUI mode a tap does a strong jump-down burst and holding
+    // keeps paging down; in scrollback mode it is a single real scroll-to-bottom.
+    holdDisposers.push(addHoldRepeat(jumpBtn, function () {
+      if (modeNow() === 'tui') {
+        return { first: controller.jumpDown, repeat: controller.pageDown };
+      }
+      return { first: controller.scrollToBottom, repeat: null };
+    }));
 
     // Wheel over the rail strip forwards wheel-like input. The rail overlays the
     // terminal's right edge, so without this, wheel events here would be lost.
@@ -447,7 +521,8 @@
       dragStartY = e.clientY;
       dragStartThumbTop = parseFloat(thumb.style.top) || 0;
       document.body.style.userSelect = 'none';
-      document.body.style.cursor = 'grabbing';
+      // Neutral cursor while dragging — no hand/grab affordance.
+      document.body.style.cursor = 'default';
     });
 
     function onMouseMove(e) {
@@ -477,6 +552,7 @@
     return function unbind() {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      holdDisposers.forEach(function (d) { d(); });
     };
   }
 
