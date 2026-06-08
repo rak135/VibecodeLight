@@ -26,6 +26,8 @@ import { buildCoordinationStatusTool } from './tools/coordination_status.js';
 import { buildEvidenceListTool, buildEvidenceScanTool } from './tools/evidence.js';
 import { buildFinalizeCheckTool } from './tools/finalize_check.js';
 import { buildCurrentRunTool } from './tools/current_run.js';
+import { buildGitChangesTool } from './tools/git_changes.js';
+import { buildSessionBootstrapTool } from './tools/session_bootstrap.js';
 import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from './tools/project_instructions.js';
 import { buildRunGetTool } from './tools/run_get.js';
@@ -115,6 +117,9 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildMcpGuidanceTool(),
     buildProjectInstructionsTool(),
     buildArtifactsListTool(),
+    // Phase 1A: one-call session bootstrap + claim-aware git changes.
+    buildSessionBootstrapTool(),
+    buildGitChangesTool(),
     // Phase Coordination-1: read-only multi-agent coordination status.
     buildCoordinationStatusTool(),
     // Phase Coordination-2: persistent agent session registry + heartbeat.
@@ -167,6 +172,9 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_mcp_guidance',
   'vibecode_project_instructions',
   'vibecode_artifacts_list',
+  // Phase 1A
+  'vibecode_session_bootstrap',
+  'vibecode_git_changes',
   // Phase Coordination-1
   'vibecode_coordination_status',
   // Phase Coordination-2

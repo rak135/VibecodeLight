@@ -60,7 +60,9 @@ import { registerCoordinationCommands } from './commands/coordination.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerEvidenceCommands } from './commands/evidence.js';
 import { registerFinalizeCommands } from './commands/finalize.js';
+import { registerGitChangesCommands } from './commands/git_changes.js';
 import { registerMcpCommands } from './commands/mcp.js';
+import { registerSessionCommands } from './commands/session.js';
 import { registerRunCreateCommand, registerRunsCommands, resolveRunDir } from './commands/runs.js';
 import { registerSkillsCommands } from './commands/skills.js';
 import { registerWorkspaceCommands } from './commands/workspace.js';
@@ -292,6 +294,8 @@ export function createCli(): Command {
 
   registerConfigCommands(program);
   registerCoordinationCommands(program, { makeCliStructuredError, emitCliStructuredError });
+  registerSessionCommands(program, { makeCliStructuredError, emitCliStructuredError });
+  registerGitChangesCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerClaimsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerConflictsCommands(program, { makeCliStructuredError, emitCliStructuredError });

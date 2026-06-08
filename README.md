@@ -1075,6 +1075,29 @@ Phase MCP-3 is **read-only**, adds no terminal write, no shell exec, no file
 write, no git commit, no run creation, and no arbitrary file read. Vibecode
 does not manage approvals/permissions: the MCP client/agent owns those.
 
+Session bootstrap + claim-aware git changes (Phase 1A):
+
+```text
+vibecode_session_bootstrap
+vibecode_git_changes
+```
+
+`vibecode_session_bootstrap` is the new one-call orientation: in a single
+request it returns the repo/git dirty state, the current run and which artifacts
+exist, active/stale agents, own/other/stale claims, unresolved conflicts,
+evidence counts, scan availability, CodeGraph status, a bounded
+project-instruction excerpt, the short agent operating protocol, and the
+recommended next tools/commands. It is read-only by default; with `register:
+true` (plus `agent_mode` `read_only`/`build` and a `task`) or an `agent_id` it
+writes only generated `.vibecode/coordination/state.json` (register/heartbeat).
+`vibecode_git_changes` returns a claim-aware changed-files summary — per-file
+category and classification (`claimed_by_agent` / `claimed_by_other_active_agent`
+/ `unclaimed` / `stale_claim_overlap` / `generated_or_ignored` /
+`unknown_without_agent_id`), counts with truncation metadata, and a bounded
+`git diff --stat` (never a full diff). Both have CLI parity (`vibecode session
+bootstrap --json`, `vibecode git changes --json`) and never mutate git or source
+files. See `docs/MCP_CLI_MULTI_AGENT_EFFICIENCY_PLAN.md` for the full contract.
+
 Multi-agent coordination tool (Phase Coordination-1 — read-only):
 
 ```text

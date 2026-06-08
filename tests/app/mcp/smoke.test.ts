@@ -40,7 +40,7 @@ describe('VibecodeMCP stdio server smoke (over in-memory transport)', () => {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  test('server connects, initialize completes, and tools/list returns the canonical 32 tools', async () => {
+  test('server connects, initialize completes, and tools/list returns the canonical tool set', async () => {
     const { handle, client } = await connectClient(repoRoot);
     try {
       const listed = await client.listTools();

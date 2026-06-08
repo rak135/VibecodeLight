@@ -1737,6 +1737,180 @@ What must not be changed:
 - Do not expose arbitrary artifact/source reads.
 - Do not alter Python scanner ownership.
 
+## 14A. Phase 1A — session_bootstrap + git_changes (Implemented)
+
+This section records what was actually built in the first batch. Where the
+implementation differs from the earlier proposal above, the implementation wins
+and the difference is called out.
+
+### Implemented MCP tools
+
+- `vibecode_session_bootstrap` — one-call orientation for the bound repo.
+- `vibecode_git_changes` — claim-aware changed-files summary.
+
+Both are registered in `src/app/mcp/tool_registry.ts` (the canonical
+`VIBECODE_MCP_TOOL_NAMES` list), grouped under `workspace_orientation` in
+`src/core/config/agent_guidance_mcp_tools.ts` and `tools/workspace_info.ts`, and
+covered by the MCP security/registry/parity suites. They never accept a `repo`
+argument (the repo is bound at server start), never expose a full diff or
+arbitrary file read, and never mutate git or source files.
+
+### Implemented CLI commands
+
+- `vibecode session bootstrap --json`
+- `vibecode git changes --json`
+
+**Naming difference from the proposal:** earlier sections of this plan sketched
+the CLI as `vibecode agent bootstrap`. The shipped commands are
+`vibecode session bootstrap` and `vibecode git changes` (the agent-facing MCP
+tool names `vibecode_session_bootstrap` / `vibecode_git_changes` are unchanged).
+`vibecode agent protocol` was **not** shipped in this batch.
+
+Both CLI commands and both MCP tools call the same shared core services, so
+MCP/CLI parity holds:
+
+- `src/core/agent_session/bootstrap.ts` (`getSessionBootstrap`)
+- `src/core/workspace/git_changes_summary.ts` (`getGitChangesSummary`)
+
+`getGitChangesSummary` is the single source of truth for changed files and is
+also consumed by `session_bootstrap`'s git section (reusable by a future
+workspace/finalize/commit-alignment phase).
+
+### session_bootstrap behavior
+
+Read-only by default. The only generated state it ever writes is
+`.vibecode/coordination/state.json`, and only when:
+
+- an `agent_id` is supplied (heartbeat/refresh; revives a stale/idle session); or
+- `register: true` with a valid `agent_mode` and a `task`.
+
+Agent operating mode is a Phase 1A concept distinct from the existing
+`agent_binding` tooling mode (`mcp`/`cli`/`unknown`). Valid operating modes are
+`read_only` and `build`; the value (plus the `task`/intent) is stored in the
+agent session `metadata` (`operating_mode`, `task`) — the `AgentSession` shape is
+unchanged. Mode is chosen at session start and is not changed mid-session.
+`read_only` agents must not modify source and do not claim files; `build` agents
+must claim each file before editing.
+
+Identity resolution:
+
+| Input | Result |
+| --- | --- |
+| `agent_id` active/idle/stale | heartbeat (revives), `ok:true`, `generated_state_written:true` |
+| `agent_id` terminated | `ok:false`, blocker `AGENT_TERMINATED` (MCP error `AGENT_TERMINATED`) |
+| `agent_id` not found | `ok:false`, blocker `AGENT_NOT_FOUND` |
+| no `agent_id`, `register:true`, valid mode + task | new agent created, `agent_id` returned, state written |
+| no `agent_id`, `register:true`, bad mode | `ok:false`, blocker `INVALID_AGENT_MODE` (MCP error `INVALID_ARGUMENT`) |
+| no `agent_id`, `register:true`, no task | `ok:false`, blocker `AGENT_TASK_REQUIRED` (MCP error `INVALID_ARGUMENT`) |
+| no `agent_id`, `register:false` | `ok:true` orientation + `NOT_REGISTERED` warning |
+
+Run selection (`run_ref`): `current`, `latest`, or a concrete run id. **Actual
+behavior:** in Phase 1A `current` and `latest` BOTH resolve to the
+`.vibecode/current` pointer — chronological-latest is intentionally not
+distinguished yet (consistent with the existing `resolveRunDir` semantics). A
+concrete run id resolves through the path-safe `resolveExplicitRunDir`.
+
+Bounded response sections (all lists capped by `max_items`, default 25):
+
+- `repo_root`, `generated_state_written`
+- `git`: `available`, `branch`, `head`, `dirty`, `changed_counts`
+  (`staged`/`unstaged`/`untracked`/`deleted`/`renamed`/`total`),
+  `sample_changed_files` (capped), `sample_truncated`
+- `current_run`: `run_ref`, `run_id`, `available`, `has_final_prompt`,
+  `has_context_pack`, `has_flash_output`, `available_artifacts`
+- `agents`: `total`/`active`/`stale`/`terminated` + capped `active_items` /
+  `stale_items`
+- `current_agent`: identity incl. `operating_mode` + `task` (or null)
+- `claims`: `counts` (`own`/`other_active`/`stale`) + capped `own` /
+  `other_active` / `stale` lists
+- `conflicts`: `unresolved_count` + capped `items`
+- `evidence`: `recent_count` / `warning_count` / `high_count` / `last_event_at`
+- `scan`: `current_run_scan_available` only (no `scan_summary` in Phase 1A)
+- `codegraph`: `available` / `initialized` / `stale` (`stale` is always `false`
+  in Phase 1A — stale-index detection is a later phase)
+- `project_instructions`: `available`, `sources`, bounded `excerpt`,
+  `excerpt_truncated` (from the same strict allowlist as
+  `vibecode_project_instructions`; no arbitrary source reads)
+- `agent_protocol` (see below), `warnings`, `blockers`,
+  `recommended_next_tools`, `recommended_cli_commands`
+
+### git_changes behavior
+
+Read-only. Works without `agent_id` (partial classification + warning); with
+`agent_id` the agent's mode/claims are read from registered coordination state,
+not from a per-call override.
+
+Changed-file categories: `staged`, `unstaged`, `untracked`, `deleted`,
+`renamed`, `copied`, `type_changed`, `generated_or_ignored` (a file may belong
+to several).
+
+Claim-aware classifications: `claimed_by_agent`,
+`claimed_by_other_active_agent`, `unclaimed`, `generated_or_ignored`,
+`stale_claim_overlap`, `unknown_without_agent_id` (the no-agent case).
+
+Other guarantees: counts are computed over ALL changed files while the `files`
+list is capped (`truncated` / `total_changed` / `returned_changed`); a bounded
+`git diff --stat` is included by default (never a full diff — no hunk bodies);
+unclaimed dirty source files raise a HIGH `UNCLAIMED_DIRTY_FILES` warning when an
+agent is supplied; a non-git directory returns `ok:false` (MCP/CLI error
+`GIT_CHANGES_FAILED`). It is NOT finalize — it warns and classifies; finalize /
+commit guard remain the hard decision points.
+
+### Current agent operating protocol
+
+Returned verbatim by every `session_bootstrap` call
+(`AGENT_OPERATING_PROTOCOL`):
+
+1. Register or confirm your agent identity (`read_only` or `build`) with a
+   task/intent before working.
+2. `read_only` agents must NOT modify source files and do not claim files.
+3. `build` agents must claim each file (`vibecode_claim_add`) before editing it.
+4. Inspect the working tree with `vibecode_git_changes` before editing or
+   finalizing.
+5. Edit only files your agent has claimed.
+6. Run the project checks/tests after editing.
+7. Run `vibecode_finalize_check` before committing.
+8. Commit only your claimed files through the CLI `vibecode commit guard`
+   (no raw `git add`/`commit`).
+9. Heartbeat to stay active; release claims or terminate when done.
+
+`recommended_next_tools` / `recommended_cli_commands` are returned by both
+`session_bootstrap` and `git_changes` only (no other MCP response was
+standardized in this batch).
+
+### Tests proving behavior
+
+- `tests/core/workspace/git_changes_summary.test.ts` — categories, counts +
+  truncation, bounded diff stat vs. no full diff, classification with/without
+  agent_id, stale-overlap, generated/ignored separation, HIGH unclaimed
+  warning, non-git failure, no git/source mutation.
+- `tests/core/agent_session/bootstrap.test.ts` — clean/dirty, register
+  (mode+task), heartbeat, stale revive, terminated/not-found blockers,
+  register=false warning, bounded sections, scan-availability-only, instruction
+  excerpt, protocol + recommendations, claim split + caps.
+- `tests/app/mcp/session_bootstrap_tool.test.ts`,
+  `tests/app/mcp/git_changes_tool.test.ts` — schema rejects unknown fields,
+  expected `structuredContent`, registry membership, error mapping.
+- `tests/app/cli/session_git_changes_commands.test.ts` — stable success/error
+  envelopes and CLI/MCP parity for core fields.
+- Existing `tests/app/mcp/security.test.ts` / `registry_parity.test.ts` /
+  `tool_registry.test.ts` / `docs.test.ts` stay green (lockstep lists updated).
+
+### Known limitations
+
+- `current`/`latest` both mean the current pointer (no chronological-latest).
+- `codegraph.stale` is always `false` (stale-index detection is later).
+- `scan` reports availability only — no `scan_summary`.
+- No artifact-read continuation, no tool profiles, no bulk claims, no
+  `vibecode agent protocol` command, no MCP commit tool.
+- Coordination remains advisory: no source-file locks; nothing is enforced.
+
+### Next batch
+
+Phase 2 (make coordination harder to skip): bulk claims with intent, finalize
+"next action" command output, tool profiles (default `standard`), terminal
+protocol banner. Scan summary / artifact continuation can follow per §13.
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

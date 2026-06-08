@@ -16,6 +16,7 @@
  */
 
 import { AGENT_TYPES } from '../../core/coordination/types.js';
+import { AGENT_OPERATING_MODES } from '../../core/agent_session/bootstrap.js';
 
 export interface JsonSchema {
   type?: string;
@@ -355,6 +356,45 @@ export const CLAIMS_REAP_INPUT_SCHEMA: JsonSchema = {
   additionalProperties: false,
   properties: {
     dry_run: { type: 'boolean', description: 'When true, report reapable claims without releasing them.' },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Phase 1A: session bootstrap + claim-aware git changes input schemas
+// ---------------------------------------------------------------------------
+
+export const SESSION_BOOTSTRAP_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Existing agent id to heartbeat/refresh (revives a stale/idle session).' },
+    register: { type: 'boolean', description: 'Register a NEW agent (requires agent_mode + task; ignored if agent_id is set).' },
+    agent_mode: {
+      type: 'string',
+      enum: [...AGENT_OPERATING_MODES],
+      description: 'Operating mode chosen at session start: read_only | build. Required when register=true.',
+    },
+    agent_name: { type: 'string', description: 'Human-friendly agent name for a new registration.' },
+    agent_type: {
+      type: 'string',
+      enum: [...AGENT_TYPES],
+      description: 'Agent runtime for a new registration: claude | codex | hermes | opencode | custom (default custom).',
+    },
+    task: { type: 'string', description: 'Task/intent for the session. Required when register=true.' },
+    terminal_session_id: { type: 'string', description: 'Owning terminal session id, if any.' },
+    run_ref: { type: 'string', description: 'Run selection: current | latest (both = current pointer) | a concrete run id.' },
+    max_items: { ...POSITIVE_INT, description: 'Cap on per-section item lists (positive integer).' },
+    include_instructions: { type: 'boolean', description: 'Include a bounded project-instruction excerpt (default true).' },
+  },
+};
+
+export const GIT_CHANGES_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Active agent id; enables claim-aware classification of changed files.' },
+    max_files: { ...POSITIVE_INT, description: 'Cap on the number of changed-file entries returned (counts are unaffected).' },
+    include_diff_stat: { type: 'boolean', description: 'Include a bounded git diff --stat (default true). Never a full diff.' },
   },
 };
 

@@ -118,6 +118,9 @@ describe('Codex MCP config generation', () => {
       'vibecode_mcp_guidance',
       'vibecode_project_instructions',
       'vibecode_artifacts_list',
+      // Phase 1A (session bootstrap + claim-aware git changes)
+      'vibecode_session_bootstrap',
+      'vibecode_git_changes',
       // Phase Coordination-1 (read-only coordination status)
       'vibecode_coordination_status',
       // Phase Coordination-2 (agent session registry + heartbeat; advisory generated-state writes only)

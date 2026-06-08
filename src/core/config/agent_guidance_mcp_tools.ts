@@ -15,6 +15,8 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_mcp_guidance',
     'vibecode_project_instructions',
     'vibecode_artifacts_list',
+    'vibecode_session_bootstrap',
+    'vibecode_git_changes',
   ]),
   codegraph: Object.freeze([
     'vibecode_codegraph_status',
@@ -57,6 +59,8 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_mcp_guidance: 'Compact guide describing when to use each VibecodeMCP tool.',
   vibecode_project_instructions: 'Bounded project instructions (AGENTS.md, README.md, codegraph docs).',
   vibecode_artifacts_list: 'List allowlisted Vibecode run artifacts before reading them.',
+  vibecode_session_bootstrap: 'One-call orientation: git/dirty state, run/artifacts, agents, claims/conflicts, scan/CodeGraph status, project-instruction excerpt, protocol, and recommended next tools.',
+  vibecode_git_changes: 'Claim-aware changed-files summary with categories, classification, counts, and a bounded diff stat (no full diff; not a commit guard).',
   vibecode_codegraph_status: 'Detect whether upstream CodeGraph is installed and the repo has an initialized index.',
   vibecode_codegraph_search: 'Search for symbols in the indexed Vibecode-bound repo.',
   vibecode_codegraph_context: 'Build bounded markdown subsystem context from the existing CodeGraph index.',

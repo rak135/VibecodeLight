@@ -21,12 +21,15 @@ const FORBIDDEN_TOOL_NAME_PATTERNS = [
 ];
 
 // Tools that are intentionally read-only despite their names containing
-// substrings the forbidden patterns might match. Both vibecode_codegraph_files
-// (a list/files-tool) and vibecode_artifact_read (a read-only artifact reader)
-// are read-only — neither writes anything.
+// substrings the forbidden patterns might match. vibecode_codegraph_files
+// (a list/files-tool), vibecode_artifact_read (a read-only artifact reader),
+// and vibecode_git_changes (a read-only changed-files inspector — it only spawns
+// `git rev-parse`/`git status`/`git diff --stat` and never mutates git) are all
+// read-only — none write anything.
 const ALLOWED_READ_TOOL_NAMES = new Set([
   'vibecode_codegraph_files',
   'vibecode_artifact_read',
+  'vibecode_git_changes',
 ]);
 
 const READ_ONLY_NAME_RE = /(write|create|update|delete|put|post|set|edit|modify)/i;

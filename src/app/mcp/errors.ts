@@ -62,7 +62,11 @@ export type McpErrorCode =
   // Phase Coordination-4D-cleanup: claims reap + conflict tools.
   | 'CLAIMS_REAP_FAILED'
   | 'CONFLICTS_LIST_FAILED'
-  | 'CONFLICT_RESOLVE_FAILED';
+  | 'CONFLICT_RESOLVE_FAILED'
+  // Phase 1A: session bootstrap + claim-aware git changes.
+  | 'AGENT_TERMINATED'
+  | 'SESSION_BOOTSTRAP_FAILED'
+  | 'GIT_CHANGES_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -252,6 +256,21 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'Verify the conflict_id exists (vibecode_conflicts_list) and retry if the failure is transient.',
+  },
+  AGENT_TERMINATED: {
+    retryable: false,
+    suggestion:
+      'The supplied agent_id is terminated. Register a new agent via vibecode_session_bootstrap with register=true (agent_mode + task).',
+  },
+  SESSION_BOOTSTRAP_FAILED: {
+    retryable: true,
+    suggestion:
+      'Bootstrap is read-only by default and registers/heartbeats only when asked. Verify register inputs (agent_mode + task) or the agent_id, then retry.',
+  },
+  GIT_CHANGES_FAILED: {
+    retryable: true,
+    suggestion:
+      'git_changes reads the working tree read-only. Verify the bound path is a git repository, then retry if the failure is transient.',
   },
 };
 

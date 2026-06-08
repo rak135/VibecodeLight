@@ -63,6 +63,8 @@ const WORKSPACE_ORIENTATION_TOOL_NAMES = Object.freeze([
   'vibecode_mcp_guidance',
   'vibecode_project_instructions',
   'vibecode_artifacts_list',
+  'vibecode_session_bootstrap',
+  'vibecode_git_changes',
 ]);
 
 const COORDINATION_TOOL_NAMES = Object.freeze([
