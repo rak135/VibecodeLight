@@ -44,6 +44,11 @@ function mcpErrorForCoordination(
     case 'INVALID_CLAIM_PATH':
     case 'INVALID_CLAIM_MODE':
       return 'INVALID_ARGUMENT';
+    case 'READ_ONLY_AGENT':
+      return 'READ_ONLY_AGENT';
+    case 'INVALID_AGENT_MODE':
+    case 'INVALID_AGENT_SESSION':
+      return 'INVALID_AGENT_SESSION';
     default:
       return fallback;
   }

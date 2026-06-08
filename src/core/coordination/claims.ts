@@ -12,6 +12,7 @@ import {
   type ClaimStatus,
   type FileClaim,
 } from './types.js';
+import { requireBuildAgent } from './agent_operating_mode.js';
 
 /**
  * Phase 3A advisory file claims.
@@ -193,6 +194,30 @@ export function addFileClaim(
   const normalizedPath = normalizeClaimPath(repoRoot, input.path);
   const state = loadCoordinationState(repoRoot, { now });
   const agent = requireClaimingAgent(state.agents, input.agent_id, nowMs, ttlMs);
+
+  // Enforce operating mode: only build agents may claim files.
+  try {
+    requireBuildAgent(agent);
+  } catch (err) {
+    if (err instanceof CoordinationError) {
+      return {
+        denied: true,
+        claim: null,
+        conflicting_claims: [],
+        error: {
+          code: 'CLAIM_DENIED',
+          message: err.message,
+          details: {
+            requested: { agent_id: input.agent_id, path: normalizedPath, mode: input.mode },
+            reason: err.code,
+            agent_id: input.agent_id,
+          },
+        },
+      };
+    }
+    throw err;
+  }
+
   const conflicting = activeBlockingClaims({
     claims: state.claims,
     agents: state.agents,

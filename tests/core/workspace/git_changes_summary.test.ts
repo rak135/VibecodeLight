@@ -159,8 +159,8 @@ describe('getGitChangesSummary — classification', () => {
 
   test('with agent_id, files are classified against active claims', () => {
     const repo = makeRepo('vibecode-gcs-agent-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/theirs.ts', mode: 'exclusive' });
     write(repo, 'src/mine.ts');
@@ -182,7 +182,7 @@ describe('getGitChangesSummary — classification', () => {
 
   test('unclaimed dirty source files produce a HIGH warning when an agent is supplied', () => {
     const repo = makeRepo('vibecode-gcs-unclaimed-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     write(repo, 'src/loose.ts');
 
     const summary = getGitChangesSummary(repo, { agent_id: a.agent_id });
@@ -193,7 +193,7 @@ describe('getGitChangesSummary — classification', () => {
 
   test('generated/ignored runtime paths are classified separately and never unclaimed', () => {
     const repo = makeRepo('vibecode-gcs-generated-', { gitignoreVibecode: false });
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     write(repo, path.join('.vibecode', 'coordination', 'state.json'), '{}\n');
 
     const summary = getGitChangesSummary(repo, { agent_id: a.agent_id });
@@ -208,9 +208,9 @@ describe('getGitChangesSummary — classification', () => {
     const T0 = '2026-01-01T00:00:00.000Z';
     const T_LATER = '2026-01-01T01:00:00.000Z';
     const repo = makeRepo('vibecode-gcs-stale-');
-    const stale = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' }, { now: T0 });
+    const stale = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { now: T0 });
     addFileClaim(repo, { agent_id: stale.agent_id, path: 'src/s.ts', mode: 'exclusive' }, { now: T0 });
-    const active = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { now: T_LATER });
+    const active = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_LATER });
     write(repo, 'src/s.ts');
 
     const summary = getGitChangesSummary(repo, { agent_id: active.agent_id, now: T_LATER });

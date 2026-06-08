@@ -150,7 +150,7 @@ describe('getSessionBootstrap — agent identity', () => {
 
   test('active agent_id heartbeats / refreshes', async () => {
     const repo = makeRepo('vibecode-bs-heartbeat-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { now: T0 });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T0 });
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agent.agent_id, now: T0, ...baseOpts });
     expect(result.ok).toBe(true);
     expect(result.generated_state_written).toBe(true);
@@ -160,7 +160,7 @@ describe('getSessionBootstrap — agent identity', () => {
 
   test('stale agent_id is revived by the bootstrap heartbeat', async () => {
     const repo = makeRepo('vibecode-bs-revive-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { now: T0 });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T0 });
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agent.agent_id, now: T_LATER, ...baseOpts });
     expect(result.ok).toBe(true);
     expect(result.generated_state_written).toBe(true);
@@ -169,7 +169,7 @@ describe('getSessionBootstrap — agent identity', () => {
 
   test('terminated agent_id returns a structured blocker (and writes nothing)', async () => {
     const repo = makeRepo('vibecode-bs-term-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     markAgentTerminated(repo, agent.agent_id);
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agent.agent_id, ...baseOpts });
     expect(result.ok).toBe(false);
@@ -200,8 +200,8 @@ describe('getSessionBootstrap — agent identity', () => {
 describe('getSessionBootstrap — coordination summaries', () => {
   test('own / other / stale claims are split and conflicts are summarized', async () => {
     const repo = makeRepo('vibecode-bs-claims-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/theirs.ts', mode: 'exclusive' });
 
@@ -216,7 +216,7 @@ describe('getSessionBootstrap — coordination summaries', () => {
 
   test('claim lists are capped by max_items', async () => {
     const repo = makeRepo('vibecode-bs-cap-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     for (let i = 0; i < 5; i += 1) {
       addFileClaim(repo, { agent_id: a.agent_id, path: `src/f${i}.ts`, mode: 'shared' });
     }

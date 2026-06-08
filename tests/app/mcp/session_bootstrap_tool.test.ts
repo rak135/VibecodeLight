@@ -98,7 +98,7 @@ describe('VibecodeMCP session_bootstrap tool', () => {
   });
 
   test('terminated agent_id is an AGENT_TERMINATED error', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     markAgentTerminated(repo.repoRoot, agent.agent_id);
     const result = await tool().handler({
       context: ctx(repo.repoRoot),

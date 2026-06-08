@@ -46,7 +46,7 @@ describe('getCoordinationStatus (shared core service)', () => {
   });
 
   test('reports persisted advisory claim counts without mutating state', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'exclusive' });
 
     const before = fs.readFileSync(getCoordinationPaths(repo.repoRoot).stateFile, 'utf8');
@@ -57,7 +57,7 @@ describe('getCoordinationStatus (shared core service)', () => {
   });
 
   test('includes a compact evidence summary and never dumps the full event log', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     recordFileChangeEvidence({ repoRoot: repo.repoRoot, path: 'src/a.ts', agent_id: 'agent-a' });
 
     const result = getCoordinationStatus(repo.repoRoot);

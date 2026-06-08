@@ -49,7 +49,7 @@ describe('VibecodeMCP finalize check tool', () => {
   });
 
   test('returns the same core data as a direct core call (shared core, no shell-out)', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     fs.writeFileSync(path.join(repo.repoRoot, 'a.ts'), 'x\n', 'utf8');
 
     const tool = buildFinalizeCheckTool();
@@ -68,7 +68,7 @@ describe('VibecodeMCP finalize check tool', () => {
   });
 
   test('a blocked finalize is a successful (non-error) result with status="blocked"', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     fs.writeFileSync(path.join(repo.repoRoot, 'a.ts'), 'x\n', 'utf8');
     const tool = buildFinalizeCheckTool();
     const result = await tool.handler({
@@ -111,8 +111,8 @@ describe('VibecodeMCP finalize check tool', () => {
   });
 
   test('file claimed by another active agent is a warning not a block', async () => {
-    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo.repoRoot, { agent_id: b.agent_id, path: 'src/b.ts', mode: 'exclusive' });
     fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
     fs.writeFileSync(path.join(repo.repoRoot, 'src/b.ts'), 'x\n', 'utf8');

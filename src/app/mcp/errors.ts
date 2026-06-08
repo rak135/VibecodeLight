@@ -66,7 +66,9 @@ export type McpErrorCode =
   // Phase 1A: session bootstrap + claim-aware git changes.
   | 'AGENT_TERMINATED'
   | 'SESSION_BOOTSTRAP_FAILED'
-  | 'GIT_CHANGES_FAILED';
+  | 'GIT_CHANGES_FAILED'
+  | 'READ_ONLY_AGENT'
+  | 'INVALID_AGENT_SESSION';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -271,6 +273,16 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'git_changes reads the working tree read-only. Verify the bound path is a git repository, then retry if the failure is transient.',
+  },
+  READ_ONLY_AGENT: {
+    retryable: false,
+    suggestion:
+      'The agent is operating in read_only mode. Only build agents may claim files or modify the working tree. Re-register with agent_mode=build if file edits are needed.',
+  },
+  INVALID_AGENT_SESSION: {
+    retryable: false,
+    suggestion:
+      'The agent session is missing required metadata (operating_mode or task). Re-register through session_bootstrap with register=true, agent_mode, and task.',
   },
 };
 

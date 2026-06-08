@@ -52,11 +52,11 @@ describe('getCoordinationOverview', () => {
   });
 
   test('summarizes active and stale agents', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex' }, { agentId: 'agent-a', now: NOW });
+    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: NOW });
     // A second agent with an old heartbeat is computed-stale at NOW.
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'Bob', agent_type: 'claude' },
+      { agent_name: 'Bob', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } },
       { agentId: 'agent-b', now: STALE_HEARTBEAT },
     );
 
@@ -74,7 +74,7 @@ describe('getCoordinationOverview', () => {
   });
 
   test('summarizes claims with the owning agent name and stale/released breakdown', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex' }, { agentId: 'agent-a', now: NOW });
+    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: NOW });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'exclusive' }, { now: NOW });
 
     const overview = getCoordinationOverview(repo.repoRoot, { now: NOW });
@@ -94,7 +94,7 @@ describe('getCoordinationOverview', () => {
   test('marks a claim stale when its owning agent is stale', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'Bob', agent_type: 'claude' },
+      { agent_name: 'Bob', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } },
       { agentId: 'agent-b', now: STALE_HEARTBEAT },
     );
     addFileClaim(repo.repoRoot, { agent_id: 'agent-b', path: 'src/b.ts', mode: 'exclusive' }, { now: STALE_HEARTBEAT });
@@ -134,7 +134,7 @@ describe('getCoordinationOverview', () => {
   });
 
   test('summarizes evidence counts and last event time', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex' }, { agentId: 'agent-a', now: NOW });
+    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: NOW });
     recordFileChangeEvidence({ repoRoot: repo.repoRoot, path: 'src/unclaimed.ts', agent_id: 'agent-a' });
 
     const overview = getCoordinationOverview(repo.repoRoot, { now: NOW });
@@ -149,7 +149,7 @@ describe('getCoordinationOverview', () => {
     for (let i = 0; i < COORDINATION_OVERVIEW_MAX_ITEMS + 3; i += 1) {
       registerAgent(
         repo.repoRoot,
-        { agent_name: `Agent ${i}`, agent_type: 'custom' },
+        { agent_name: `Agent ${i}`, agent_type: 'custom', metadata: { operating_mode: 'build', task: 'test' } },
         { agentId: `agent-${i}`, now: NOW },
       );
     }
@@ -183,7 +183,7 @@ describe('getCoordinationOverview', () => {
   });
 
   test('does not mutate generated state when building the overview', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex' }, { agentId: 'agent-a', now: NOW });
+    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: NOW });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'exclusive' }, { now: NOW });
     const stateFile = getCoordinationPaths(repo.repoRoot).stateFile;
     const before = fs.readFileSync(stateFile, 'utf8');

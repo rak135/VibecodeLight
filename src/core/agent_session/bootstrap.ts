@@ -12,6 +12,14 @@ import {
   heartbeatAgent,
   registerAgent,
 } from '../coordination/agents.js';
+import {
+  isAgentOperatingMode,
+  validateExistingAgentMode,
+  validateModeImmutability,
+  getAgentOperatingMode,
+  getAgentTask,
+  type AgentOperatingMode,
+} from '../coordination/agent_operating_mode.js';
 import { listFileClaims } from '../coordination/claims.js';
 import { listConflicts, type ConflictRecord } from '../coordination/conflicts.js';
 import { getCoordinationStatus } from '../coordination/status.js';
@@ -45,16 +53,9 @@ import { getGitChangesSummary } from '../workspace/git_changes_summary.js';
  * `scan_summary` view is a later batch.
  */
 
-/** Operating mode chosen at session start; it must not change during a session. */
-export const AGENT_OPERATING_MODES = ['read_only', 'build'] as const;
-
-/** A coordinating agent's operating mode: read-only orientation vs. file edits. */
-export type AgentOperatingMode = (typeof AGENT_OPERATING_MODES)[number];
-
-/** Type guard for {@link AgentOperatingMode}. */
-export function isAgentOperatingMode(value: unknown): value is AgentOperatingMode {
-  return value === 'read_only' || value === 'build';
-}
+// Re-export from the shared module for backward compatibility.
+export { AGENT_OPERATING_MODES, isAgentOperatingMode } from '../coordination/agent_operating_mode.js';
+export type { AgentOperatingMode } from '../coordination/agent_operating_mode.js';
 
 /** The short agent operating protocol returned by every bootstrap call. */
 export const AGENT_OPERATING_PROTOCOL: readonly string[] = Object.freeze([
@@ -233,11 +234,6 @@ function notice(code: string, severity: BootstrapNoticeSeverity, message: string
   return { code, severity, message };
 }
 
-function metaString(meta: Record<string, unknown>, key: string): string | null {
-  const value = meta[key];
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
 function toAgentItem(agent: AgentSession): BootstrapAgentItem {
   return {
     agent_id: agent.agent_id,
@@ -249,14 +245,13 @@ function toAgentItem(agent: AgentSession): BootstrapAgentItem {
 }
 
 function toIdentity(agent: AgentSession): BootstrapAgentIdentity {
-  const mode = metaString(agent.metadata, 'operating_mode');
   return {
     agent_id: agent.agent_id,
     name: agent.agent_name,
     type: agent.agent_type,
     status: agent.status,
-    operating_mode: isAgentOperatingMode(mode) ? mode : null,
-    task: metaString(agent.metadata, 'task'),
+    operating_mode: getAgentOperatingMode(agent),
+    task: getAgentTask(agent),
     terminal_session_id: agent.terminal_session_id,
   };
 }
@@ -340,6 +335,21 @@ function resolveIdentity(input: SessionBootstrapInput, now: string): RegisterRes
       );
       return { agent: null, stateWritten: false, blockers, warnings };
     }
+    // Validate existing agent has required mode/task metadata.
+    const modeValidation = validateExistingAgentMode(existing);
+    if (modeValidation) {
+      blockers.push(notice(modeValidation.code, 'block', modeValidation.message));
+      return { agent: null, stateWritten: false, blockers, warnings };
+    }
+    // Validate mode immutability: if agent_mode is supplied, it must match existing.
+    const immutabilityError = validateModeImmutability(
+      getAgentOperatingMode(existing),
+      input.agent_mode,
+    );
+    if (immutabilityError) {
+      blockers.push(notice('MODE_IMMUTABLE', 'block', immutabilityError));
+      return { agent: null, stateWritten: false, blockers, warnings };
+    }
     // active / idle / stale → heartbeat (revives stale/idle to active).
     const beat = heartbeatAgent(input.repoRoot, input.agent_id, { now });
     return { agent: beat, stateWritten: true, blockers, warnings };
@@ -392,6 +402,7 @@ function resolveIdentity(input: SessionBootstrapInput, now: string): RegisterRes
 function recommendations(args: {
   registered: boolean;
   hasAgentId: boolean;
+  operatingMode: AgentOperatingMode | null;
 }): { tools: string[]; commands: string[] } {
   const tools: string[] = [];
   const commands: string[] = [];
@@ -399,12 +410,30 @@ function recommendations(args: {
     tools.push('vibecode_session_bootstrap');
     commands.push('vibecode session bootstrap --repo <path> --register --agent-mode <read_only|build> --task "<intent>" --json');
   }
-  tools.push('vibecode_git_changes', 'vibecode_claim_add', 'vibecode_finalize_check');
-  commands.push(
-    'vibecode git changes --repo <path> --agent <agent_id> --json',
-    'vibecode claims add --repo <path> --agent <agent_id> --path <path> --json',
-    'vibecode finalize check --repo <path> --agent <agent_id> --json',
-  );
+  tools.push('vibecode_git_changes');
+  commands.push('vibecode git changes --repo <path> --agent <agent_id> --json');
+
+  if (args.operatingMode === 'build') {
+    // Build agents get the claim workflow.
+    tools.push('vibecode_claim_add', 'vibecode_finalize_check');
+    commands.push(
+      'vibecode claims add --repo <path> --agent <agent_id> --path <path> --json',
+      'vibecode finalize check --repo <path> --agent <agent_id> --json',
+    );
+  } else if (args.operatingMode === 'read_only') {
+    // Read-only agents get project-instructions and artifact tools, not claim workflow.
+    tools.push('vibecode_project_instructions', 'vibecode_workspace_info');
+    commands.push(
+      'vibecode workspace info --json',
+    );
+  } else {
+    // Unknown mode (not registered) — show both for guidance.
+    tools.push('vibecode_claim_add', 'vibecode_finalize_check');
+    commands.push(
+      'vibecode claims add --repo <path> --agent <agent_id> --path <path> --json',
+      'vibecode finalize check --repo <path> --agent <agent_id> --json',
+    );
+  }
   return { tools, commands };
 }
 
@@ -585,7 +614,11 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     }
   }
 
-  const rec = recommendations({ registered: Boolean(currentAgent), hasAgentId: Boolean(input.agent_id) });
+  const rec = recommendations({
+    registered: Boolean(currentAgent),
+    hasAgentId: Boolean(input.agent_id),
+    operatingMode: currentAgent ? getAgentOperatingMode(currentAgent) : null,
+  });
 
   return {
     ok: blockers.length === 0,

@@ -72,7 +72,7 @@ describe('VibecodeMCP git_changes tool', () => {
   });
 
   test('returns expected structuredContent matching the shared core call', async () => {
-    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
+    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo.repoRoot, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
     write(repo.repoRoot, 'src/mine.ts');
     write(repo.repoRoot, 'src/loose.ts');

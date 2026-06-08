@@ -243,7 +243,7 @@ Multi-agent impact:
 
 Recommended fix:
 
-- Add `vibecode_session_bootstrap` and `vibecode agent bootstrap --json`.
+- Add `vibecode_session_bootstrap` and `vibecode session bootstrap --json`.
 
 ### 2. Weak Or Incomplete Git/Change Awareness
 
@@ -561,7 +561,7 @@ Write tools acceptable in MCP:
 
 CLI-only agent behavior:
 
-- Run `vibecode agent bootstrap --repo <path> --json`.
+- Run `vibecode session bootstrap --repo <path> --json`.
 - Register/heartbeat if not already registered.
 - Claim before editing.
 - Use `vibecode git changes --agent <id> --json`.
@@ -720,7 +720,7 @@ Goal:
 Scope:
 
 - `session_bootstrap` MCP tool.
-- `vibecode agent bootstrap --json` CLI command.
+- `vibecode session bootstrap --json` CLI command.
 - `git_changes` MCP tool/CLI command.
 - Artifact continuation.
 - Scan summary/read exposure.
@@ -761,7 +761,7 @@ MCP contract changes:
 
 CLI contract changes:
 
-- Add `vibecode agent bootstrap --repo <path> --json`.
+- Add `vibecode session bootstrap --repo <path> --json`.
 - Add `vibecode agent protocol --json|--markdown`.
 - Add `vibecode git changes --repo <path> [--agent <id>] --json`.
 - Add `vibecode scan summary --run <id|current|latest> --json`.
@@ -1028,7 +1028,7 @@ MCP name:
 
 CLI command:
 
-- `vibecode agent bootstrap --repo <path> --json`
+- `vibecode session bootstrap --repo <path> --json`
 
 Request shape:
 
@@ -1560,7 +1560,7 @@ Setup:
 Expected commands:
 
 ```powershell
-vibecode agent bootstrap --repo . --register --json
+vibecode session bootstrap --repo . --register --json
 vibecode git changes --repo . --agent <id> --json
 vibecode claims add --repo . --agent <id> --paths <paths> --intent "<task>" --json
 vibecode finalize check --repo . --agent <id> --json
@@ -1686,7 +1686,7 @@ Exact scope:
   - `vibecode_session_bootstrap`
   - `vibecode_git_changes`
 - Add CLI commands:
-  - `vibecode agent bootstrap --repo <path> --json`
+  - `vibecode session bootstrap --repo <path> --json`
   - `vibecode git changes --repo <path> [--agent <id>] --json`
 - Add `recommended_next_tools` and `recommended_cli_commands` to both new
   responses.
@@ -1761,7 +1761,7 @@ arbitrary file read, and never mutate git or source files.
 - `vibecode git changes --json`
 
 **Naming difference from the proposal:** earlier sections of this plan sketched
-the CLI as `vibecode agent bootstrap`. The shipped commands are
+the CLI as `vibecode session bootstrap`. The shipped commands are
 `vibecode session bootstrap` and `vibecode git changes` (the agent-facing MCP
 tool names `vibecode_session_bootstrap` / `vibecode_git_changes` are unchanged).
 `vibecode agent protocol` was **not** shipped in this batch.
@@ -1903,7 +1903,63 @@ standardized in this batch).
 - `scan` reports availability only — no `scan_summary`.
 - No artifact-read continuation, no tool profiles, no bulk claims, no
   `vibecode agent protocol` command, no MCP commit tool.
-- Coordination remains advisory: no source-file locks; nothing is enforced.
+- Coordination remains advisory: no source-file locks; claims are enforced
+  at the agent-mode level (read_only cannot claim), but file-level locking
+  is not implemented.
+
+### Phase 1A review fixes (enforced)
+
+The Phase 1A review returned NEEDS FIXES. The following blockers were fixed:
+
+**1. Shared agent operating-mode/task validation.**
+New module `src/core/coordination/agent_operating_mode.ts` is the single source
+of truth for operating-mode extraction, validation, and enforcement. Bootstrap,
+claims, finalize_check, and commit_guard all use this module instead of
+duplicating mode/task logic.
+
+**2. read_only enforcement.**
+- `addFileClaim` rejects agents whose `operating_mode` is not `build`.
+- `finalize_check` blocks non-build agents as `READ_ONLY_AGENT` or
+  `INVALID_AGENT_SESSION`.
+- `commit_guard` blocks non-build or invalid-mode agents before staging/committing.
+- Bootstrap recommendations are mode-aware: read_only agents get
+  `vibecode_project_instructions` / `vibecode_workspace_info` instead of
+  `vibecode_claim_add`.
+
+**3. Legacy/no-mode agent handling.**
+- Bootstrap with an active/stale `agent_id` that has missing `operating_mode` or
+  `task` metadata returns a structured `INVALID_AGENT_SESSION` blocker.
+- Terminated agents remain terminated.
+- The old `vibecode_agent_register` MCP tool remains for compatibility but creates
+  agents without mode/task; bootstrap blocks these until re-registered through
+  `session_bootstrap --register`.
+
+**4. Hard caps and strict input validation.**
+- MCP schemas include `maximum` for `max_items` (100) and `max_files` (200).
+- MCP manual validation rejects wrong types, invalid booleans, invalid enums,
+  empty required strings, negative/zero/huge caps with `INVALID_ARGUMENT`.
+- CLI rejects invalid numeric flags (`--max-items nope`, `--max-files 0`,
+  `--max-items 999`) with structured error envelopes.
+- New `validateBoundedInteger` helper in `src/app/mcp/schemas.ts`.
+
+**5. Mode immutability.**
+- Existing agent registered as `read_only` cannot be changed to `build` through
+  bootstrap heartbeat/update (and vice versa). Returns `MODE_IMMUTABLE` blocker.
+
+**Tests added:**
+- `tests/core/coordination/agent_operating_mode_enforcement.test.ts` — 28 tests
+  covering read_only claim/finalize/commit_guard restriction, build agent
+  workflows, legacy agent handling, missing task/mode, mode immutability,
+  shared helper correctness.
+- `tests/app/mcp/phase1a_enforcement.test.ts` — 22 tests covering MCP input
+  validation (register type, max_items caps, operating_mode, task), mode-aware
+  recommendations, legacy agent bootstrap via MCP, read_only claim/finalize via
+  MCP.
+
+**Existing tests updated:** 151 `registerAgent` calls across 21 test files
+updated to include `metadata: { operating_mode: 'build', task: 'test' }` so
+agents pass the new validation. One CLI test helper updated to use
+`session bootstrap --register` instead of the old `agents register` path.
 
 ### Next batch
 

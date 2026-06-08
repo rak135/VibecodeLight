@@ -62,7 +62,7 @@ describe('VibecodeMCP evidence tools', () => {
   });
 
   test('scan records evidence for the dirty tree and writes only the generated log', async () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     fs.writeFileSync(path.join(repo.repoRoot, 'a.ts'), 'x\n', 'utf8');
     const headBefore = git(['rev-parse', 'HEAD'], repo.repoRoot).stdout.trim();
     const statusBefore = git(['status', '--porcelain=v1'], repo.repoRoot).stdout;
@@ -80,7 +80,7 @@ describe('VibecodeMCP evidence tools', () => {
   });
 
   test('list returns events recorded by a prior scan', async () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'a.ts', mode: 'exclusive' });
     fs.writeFileSync(path.join(repo.repoRoot, 'a.ts'), 'x\n', 'utf8');
     await buildEvidenceScanTool().handler({ context: ctx(repo.repoRoot), arguments: { agent_id: 'agent-a' }, requestId: null });

@@ -59,7 +59,7 @@ function porcelain(repo: string): string {
 describe('runCommitGuard — gating on finalize check', () => {
   test('clean tree → blocked NO_COMMITTABLE_FILES (nothing committed)', () => {
     const repo = makeRepo('vibecode-cg-clean-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     const before = head(repo);
     const result = runCommitGuard({ repoRoot: repo, agent_id: agent.agent_id });
     expect(result.status).toBe('blocked');
@@ -70,7 +70,7 @@ describe('runCommitGuard — gating on finalize check', () => {
 
   test('finalize blocked (unclaimed file) → commit denied, no commit created', () => {
     const repo = makeRepo('vibecode-cg-unclaimed-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     write(repo, 'src/a.ts');
     const before = head(repo);
     const result = runCommitGuard({ repoRoot: repo, agent_id: agent.agent_id });
@@ -84,8 +84,8 @@ describe('runCommitGuard — gating on finalize check', () => {
 
   test('file claimed by another active agent (no own claims) → commit denied NO_COMMITTABLE_FILES', () => {
     const repo = makeRepo('vibecode-cg-other-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/b.ts', mode: 'exclusive' });
     write(repo, 'src/b.ts');
     const before = head(repo);
@@ -98,8 +98,8 @@ describe('runCommitGuard — gating on finalize check', () => {
 
   test('non-overlapping parallel: Agent A commits only its claimed file while Agent B file remains dirty', () => {
     const repo = makeRepo('vibecode-cg-parallel-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
     write(repo, 'src/alpha.ts', 'alpha\n');
@@ -138,7 +138,7 @@ describe('runCommitGuard — gating on finalize check', () => {
 describe('runCommitGuard — scoped staging and commit', () => {
   test('dry-run lists would-stage files but does not stage or commit', () => {
     const repo = makeRepo('vibecode-cg-dry-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
     const before = head(repo);
@@ -155,7 +155,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
 
   test('commits exactly the claimed file and leaves generated/unrelated files untouched', () => {
     const repo = makeRepo('vibecode-cg-commit-', { gitignoreVibecode: false });
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
     // A generated runtime change that must never be staged.
@@ -183,7 +183,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
 
   test('a file path with spaces is staged and committed safely', () => {
     const repo = makeRepo('vibecode-cg-spaces-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a b.ts', mode: 'exclusive' });
     write(repo, 'src/a b.ts');
 
@@ -202,7 +202,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
     git(['add', '--', 'src/a.ts'], repo);
     git(['commit', '-q', '-m', 'track a'], repo);
 
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/[abc].ts', mode: 'exclusive' });
     write(repo, 'src/[abc].ts');
 
@@ -226,7 +226,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
 
   test('commit message includes Vibecode-Run / Vibecode-Agent metadata footer', () => {
     const repo = makeRepo('vibecode-cg-msg-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     writeAgentBinding(path.join(getWorkspacePaths(repo).runs, 'run1'), {
       agent_id: agent.agent_id,
       terminal_session_id: null,
@@ -246,7 +246,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
 
   test('writes a commit_guard.json artifact under the run when run_id is provided', () => {
     const repo = makeRepo('vibecode-cg-artifact-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     writeAgentBinding(path.join(getWorkspacePaths(repo).runs, 'run1'), {
       agent_id: agent.agent_id,
       terminal_session_id: null,
@@ -267,7 +267,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
 
   test('dry-run with run_id does not write commit_guard.json', () => {
     const repo = makeRepo('vibecode-cg-dry-artifact-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     writeAgentBinding(path.join(getWorkspacePaths(repo).runs, 'run1'), {
       agent_id: agent.agent_id,
       terminal_session_id: null,
@@ -285,7 +285,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
 
   test('invalid (whitespace-only) message is an invocation error and commits nothing', () => {
     const repo = makeRepo('vibecode-cg-badmsg-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
     const before = head(repo);
@@ -300,7 +300,7 @@ describe('runCommitGuard — scoped staging and commit', () => {
 describe('runCommitGuard — index safety', () => {
   test('pre-existing unrelated staged file blocks with GIT_INDEX_NOT_CLEAN', () => {
     const repo = makeRepo('vibecode-cg-dirtyindex-', { gitignoreVibecode: false });
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
     // A stray staged generated file that is NOT in the committable set.
@@ -340,7 +340,7 @@ describe('runCommitGuard — index safety', () => {
 
   test('staged-file listing failure at entry blocks before staging', () => {
     const repo = makeRepo('vibecode-cg-entry-list-fail-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
     const before = head(repo);
@@ -362,7 +362,7 @@ describe('runCommitGuard — index safety', () => {
 
   test('staged-file listing failure after staging blocks before commit', () => {
     const repo = makeRepo('vibecode-cg-post-list-fail-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
     const before = head(repo);
@@ -390,7 +390,7 @@ describe('runCommitGuard — index safety', () => {
 
   test('post-stage mismatch blocks before commit', () => {
     const repo = makeRepo('vibecode-cg-post-mismatch-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
     const before = head(repo);
@@ -423,7 +423,7 @@ describe('runCommitGuard — index safety', () => {
 describe('runCommitGuard — git command safety', () => {
   test('never invokes git add -A / add . / reset / stash / clean / checkout / restore', () => {
     const repo = makeRepo('vibecode-cg-safe-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
 

@@ -7,7 +7,10 @@ import { buildMcpError, type McpErrorCode } from '../errors.js';
 import { formatError, formatSimpleSuccess, type McpToolFormattedResult } from '../format.js';
 import {
   rejectUnknownKeys,
+  validateBoundedInteger,
+  validateNonEmptyString,
   SESSION_BOOTSTRAP_INPUT_SCHEMA,
+  HARD_MAX_BOOTSTRAP_ITEMS,
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
@@ -121,10 +124,46 @@ export function buildSessionBootstrapTool(deps: SessionBootstrapToolDeps = {}): 
       if (!unknown.ok) return fail('INVALID_ARGUMENT', unknown.message);
 
       const args = (input.arguments ?? {}) as Record<string, unknown>;
+
+      // Strict type validation before passing to core.
+      const agentId = args.agent_id === undefined || args.agent_id === null
+        ? undefined
+        : validateNonEmptyString(args.agent_id, 'agent_id');
+      if (agentId && !agentId.ok) return fail('INVALID_ARGUMENT', agentId.message);
+
+      if (args.register !== undefined && args.register !== null && typeof args.register !== 'boolean') {
+        return fail('INVALID_ARGUMENT', `invalid register: expected a boolean, got ${JSON.stringify(args.register)}`);
+      }
+
+      if (args.agent_mode !== undefined && args.agent_mode !== null && typeof args.agent_mode !== 'string') {
+        return fail('INVALID_ARGUMENT', `invalid agent_mode: expected a string, got ${JSON.stringify(args.agent_mode)}`);
+      }
+
+      if (args.agent_name !== undefined && args.agent_name !== null) {
+        const nameCheck = validateNonEmptyString(args.agent_name, 'agent_name');
+        if (!nameCheck.ok) return fail('INVALID_ARGUMENT', nameCheck.message);
+      }
+
+      if (args.agent_type !== undefined && args.agent_type !== null && typeof args.agent_type !== 'string') {
+        return fail('INVALID_ARGUMENT', `invalid agent_type: expected a string, got ${JSON.stringify(args.agent_type)}`);
+      }
+
+      if (args.task !== undefined && args.task !== null) {
+        const taskCheck = validateNonEmptyString(args.task, 'task');
+        if (!taskCheck.ok) return fail('INVALID_ARGUMENT', taskCheck.message);
+      }
+
+      const maxItems = validateBoundedInteger(args.max_items, 'max_items', HARD_MAX_BOOTSTRAP_ITEMS);
+      if (!maxItems.ok) return fail('INVALID_ARGUMENT', maxItems.message);
+
+      if (args.include_instructions !== undefined && args.include_instructions !== null && typeof args.include_instructions !== 'boolean') {
+        return fail('INVALID_ARGUMENT', `invalid include_instructions: expected a boolean, got ${JSON.stringify(args.include_instructions)}`);
+      }
+
       try {
         const result = await getSessionBootstrap({
           repoRoot: input.context.repoRoot,
-          agent_id: typeof args.agent_id === 'string' ? args.agent_id : undefined,
+          agent_id: agentId ? agentId.value : undefined,
           register: args.register === true,
           agent_mode: typeof args.agent_mode === 'string' ? args.agent_mode : undefined,
           agent_name: typeof args.agent_name === 'string' ? args.agent_name : undefined,
@@ -132,7 +171,7 @@ export function buildSessionBootstrapTool(deps: SessionBootstrapToolDeps = {}): 
           task: typeof args.task === 'string' ? args.task : undefined,
           terminal_session_id: typeof args.terminal_session_id === 'string' ? args.terminal_session_id : undefined,
           run_ref: typeof args.run_ref === 'string' ? args.run_ref : undefined,
-          max_items: typeof args.max_items === 'number' ? args.max_items : undefined,
+          max_items: maxItems.value,
           include_instructions: typeof args.include_instructions === 'boolean' ? args.include_instructions : undefined,
           codegraphStatus: deps.codegraphStatus,
         });

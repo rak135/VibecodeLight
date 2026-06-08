@@ -82,7 +82,7 @@ describe('recordFileChangeEvidence — classification & severity', () => {
   });
 
   test('an unclaimed source path is classified unclaimed with warning severity and appended', () => {
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     const event = recordFileChangeEvidence({
       repoRoot: repo,
       path: 'src/a.ts',
@@ -104,7 +104,7 @@ describe('recordFileChangeEvidence — classification & severity', () => {
   });
 
   test('a path covered by the current agent active claim is claimed_by_agent (info)', () => {
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     const added = addFileClaim(repo, { agent_id: 'agent-a', path: 'src/a.ts', mode: 'exclusive' }, { now: T0 });
     const event = recordFileChangeEvidence({ repoRoot: repo, path: 'src/a.ts', agent_id: 'agent-a', now: T0 });
     expect(event.classification).toBe('claimed_by_agent');
@@ -117,8 +117,8 @@ describe('recordFileChangeEvidence — classification & severity', () => {
   });
 
   test('a path claimed by another active agent is claimed_by_other_active_agent (high)', () => {
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
-    registerAgent(repo, { agent_name: 'B', agent_type: 'codex' }, { agentId: 'agent-b', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-b', now: T0 });
     addFileClaim(repo, { agent_id: 'agent-b', path: 'src/b.ts', mode: 'exclusive' }, { now: T0 });
     const event = recordFileChangeEvidence({ repoRoot: repo, path: 'src/b.ts', agent_id: 'agent-a', now: T0 });
     expect(event.classification).toBe('claimed_by_other_active_agent');
@@ -127,7 +127,7 @@ describe('recordFileChangeEvidence — classification & severity', () => {
   });
 
   test('a generated .vibecode path is generated_or_ignored (info), never high', () => {
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     const event = recordFileChangeEvidence({
       repoRoot: repo,
       path: '.vibecode/coordination/events.jsonl',
@@ -139,7 +139,7 @@ describe('recordFileChangeEvidence — classification & severity', () => {
   });
 
   test('a released claim does not authorize the path (unclaimed)', () => {
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     const added = addFileClaim(repo, { agent_id: 'agent-a', path: 'src/a.ts', mode: 'exclusive' }, { now: T0 });
     releaseFileClaim(repo, added.claim!.claim_id, { now: T0 });
     const event = recordFileChangeEvidence({ repoRoot: repo, path: 'src/a.ts', agent_id: 'agent-a', now: T0 });
@@ -147,15 +147,15 @@ describe('recordFileChangeEvidence — classification & severity', () => {
   });
 
   test('a claim owned by a stale agent does not authorize the path (unclaimed)', () => {
-    registerAgent(repo, { agent_name: 'B', agent_type: 'codex' }, { agentId: 'agent-b', now: T0 });
+    registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-b', now: T0 });
     addFileClaim(repo, { agent_id: 'agent-b', path: 'src/b.ts', mode: 'exclusive' }, { now: T0 });
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T_LATER });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T_LATER });
     const event = recordFileChangeEvidence({ repoRoot: repo, path: 'src/b.ts', agent_id: 'agent-a', now: T_LATER });
     expect(event.classification).toBe('unclaimed');
   });
 
   test('event records are compact: no file contents/diff are stored', () => {
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     const event = recordFileChangeEvidence({ repoRoot: repo, path: 'src/a.ts', agent_id: 'agent-a', now: T0 });
     const keys = Object.keys(event);
     expect(keys).not.toContain('content');
@@ -165,7 +165,7 @@ describe('recordFileChangeEvidence — classification & severity', () => {
   });
 
   test('event ids are unique across records', () => {
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     const a = recordFileChangeEvidence({ repoRoot: repo, path: 'src/a.ts', agent_id: 'agent-a', now: T0 });
     const b = recordFileChangeEvidence({ repoRoot: repo, path: 'src/b.ts', agent_id: 'agent-a', now: T0 });
     expect(a.event_id).not.toBe(b.event_id);
@@ -227,7 +227,7 @@ describe('events.jsonl storage — resilient & bounded', () => {
 describe('scanChangedFilesToEvidence — manual scan over real git', () => {
   test('a dirty unclaimed file produces unclaimed evidence', () => {
     const repo = track(makeGitRepo('vibecode-watcher-scan-unc-'));
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     write(repo, 'src/a.ts');
     const result = scanChangedFilesToEvidence({ repoRoot: repo, agent_id: 'agent-a', now: T0, source: 'manual_scan' });
     expect(result.ok).toBe(true);
@@ -239,7 +239,7 @@ describe('scanChangedFilesToEvidence — manual scan over real git', () => {
 
   test('a dirty claimed file produces claimed_by_agent evidence', () => {
     const repo = track(makeGitRepo('vibecode-watcher-scan-clm-'));
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     addFileClaim(repo, { agent_id: 'agent-a', path: 'src/a.ts', mode: 'exclusive' }, { now: T0 });
     write(repo, 'src/a.ts');
     const result = scanChangedFilesToEvidence({ repoRoot: repo, agent_id: 'agent-a', now: T0 });
@@ -248,7 +248,7 @@ describe('scanChangedFilesToEvidence — manual scan over real git', () => {
 
   test('a clean repo produces no events', () => {
     const repo = track(makeGitRepo('vibecode-watcher-scan-clean-'));
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     const result = scanChangedFilesToEvidence({ repoRoot: repo, agent_id: 'agent-a', now: T0 });
     expect(result.ok).toBe(true);
     expect(result.events).toEqual([]);
@@ -257,7 +257,7 @@ describe('scanChangedFilesToEvidence — manual scan over real git', () => {
 
   test('a generated .vibecode change produces an info event, never high', () => {
     const repo = track(makeGitRepo('vibecode-watcher-scan-gen-', { gitignoreVibecode: false }));
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     write(repo, path.join('.vibecode', 'changed.json'), '{}\n');
     const result = scanChangedFilesToEvidence({ repoRoot: repo, agent_id: 'agent-a', now: T0 });
     const found = result.events.find((e) => e.path === '.vibecode/changed.json');
@@ -268,7 +268,7 @@ describe('scanChangedFilesToEvidence — manual scan over real git', () => {
 
   test('scan does not mutate git state', () => {
     const repo = track(makeGitRepo('vibecode-watcher-scan-nomut-'));
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     write(repo, 'src/a.ts');
     git(['add', '--', 'src/a.ts'], repo);
     const headBefore = git(['rev-parse', 'HEAD'], repo).stdout.trim();
@@ -282,7 +282,7 @@ describe('scanChangedFilesToEvidence — manual scan over real git', () => {
 
   test('scan does not create or modify the source file it observes', () => {
     const repo = track(makeGitRepo('vibecode-watcher-scan-src-'));
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     write(repo, 'src/a.ts', 'original\n');
     scanChangedFilesToEvidence({ repoRoot: repo, agent_id: 'agent-a', now: T0 });
     expect(fs.readFileSync(path.join(repo, 'src/a.ts'), 'utf8')).toBe('original\n');
@@ -301,7 +301,7 @@ describe('listCoordinationEvidence & summarizeEvidence', () => {
   let repo: string;
   beforeEach(() => {
     repo = track(makeDir('vibecode-watcher-list-'));
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
   });
 
   test('list returns appended events and honors limit (newest last)', () => {
@@ -316,7 +316,7 @@ describe('listCoordinationEvidence & summarizeEvidence', () => {
 
   test('summarize counts severities and reports last_event_at', () => {
     // agent-b is active at T_LATER so its claim authorizes nobody-but-itself.
-    registerAgent(repo, { agent_name: 'B', agent_type: 'codex' }, { agentId: 'agent-b', now: T_LATER });
+    registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-b', now: T_LATER });
     addFileClaim(repo, { agent_id: 'agent-b', path: 'src/other.ts', mode: 'exclusive' }, { now: T_LATER });
     recordFileChangeEvidence({ repoRoot: repo, path: 'src/a.ts', agent_id: 'agent-a', now: T0 }); // unclaimed -> warning
     recordFileChangeEvidence({ repoRoot: repo, path: 'src/other.ts', agent_id: 'agent-a', now: T_LATER }); // high

@@ -86,7 +86,7 @@ describe('vibecode finalize check (CLI)', () => {
 
   test('clean repo with an active agent returns a stable ok envelope', async () => {
     const repo = makeRepo('vibecode-cli-fc-clean-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
 
     const result = await runCli(['finalize', 'check', '--agent', agent.agent_id, '--repo', repo, '--json']);
     expect(result.exitCode).toBe(0);
@@ -100,7 +100,7 @@ describe('vibecode finalize check (CLI)', () => {
 
   test('blocks an unclaimed changed file', async () => {
     const repo = makeRepo('vibecode-cli-fc-unclaimed-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     write(repo, 'src/a.ts');
 
     const result = await runCli(['finalize', 'check', '--agent', agent.agent_id, '--repo', repo, '--json']);
@@ -113,7 +113,7 @@ describe('vibecode finalize check (CLI)', () => {
 
   test('--run resolves the bound agent', async () => {
     const repo = makeRepo('vibecode-cli-fc-run-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     writeAgentBinding(path.join(getWorkspacePaths(repo).runs, 'run1'), {
       agent_id: agent.agent_id,
       terminal_session_id: null,
@@ -133,8 +133,8 @@ describe('vibecode finalize check (CLI)', () => {
 
   test('--agent and --run that disagree report RUN_AGENT_MISMATCH', async () => {
     const repo = makeRepo('vibecode-cli-fc-mismatch-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     writeAgentBinding(path.join(getWorkspacePaths(repo).runs, 'run1'), {
       agent_id: b.agent_id,
       terminal_session_id: null,
@@ -182,8 +182,8 @@ describe('vibecode finalize check (CLI)', () => {
 
   test('file claimed by another active agent is a warning not a block', async () => {
     const repo = makeRepo('vibecode-cli-fc-otherwarn-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/b.ts', mode: 'exclusive' });
     write(repo, 'src/b.ts');
 
@@ -197,8 +197,8 @@ describe('vibecode finalize check (CLI)', () => {
 
   test('parallel non-overlapping: Agent A finalize is not blocked by Agent B file', async () => {
     const repo = makeRepo('vibecode-cli-fc-parallel-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
     write(repo, 'src/alpha.ts');

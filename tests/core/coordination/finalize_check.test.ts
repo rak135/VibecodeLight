@@ -56,7 +56,7 @@ const T_LATER = '2026-01-01T01:00:00.000Z'; // > heartbeat TTL after T0
 describe('getFinalizeCheck — agent resolution', () => {
   test('clean working tree with an active agent is status ok', () => {
     const repo = makeRepo('vibecode-fc-clean-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
     expect(result.ok).toBe(true);
     expect(result.status).toBe('ok');
@@ -75,7 +75,7 @@ describe('getFinalizeCheck — agent resolution', () => {
 
   test('stale current agent is blocked AGENT_NOT_ACTIVE', () => {
     const repo = makeRepo('vibecode-fc-stale-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { now: T0 });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T0 });
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id, now: T_LATER });
     expect(result.status).toBe('blocked');
     expect(result.blocks.map((b) => b.code)).toContain('AGENT_NOT_ACTIVE');
@@ -83,7 +83,7 @@ describe('getFinalizeCheck — agent resolution', () => {
 
   test('terminated current agent is blocked AGENT_NOT_ACTIVE', () => {
     const repo = makeRepo('vibecode-fc-term-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     markAgentTerminated(repo, agent.agent_id);
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
     expect(result.status).toBe('blocked');
@@ -105,7 +105,7 @@ describe('getFinalizeCheck — run binding resolution', () => {
 
   test('--run resolves the bound agent', () => {
     const repo = makeRepo('vibecode-fc-runbind-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     writeAgentBinding(runDirFor(repo, 'run1'), {
       agent_id: agent.agent_id,
       terminal_session_id: null,
@@ -156,8 +156,8 @@ describe('getFinalizeCheck — run binding resolution', () => {
 
   test('explicit --agent and --run that disagree is blocked RUN_AGENT_MISMATCH', () => {
     const repo = makeRepo('vibecode-fc-mismatch-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     writeAgentBinding(runDirFor(repo, 'run1'), {
       agent_id: b.agent_id,
       terminal_session_id: null,
@@ -173,7 +173,7 @@ describe('getFinalizeCheck — run binding resolution', () => {
 describe('getFinalizeCheck — changed file classification', () => {
   test('a file covered by the current agent active claim is allowed', () => {
     const repo = makeRepo('vibecode-fc-claimed-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     write(repo, 'src/a.ts');
 
@@ -187,7 +187,7 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('an unclaimed changed file is blocked UNCLAIMED_CHANGED_FILE', () => {
     const repo = makeRepo('vibecode-fc-unclaimed-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     write(repo, 'src/a.ts');
 
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
@@ -201,8 +201,8 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('a file claimed by another active agent is a warning FILE_CLAIMED_BY_OTHER_AGENT (not a block)', () => {
     const repo = makeRepo('vibecode-fc-other-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/b.ts', mode: 'exclusive' });
     write(repo, 'src/b.ts');
 
@@ -219,8 +219,8 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('non-overlapping parallel: Agent A finalize is not blocked by Agent B claimed file', () => {
     const repo = makeRepo('vibecode-fc-parallel-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
     write(repo, 'src/alpha.ts');
@@ -238,8 +238,8 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('unclaimed dirty file still blocks even when other-agent file is a warning', () => {
     const repo = makeRepo('vibecode-fc-mixed-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' });
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo, { agent_id: a.agent_id, path: 'src/alpha.ts', mode: 'exclusive' });
     addFileClaim(repo, { agent_id: b.agent_id, path: 'src/beta.ts', mode: 'exclusive' });
     write(repo, 'src/alpha.ts');
@@ -254,9 +254,9 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('stale agent claim does not downgrade to warning (remains unclaimed block)', () => {
     const repo = makeRepo('vibecode-fc-stale-other-');
-    const stale = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' }, { now: T0 });
+    const stale = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { now: T0 });
     addFileClaim(repo, { agent_id: stale.agent_id, path: 'src/b.ts', mode: 'exclusive' }, { now: T0 });
-    const active = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { now: T_LATER });
+    const active = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_LATER });
     write(repo, 'src/b.ts');
 
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: active.agent_id, now: T_LATER });
@@ -267,7 +267,7 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('a changed .vibecode runtime file is generated_or_ignored and does not block', () => {
     const repo = makeRepo('vibecode-fc-generated-', { gitignoreVibecode: false });
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     write(repo, path.join('.vibecode', 'changed.json'), '{}\n');
 
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: agent.agent_id });
@@ -281,7 +281,7 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('a released claim does not authorize a changed file', () => {
     const repo = makeRepo('vibecode-fc-released-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     const added = addFileClaim(repo, { agent_id: agent.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     releaseFileClaim(repo, added.claim!.claim_id);
     write(repo, 'src/a.ts');
@@ -293,9 +293,9 @@ describe('getFinalizeCheck — changed file classification', () => {
 
   test('a claim owned by a stale agent does not authorize a changed file', () => {
     const repo = makeRepo('vibecode-fc-staleclaim-');
-    const stale = registerAgent(repo, { agent_name: 'B', agent_type: 'codex' }, { now: T0 });
+    const stale = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { now: T0 });
     addFileClaim(repo, { agent_id: stale.agent_id, path: 'src/b.ts', mode: 'exclusive' }, { now: T0 });
-    const active = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { now: T_LATER });
+    const active = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_LATER });
     write(repo, 'src/b.ts');
 
     const result = getFinalizeCheck({ repoRoot: repo, agent_id: active.agent_id, now: T_LATER });
@@ -309,7 +309,7 @@ describe('getFinalizeCheck — git integration', () => {
   test('git helper failure is blocked GIT_CHANGED_FILES_FAILED', () => {
     // A coordination state can exist in a directory that is not a git repo.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-fc-nogit-'));
-    const agent = registerAgent(dir, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(dir, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     const result = getFinalizeCheck({ repoRoot: dir, agent_id: agent.agent_id });
     expect(result.status).toBe('blocked');
     expect(result.blocks.map((b) => b.code)).toContain('GIT_CHANGED_FILES_FAILED');
@@ -317,7 +317,7 @@ describe('getFinalizeCheck — git integration', () => {
 
   test('finalize check does not mutate git state', () => {
     const repo = makeRepo('vibecode-fc-nomutate-');
-    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     write(repo, 'src/a.ts');
     git(['add', '--', 'src/a.ts'], repo);
 

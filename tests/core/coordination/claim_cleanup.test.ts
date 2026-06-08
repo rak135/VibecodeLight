@@ -29,7 +29,7 @@ describe('reapStaleClaims', () => {
   test('dry-run reports stale claims without mutating state', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(
@@ -57,7 +57,7 @@ describe('reapStaleClaims', () => {
   test('apply marks stale-agent claims as released with reaped metadata', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(
@@ -85,7 +85,7 @@ describe('reapStaleClaims', () => {
   test('active agent claims are not reaped', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(
@@ -107,7 +107,7 @@ describe('reapStaleClaims', () => {
   test('terminated agent claims are reaped', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(
@@ -130,7 +130,7 @@ describe('reapStaleClaims', () => {
   test('after reaping, another active agent can claim the same file', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(
@@ -145,7 +145,7 @@ describe('reapStaleClaims', () => {
     // Register a new active agent.
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'B', agent_type: 'claude' },
+      { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } },
       { now: later, agentId: 'agent-2' },
     );
 
@@ -174,7 +174,7 @@ describe('reapStaleClaims', () => {
 
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(
@@ -192,7 +192,7 @@ describe('reapStaleClaims', () => {
   test('already released claims are not reaped again', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(

@@ -38,7 +38,7 @@ describe('VibecodeMCP claims reap tool', () => {
   test('vibecode_claims_reap releases stale agent claims', async () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(
@@ -64,7 +64,7 @@ describe('VibecodeMCP claims reap tool', () => {
   test('vibecode_claims_reap with dry_run does not release', async () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
     addFileClaim(

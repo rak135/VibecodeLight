@@ -6,6 +6,7 @@ import {
   getGitChangesSummary,
   type GitChangesSummary,
 } from '../../../core/workspace/git_changes_summary.js';
+import { HARD_MAX_GIT_CHANGES_FILES } from '../../mcp/schemas.js';
 import {
   type EmitCliStructuredError,
   type MakeCliStructuredError,
@@ -52,13 +53,41 @@ export function registerGitChangesCommands(
       json?: boolean;
     }) => {
       const repoRoot = path.resolve(options.repo);
-      const maxFiles = options.maxFiles !== undefined ? Number(options.maxFiles) : undefined;
+
+      // Strict numeric validation for --max-files.
+      let maxFiles: number | undefined;
+      if (options.maxFiles !== undefined) {
+        const raw = Number(options.maxFiles);
+        if (!Number.isFinite(raw) || !Number.isInteger(raw) || raw <= 0) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_ARGUMENT',
+              `invalid --max-files: expected a positive integer, got ${JSON.stringify(options.maxFiles)}`,
+              repoRoot,
+            ),
+            { json: options.json, prefix: 'git changes failed' },
+          );
+          return;
+        }
+        if (raw > HARD_MAX_GIT_CHANGES_FILES) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_ARGUMENT',
+              `invalid --max-files: value ${raw} exceeds maximum ${HARD_MAX_GIT_CHANGES_FILES}`,
+              repoRoot,
+            ),
+            { json: options.json, prefix: 'git changes failed' },
+          );
+          return;
+        }
+        maxFiles = raw;
+      }
 
       let result: GitChangesSummary;
       try {
         result = getGitChangesSummary(repoRoot, {
           agent_id: options.agent,
-          maxFiles: maxFiles !== undefined && Number.isFinite(maxFiles) ? maxFiles : undefined,
+          maxFiles,
           includeDiffStat: options.diffStat !== false,
         });
       } catch (error) {

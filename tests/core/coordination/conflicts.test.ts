@@ -29,8 +29,8 @@ describe('conflict recording', () => {
   afterEach(() => repo.cleanup());
 
   test('records a claim_denied conflict and persists it in state.json', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-1' });
-    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' }, { agentId: 'agent-2' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-1' });
+    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-2' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-1', path: 'src/app.ts', mode: 'exclusive' }, { claimId: 'claim-1' });
 
     const conflict = recordConflict(repo.repoRoot, {
@@ -57,7 +57,7 @@ describe('conflict recording', () => {
   });
 
   test('conflicts list returns recorded conflicts', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-1' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-1' });
 
     recordConflict(repo.repoRoot, {
       conflict_type: 'claim_denied',
@@ -76,7 +76,7 @@ describe('conflict recording', () => {
   });
 
   test('conflicts list filters by status', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-1' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-1' });
 
     recordConflict(repo.repoRoot, {
       conflict_type: 'claim_denied',
@@ -99,7 +99,7 @@ describe('conflict recording', () => {
   });
 
   test('conflicts resolve marks conflict as resolved', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-1' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-1' });
 
     recordConflict(repo.repoRoot, {
       conflict_type: 'claim_denied',
@@ -133,8 +133,8 @@ describe('conflict recording', () => {
   });
 
   test('duplicate denial does not create unbounded duplicates', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-1' });
-    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' }, { agentId: 'agent-2' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-1' });
+    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-2' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-1', path: 'src/app.ts', mode: 'exclusive' }, { claimId: 'claim-1' });
 
     const input = {
@@ -157,8 +157,8 @@ describe('conflict recording', () => {
   });
 
   test('conflict recording does not alter claim behavior', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-1' });
-    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' }, { agentId: 'agent-2' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-1' });
+    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-2' });
     const denied = addFileClaim(repo.repoRoot, { agent_id: 'agent-1', path: 'src/app.ts', mode: 'exclusive' }, { claimId: 'claim-1' });
 
     // Record a conflict for the denial.

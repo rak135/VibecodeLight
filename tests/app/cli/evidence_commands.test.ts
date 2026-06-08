@@ -65,7 +65,7 @@ async function runCli(argv: string[]): Promise<{ stdout: string; exitCode: numbe
 describe('vibecode evidence scan', () => {
   test('scan --json records evidence for a dirty unclaimed file and returns a stable envelope', async () => {
     const repo = makeGitRepo('vibecode-cli-evidence-scan-');
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a' });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     fs.writeFileSync(path.join(repo, 'a.ts'), 'x\n', 'utf8');
 
     const { stdout } = await runCli(['evidence', 'scan', '--repo', repo, '--agent', 'agent-a', '--json']);
@@ -81,7 +81,7 @@ describe('vibecode evidence scan', () => {
 
   test('scan does not mutate git state', async () => {
     const repo = makeGitRepo('vibecode-cli-evidence-nomut-');
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a' });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     fs.writeFileSync(path.join(repo, 'a.ts'), 'x\n', 'utf8');
     const headBefore = git(['rev-parse', 'HEAD'], repo).stdout.trim();
     const statusBefore = git(['status', '--porcelain=v1'], repo).stdout;
@@ -96,7 +96,7 @@ describe('vibecode evidence scan', () => {
 describe('vibecode evidence list', () => {
   test('list --json returns recorded events after a scan', async () => {
     const repo = makeGitRepo('vibecode-cli-evidence-list-');
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a' });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     addFileClaim(repo, { agent_id: 'agent-a', path: 'a.ts', mode: 'exclusive' });
     fs.writeFileSync(path.join(repo, 'a.ts'), 'x\n', 'utf8');
     await runCli(['evidence', 'scan', '--repo', repo, '--agent', 'agent-a', '--json']);

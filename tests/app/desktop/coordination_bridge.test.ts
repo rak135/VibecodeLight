@@ -73,7 +73,7 @@ describe('desktop coordination bridge', () => {
   });
 
   test('coordination:getOverview summarizes registered agents and claims', async () => {
-    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'Alice', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'exclusive' });
 
     const { registerDesktopCoordinationIpcHandlers } = await import('../../../src/app/desktop/coordination_bridge.js');

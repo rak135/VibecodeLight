@@ -24,6 +24,7 @@ export interface JsonSchema {
   required?: string[];
   additionalProperties?: boolean;
   minimum?: number;
+  maximum?: number;
   description?: string;
   enum?: readonly string[];
 }
@@ -32,6 +33,15 @@ const POSITIVE_INT: JsonSchema = {
   type: 'integer',
   minimum: 1,
 };
+
+/** Hard cap for bootstrap max_items. */
+export const HARD_MAX_BOOTSTRAP_ITEMS = 100;
+
+/** Hard cap for git_changes max_files. */
+export const HARD_MAX_GIT_CHANGES_FILES = 200;
+
+/** Hard cap for generic positive integer bounds. */
+export const HARD_MAX_GENERIC_ITEMS = 500;
 
 export const STATUS_INPUT_SCHEMA: JsonSchema = {
   type: 'object',
@@ -383,7 +393,7 @@ export const SESSION_BOOTSTRAP_INPUT_SCHEMA: JsonSchema = {
     task: { type: 'string', description: 'Task/intent for the session. Required when register=true.' },
     terminal_session_id: { type: 'string', description: 'Owning terminal session id, if any.' },
     run_ref: { type: 'string', description: 'Run selection: current | latest (both = current pointer) | a concrete run id.' },
-    max_items: { ...POSITIVE_INT, description: 'Cap on per-section item lists (positive integer).' },
+    max_items: { ...POSITIVE_INT, maximum: HARD_MAX_BOOTSTRAP_ITEMS, description: `Cap on per-section item lists (positive integer, max ${HARD_MAX_BOOTSTRAP_ITEMS}).` },
     include_instructions: { type: 'boolean', description: 'Include a bounded project-instruction excerpt (default true).' },
   },
 };
@@ -393,7 +403,7 @@ export const GIT_CHANGES_INPUT_SCHEMA: JsonSchema = {
   additionalProperties: false,
   properties: {
     agent_id: { type: 'string', description: 'Active agent id; enables claim-aware classification of changed files.' },
-    max_files: { ...POSITIVE_INT, description: 'Cap on the number of changed-file entries returned (counts are unaffected).' },
+    max_files: { ...POSITIVE_INT, maximum: HARD_MAX_GIT_CHANGES_FILES, description: `Cap on the number of changed-file entries returned (counts are unaffected, max ${HARD_MAX_GIT_CHANGES_FILES}).` },
     include_diff_stat: { type: 'boolean', description: 'Include a bounded git diff --stat (default true). Never a full diff.' },
   },
 };
@@ -408,6 +418,20 @@ export function validatePositiveInteger(
     return { ok: false, message: `invalid ${field}: expected a positive integer, got ${JSON.stringify(value)}` };
   }
   return { ok: true, value };
+}
+
+/** Helper for tool handlers: verify a bounded positive integer (with hard max) or return undefined. */
+export function validateBoundedInteger(
+  value: unknown,
+  field: string,
+  max: number,
+): { ok: true; value?: number } | { ok: false; message: string } {
+  const base = validatePositiveInteger(value, field);
+  if (!base.ok) return base;
+  if (base.value !== undefined && base.value > max) {
+    return { ok: false, message: `invalid ${field}: value ${base.value} exceeds maximum ${max}` };
+  }
+  return base;
 }
 
 /** Helper for tool handlers: verify a boolean or return undefined. */

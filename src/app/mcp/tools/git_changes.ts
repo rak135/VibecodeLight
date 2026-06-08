@@ -7,9 +7,10 @@ import { formatError, formatSimpleSuccess, type McpToolFormattedResult } from '.
 import {
   rejectUnknownKeys,
   validateBoolean,
+  validateBoundedInteger,
   validateNonEmptyString,
-  validatePositiveInteger,
   GIT_CHANGES_INPUT_SCHEMA,
+  HARD_MAX_GIT_CHANGES_FILES,
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
@@ -86,7 +87,7 @@ export function buildGitChangesTool(): McpToolDefinition {
         ? undefined
         : validateNonEmptyString(args.agent_id, 'agent_id');
       if (agentId && !agentId.ok) return fail('INVALID_ARGUMENT', agentId.message);
-      const maxFiles = validatePositiveInteger(args.max_files, 'max_files');
+      const maxFiles = validateBoundedInteger(args.max_files, 'max_files', HARD_MAX_GIT_CHANGES_FILES);
       if (!maxFiles.ok) return fail('INVALID_ARGUMENT', maxFiles.message);
       const includeDiffStat = validateBoolean(args.include_diff_stat, 'include_diff_stat');
       if (!includeDiffStat.ok) return fail('INVALID_ARGUMENT', includeDiffStat.message);

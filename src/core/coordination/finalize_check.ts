@@ -9,6 +9,7 @@ import {
   type GitChangedFile,
 } from '../workspace/git_changed_files.js';
 import type { AgentSession, FileClaim } from './types.js';
+import { getAgentOperatingMode, getAgentTask } from './agent_operating_mode.js';
 
 /**
  * Phase 4A — agent-aware finalize check (read-only).
@@ -67,7 +68,9 @@ export type FinalizeIssueCode =
   | 'FILE_CLAIMED_BY_OTHER_AGENT'
   | 'STALE_AGENT_CLAIM'
   | 'NO_ACTIVE_CLAIMS'
-  | 'GIT_CHANGED_FILES_FAILED';
+  | 'GIT_CHANGED_FILES_FAILED'
+  | 'READ_ONLY_AGENT'
+  | 'INVALID_AGENT_SESSION';
 
 export interface FinalizeIssue {
   code: FinalizeIssueCode;
@@ -235,6 +238,34 @@ function resolveAgent(input: FinalizeCheckInput, agents: AgentSession[]): AgentR
         severity: 'block',
         message: `Agent cannot finalize while status is ${agent.status}.`,
         details: { agent_id: agent.agent_id, status: agent.status },
+      },
+    };
+  }
+
+  // Enforce operating mode: only build agents may use finalize as a build/commit readiness gate.
+  const mode = getAgentOperatingMode(agent);
+  const task = getAgentTask(agent);
+  if (mode === null || task === null) {
+    return {
+      agent,
+      runId,
+      block: {
+        code: 'INVALID_AGENT_SESSION',
+        severity: 'block',
+        message: `Agent ${agent.agent_id} is missing required session metadata (${mode === null ? 'operating_mode' : ''}${mode === null && task === null ? ', ' : ''}${task === null ? 'task' : ''}). Re-register through session_bootstrap with register=true, agent_mode, and task.`,
+        details: { agent_id: agent.agent_id, operating_mode: mode, task },
+      },
+    };
+  }
+  if (mode === 'read_only') {
+    return {
+      agent,
+      runId,
+      block: {
+        code: 'READ_ONLY_AGENT',
+        severity: 'block',
+        message: `Agent ${agent.agent_id} is operating in read_only mode and cannot finalize or commit. Only build agents may use finalize as a build/commit readiness gate.`,
+        details: { agent_id: agent.agent_id, operating_mode: mode },
       },
     };
   }

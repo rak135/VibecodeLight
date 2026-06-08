@@ -52,11 +52,11 @@ describe('vibecode claims (CLI)', () => {
 
   async function registerAgent(name = 'Codex A'): Promise<string> {
     const res = await runCli([
-      'agents', 'register', '--repo', repo.repoRoot, '--name', name, '--type', 'codex', '--json',
+      'session', 'bootstrap', '--repo', repo.repoRoot, '--register', '--agent-mode', 'build', '--task', 'test', '--name', name, '--type', 'codex', '--json',
     ]);
     expect(res.exitCode).toBe(0);
     const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
-    return (env.data.agent as { agent_id: string }).agent_id;
+    return (env.data as { current_agent: { agent_id: string } }).current_agent.agent_id;
   }
 
   async function addClaim(agentId: string, claimPath = 'src/app.ts', mode = 'exclusive'): Promise<SuccessEnvelope> {

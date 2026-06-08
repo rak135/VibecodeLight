@@ -12,6 +12,8 @@ import {
   defaultGitCommandRunner,
   type GitCommandRunner,
 } from '../workspace/git_commit.js';
+import { getAgentOperatingMode, getAgentTask } from './agent_operating_mode.js';
+import { listAgents } from './agents.js';
 
 /**
  * Phase 4B scoped commit guard — the first git-mutating coordination phase.
@@ -57,7 +59,9 @@ export type CommitGuardIssueCode =
   | 'GIT_COMMIT_FAILED'
   | 'GIT_STATUS_CHANGED_DURING_COMMIT'
   | 'INVALID_COMMIT_MESSAGE'
-  | 'INVALID_RUN_ID';
+  | 'INVALID_RUN_ID'
+  | 'READ_ONLY_AGENT'
+  | 'INVALID_AGENT_SESSION';
 
 export interface CommitGuardIssue {
   code: CommitGuardIssueCode;
@@ -125,6 +129,62 @@ function writeArtifact(repoRoot: string, runId: string, result: CommitGuardResul
  */
 export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   const runner = input.gitRunner ?? defaultGitCommandRunner;
+
+  const earlyBase = (over: Partial<CommitGuardResult>): CommitGuardResult => ({
+    ok: true,
+    status: 'blocked',
+    agent_id: input.agent_id ?? null,
+    run_id: input.run_id ?? null,
+    commit_hash: null,
+    staged_files: [],
+    committed_files: [],
+    skipped_files: [],
+    finalize_check: null as unknown as FinalizeCheckResult,
+    blocks: [],
+    warnings: [],
+    ...over,
+  });
+
+  // Validate a caller-supplied commit message before any git work.
+  if (input.message !== undefined && input.message.trim().length === 0) {
+    return earlyBase({
+      ok: false,
+      blocks: [{ code: 'INVALID_COMMIT_MESSAGE', severity: 'block', message: 'commit message must not be empty or whitespace-only.' }],
+    });
+  }
+
+  // Direct operating mode check: block non-build or invalid-mode agents BEFORE
+  // any finalize check or git staging. This is the hard safety path.
+  if (input.agent_id) {
+    const agents = listAgents(input.repoRoot);
+    const agent = agents.find((a) => a.agent_id === input.agent_id);
+    if (agent) {
+      const mode = getAgentOperatingMode(agent);
+      const task = getAgentTask(agent);
+      if (mode === null || task === null) {
+        return earlyBase({
+          ok: false,
+          blocks: [{
+            code: 'INVALID_AGENT_SESSION',
+            severity: 'block',
+            message: `Agent ${input.agent_id} is missing required session metadata (${mode === null ? 'operating_mode' : ''}${mode === null && task === null ? ', ' : ''}${task === null ? 'task' : ''}). Cannot commit.`,
+            details: { agent_id: input.agent_id, operating_mode: mode, task },
+          }],
+        });
+      }
+      if (mode === 'read_only') {
+        return earlyBase({
+          ok: false,
+          blocks: [{
+            code: 'READ_ONLY_AGENT',
+            severity: 'block',
+            message: `Agent ${input.agent_id} is operating in read_only mode and cannot commit. Only build agents may stage and commit files.`,
+            details: { agent_id: input.agent_id, operating_mode: mode },
+          }],
+        });
+      }
+    }
+  }
 
   const finalize = getFinalizeCheck({
     repoRoot: input.repoRoot,

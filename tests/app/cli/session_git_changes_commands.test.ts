@@ -92,7 +92,7 @@ describe('vibecode session bootstrap --json', () => {
   });
 
   test('terminated agent_id returns a structured error envelope', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     markAgentTerminated(repo.repoRoot, agent.agent_id);
     const result = await runCli(['session', 'bootstrap', '--repo', repo.repoRoot, '--agent', agent.agent_id, '--json']);
     expect(result.exitCode).toBe(1);
@@ -171,7 +171,7 @@ describe('CLI/MCP parity (Phase 1A)', () => {
   test('git changes: classification + counts match the MCP tool', async () => {
     const repo = makeRepo('vibecode-parity-gc-');
     try {
-      const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude' });
+      const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
       addFileClaim(repo.repoRoot, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
       write(repo.repoRoot, 'src/mine.ts');
       write(repo.repoRoot, 'src/loose.ts');

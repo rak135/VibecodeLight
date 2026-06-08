@@ -6,6 +6,7 @@ import {
   getSessionBootstrap,
   type SessionBootstrapResult,
 } from '../../../core/agent_session/bootstrap.js';
+import { HARD_MAX_BOOTSTRAP_ITEMS } from '../../mcp/schemas.js';
 import {
   type EmitCliStructuredError,
   type MakeCliStructuredError,
@@ -66,7 +67,35 @@ export function registerSessionCommands(
       json?: boolean;
     }) => {
       const repoRoot = path.resolve(options.repo);
-      const maxItems = options.maxItems !== undefined ? Number(options.maxItems) : undefined;
+
+      // Strict numeric validation for --max-items.
+      let maxItems: number | undefined;
+      if (options.maxItems !== undefined) {
+        const raw = Number(options.maxItems);
+        if (!Number.isFinite(raw) || !Number.isInteger(raw) || raw <= 0) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_ARGUMENT',
+              `invalid --max-items: expected a positive integer, got ${JSON.stringify(options.maxItems)}`,
+              repoRoot,
+            ),
+            { json: options.json, prefix: 'session bootstrap failed' },
+          );
+          return;
+        }
+        if (raw > HARD_MAX_BOOTSTRAP_ITEMS) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_ARGUMENT',
+              `invalid --max-items: value ${raw} exceeds maximum ${HARD_MAX_BOOTSTRAP_ITEMS}`,
+              repoRoot,
+            ),
+            { json: options.json, prefix: 'session bootstrap failed' },
+          );
+          return;
+        }
+        maxItems = raw;
+      }
 
       let result: SessionBootstrapResult;
       try {
@@ -80,7 +109,7 @@ export function registerSessionCommands(
           task: options.task,
           terminal_session_id: options.terminalSession,
           run_ref: options.runRef,
-          max_items: maxItems !== undefined && Number.isFinite(maxItems) ? maxItems : undefined,
+          max_items: maxItems,
           include_instructions: options.instructions !== false,
         });
       } catch (error) {

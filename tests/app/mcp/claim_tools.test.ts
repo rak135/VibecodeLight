@@ -33,7 +33,7 @@ describe('VibecodeMCP advisory claim tools', () => {
   afterEach(() => repo.cleanup());
 
   test('vibecode_claim_add returns the same core data as CLI/core', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'Codex A', agent_type: 'codex' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'Codex A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     const tool = buildClaimAddTool();
     expect(tool.name).toBe('vibecode_claim_add');
 
@@ -53,8 +53,8 @@ describe('VibecodeMCP advisory claim tools', () => {
   });
 
   test('vibecode_claims_list returns persisted claims and filters by agent', async () => {
-    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
-    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' });
+    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo.repoRoot, { agent_id: a.agent_id, path: 'src/a.ts', mode: 'exclusive' });
     addFileClaim(repo.repoRoot, { agent_id: b.agent_id, path: 'src/b.ts', mode: 'exclusive' });
 
@@ -70,7 +70,7 @@ describe('VibecodeMCP advisory claim tools', () => {
   });
 
   test('vibecode_claim_status returns matching claims and claimability', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo.repoRoot, { agent_id: agent.agent_id, path: 'src', mode: 'shared' });
 
     const result = await buildClaimStatusTool().handler({
@@ -87,7 +87,7 @@ describe('VibecodeMCP advisory claim tools', () => {
   });
 
   test('vibecode_claim_release releases a claim', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     const added = addFileClaim(repo.repoRoot, { agent_id: agent.agent_id, path: 'src/app.ts', mode: 'exclusive' });
 
     const result = await buildClaimReleaseTool().handler({
@@ -103,8 +103,8 @@ describe('VibecodeMCP advisory claim tools', () => {
   });
 
   test('claim denial and invalid arguments return structured MCP errors', async () => {
-    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
-    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' });
+    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     addFileClaim(repo.repoRoot, { agent_id: a.agent_id, path: 'src/app.ts', mode: 'exclusive' });
 
     const denied = await buildClaimAddTool().handler({
@@ -125,8 +125,8 @@ describe('VibecodeMCP advisory claim tools', () => {
   });
 
   test('claim denial payload includes structured blocking-claim details', async () => {
-    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
-    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' });
+    const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
     const existing = addFileClaim(repo.repoRoot, { agent_id: a.agent_id, path: 'src/app.ts', mode: 'exclusive' });
 
     const denied = await buildClaimAddTool().handler({
@@ -160,7 +160,7 @@ describe('VibecodeMCP advisory claim tools', () => {
   });
 
   test('non-denial claim errors still return without a details payload', async () => {
-    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     const invalid = await buildClaimAddTool().handler({
       context: ctx(repo.repoRoot),
       arguments: { agent_id: agent.agent_id, path: '../outside.ts', mode: 'exclusive' },

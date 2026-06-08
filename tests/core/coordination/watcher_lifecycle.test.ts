@@ -111,7 +111,7 @@ describe('createLiveCoordinationWatcher — lifecycle', () => {
   let repo: string;
   beforeEach(() => {
     repo = makeRepo('vibecode-live-watch-');
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
   });
 
   test('start transitions stopped → running and opens the backend once', async () => {
@@ -193,7 +193,7 @@ describe('createLiveCoordinationWatcher — debounce & evidence recording', () =
   let backend: FakeBackend;
   beforeEach(() => {
     repo = makeRepo('vibecode-live-watch-rec-');
-    registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+    registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
     scheduler = new ManualScheduler();
     backend = new FakeBackend();
   });
@@ -329,7 +329,7 @@ describe('createLiveCoordinationWatcher — default scheduler (real timers)', ()
     vi.useFakeTimers();
     try {
       const repo = makeRepo('vibecode-live-watch-timers-');
-      registerAgent(repo, { agent_name: 'A', agent_type: 'claude' }, { agentId: 'agent-a', now: T0 });
+      registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a', now: T0 });
       const backend = new FakeBackend();
       const watcher = createLiveCoordinationWatcher({
         repoRoot: repo,

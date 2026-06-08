@@ -50,7 +50,7 @@ describe('advisory file claims', () => {
   test('adds an exclusive advisory claim and persists it in coordination state', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'Codex A', agent_type: 'codex' },
+      { agent_name: 'Codex A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-1' },
     );
 
@@ -77,8 +77,8 @@ describe('advisory file claims', () => {
   });
 
   test('allows overlapping shared claims from active agents', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
-    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' }, { agentId: 'agent-b' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-b' });
 
     const a = addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src', mode: 'shared' }, { claimId: 'claim-a' });
     const b = addFileClaim(repo.repoRoot, { agent_id: 'agent-b', path: 'src/app.ts', mode: 'shared' }, { claimId: 'claim-b' });
@@ -89,8 +89,8 @@ describe('advisory file claims', () => {
   });
 
   test('denies an exclusive claim that overlaps an active shared claim', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
-    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' }, { agentId: 'agent-b' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-b' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'shared' }, { claimId: 'claim-a' });
 
     const denied = addFileClaim(repo.repoRoot, { agent_id: 'agent-b', path: 'src', mode: 'exclusive' });
@@ -104,12 +104,12 @@ describe('advisory file claims', () => {
   test('allows an exclusive claim when the only overlapping claim belongs to a stale agent', () => {
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-a' },
     );
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'B', agent_type: 'claude' },
+      { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-b' },
     );
     addFileClaim(
@@ -137,7 +137,7 @@ describe('advisory file claims', () => {
 
     registerAgent(
       repo.repoRoot,
-      { agent_name: 'A', agent_type: 'codex' },
+      { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } },
       { now: '2026-06-06T00:00:00.000Z', agentId: 'agent-a' },
     );
     const later = new Date(Date.parse('2026-06-06T00:00:00.000Z') + HEARTBEAT_TTL_MS + 1000).toISOString();
@@ -145,7 +145,7 @@ describe('advisory file claims', () => {
       addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/a.ts', mode: 'exclusive' }, { now: later }),
     ).toThrowError(CoordinationError);
 
-    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude' }, { agentId: 'agent-b' });
+    registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-b' });
     markAgentTerminated(repo.repoRoot, 'agent-b');
     expect(() =>
       addFileClaim(repo.repoRoot, { agent_id: 'agent-b', path: 'src/b.ts', mode: 'exclusive' }),
@@ -153,7 +153,7 @@ describe('advisory file claims', () => {
   });
 
   test('rejects invalid paths before writing state', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
 
     for (const invalid of ['', '..\\outside.ts', '.vibecode/coordination/state.json', '.']) {
       try {
@@ -168,7 +168,7 @@ describe('advisory file claims', () => {
   });
 
   test('status for a path reports overlapping active claims and claimability', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src', mode: 'shared' }, { claimId: 'claim-a' });
 
     const status = getClaimStatusForPath(repo.repoRoot, 'src/app.ts');
@@ -180,7 +180,7 @@ describe('advisory file claims', () => {
   });
 
   test('release marks a claim released and removes it from the agent active claim list', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'exclusive' }, { claimId: 'claim-a' });
 
     const released = releaseFileClaim(repo.repoRoot, 'claim-a', { now: '2026-06-06T00:05:00.000Z' });
@@ -193,7 +193,7 @@ describe('advisory file claims', () => {
   });
 
   test('normalization round-trips existing claim arrays without conflict records', () => {
-    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' }, { agentId: 'agent-a' });
+    registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { agentId: 'agent-a' });
     const state = loadCoordinationState(repo.repoRoot);
     writeCoordinationState(repo.repoRoot, {
       ...state,

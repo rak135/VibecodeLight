@@ -121,7 +121,7 @@ describe('resolveAgentBindingInput', () => {
   });
 
   test('resolves a valid registered agent into an enabled binding', () => {
-    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude' }, { now: T_NOW, agentId: 'agent-1' });
+    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_NOW, agentId: 'agent-1' });
     const result = resolveAgentBindingInput(
       repo,
       { agentId: 'agent-1', agentMode: 'mcp', terminalSessionId: 'term-1' },
@@ -139,7 +139,7 @@ describe('resolveAgentBindingInput', () => {
   });
 
   test('defaults agent_mode to unknown when not supplied', () => {
-    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude' }, { now: T_NOW, agentId: 'agent-1' });
+    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_NOW, agentId: 'agent-1' });
     const result = resolveAgentBindingInput(repo, { agentId: 'agent-1' }, { now: T_NOW });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.binding?.agent_mode).toBe('unknown');
@@ -152,7 +152,7 @@ describe('resolveAgentBindingInput', () => {
   });
 
   test('returns a structured error for an invalid agent_mode', () => {
-    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude' }, { now: T_NOW, agentId: 'agent-1' });
+    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_NOW, agentId: 'agent-1' });
     const result = resolveAgentBindingInput(repo, { agentId: 'agent-1', agentMode: 'bogus' }, { now: T_NOW });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('INVALID_AGENT_MODE');
@@ -165,11 +165,11 @@ describe('buildCoordinationPromptContext', () => {
   beforeEach(() => {
     repo = makeRepo();
     // Stale agent registered at T0 with a claim it held while active.
-    registerAgent(repo, { agent_name: 'Stale', agent_type: 'custom' }, { now: T0, agentId: 'agent-stale' });
+    registerAgent(repo, { agent_name: 'Stale', agent_type: 'custom', metadata: { operating_mode: 'build', task: 'test' } }, { now: T0, agentId: 'agent-stale' });
     addFileClaim(repo, { agent_id: 'agent-stale', path: 'docs/old.md', mode: 'exclusive' }, { now: T0, claimId: 'claim-stale' });
     // Active agents registered at T_NOW.
-    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude' }, { now: T_NOW, agentId: 'agent-1' });
-    registerAgent(repo, { agent_name: 'Bob', agent_type: 'codex' }, { now: T_NOW, agentId: 'agent-2' });
+    registerAgent(repo, { agent_name: 'Alice', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_NOW, agentId: 'agent-1' });
+    registerAgent(repo, { agent_name: 'Bob', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { now: T_NOW, agentId: 'agent-2' });
     addFileClaim(repo, { agent_id: 'agent-1', path: 'src/a.ts', mode: 'exclusive' }, { now: T_NOW, claimId: 'claim-1' });
     addFileClaim(repo, { agent_id: 'agent-2', path: 'src/b.ts', mode: 'shared' }, { now: T_NOW, claimId: 'claim-2' });
   });
