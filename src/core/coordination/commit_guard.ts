@@ -155,6 +155,11 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
 
   // Direct operating mode check: block non-build or invalid-mode agents BEFORE
   // any finalize check or git staging. This is the hard safety path.
+  // NOTE: finalize_check also validates operating mode via the same shared
+  // helpers (getAgentOperatingMode / getAgentTask from agent_operating_mode.ts).
+  // This early check is intentional defense-in-depth — it ensures commit_guard
+  // never even invokes finalize for read_only/invalid agents, keeping the
+  // "block before staging" invariant independent of finalize's internal logic.
   if (input.agent_id) {
     const agents = listAgents(input.repoRoot);
     const agent = agents.find((a) => a.agent_id === input.agent_id);

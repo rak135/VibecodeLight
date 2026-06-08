@@ -17,6 +17,8 @@
 
 import { AGENT_TYPES } from '../../core/coordination/types.js';
 import { AGENT_OPERATING_MODES } from '../../core/agent_session/bootstrap.js';
+import { SESSION_BOOTSTRAP_MAX_ITEMS } from '../../core/agent_session/bootstrap.js';
+import { GIT_CHANGES_MAX_FILES } from '../../core/workspace/git_changes_summary.js';
 
 export interface JsonSchema {
   type?: string;
@@ -34,11 +36,17 @@ const POSITIVE_INT: JsonSchema = {
   minimum: 1,
 };
 
-/** Hard cap for bootstrap max_items. */
-export const HARD_MAX_BOOTSTRAP_ITEMS = 100;
+/**
+ * Hard cap for bootstrap max_items. Re-exported from core to avoid drift.
+ * @deprecated Import directly from `core/agent_session/bootstrap.js` instead.
+ */
+export const HARD_MAX_BOOTSTRAP_ITEMS = SESSION_BOOTSTRAP_MAX_ITEMS;
 
-/** Hard cap for git_changes max_files. */
-export const HARD_MAX_GIT_CHANGES_FILES = 200;
+/**
+ * Hard cap for git_changes max_files. Re-exported from core to avoid drift.
+ * @deprecated Import directly from `core/workspace/git_changes_summary.js` instead.
+ */
+export const HARD_MAX_GIT_CHANGES_FILES = GIT_CHANGES_MAX_FILES;
 
 /** Hard cap for generic positive integer bounds. */
 export const HARD_MAX_GENERIC_ITEMS = 500;

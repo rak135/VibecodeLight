@@ -21,7 +21,8 @@ function git(args: string[], cwd: string) {
   return spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30000 });
 }
 
-function makeRepo(prefix: string): string {
+function makeRepo(prefix: string, opts: { gitignoreVibecode?: boolean } = {}): string {
+  const ignore = opts.gitignoreVibecode !== false;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const repo = path.join(root, 'repo with spaces');
   fs.mkdirSync(repo, { recursive: true });
@@ -30,8 +31,10 @@ function makeRepo(prefix: string): string {
   git(['config', 'user.name', 'Test'], repo);
   git(['config', 'commit.gpgsign', 'false'], repo);
   git(['config', 'core.autocrlf', 'false'], repo);
-  fs.writeFileSync(path.join(repo, '.gitignore'), '.vibecode/\n', 'utf8');
-  git(['add', '.gitignore'], repo);
+  if (ignore) {
+    fs.writeFileSync(path.join(repo, '.gitignore'), '.vibecode/\n', 'utf8');
+    git(['add', '.gitignore'], repo);
+  }
   git(['commit', '--allow-empty', '-q', '-m', 'init'], repo);
   return repo;
 }
@@ -71,6 +74,33 @@ describe('getSessionBootstrap — git + orientation', () => {
     expect(result.git.changed_counts.total).toBe(2);
     expect(result.git.changed_counts.untracked).toBe(2);
     expect(result.git.sample_changed_files.length).toBeGreaterThan(0);
+  });
+
+  test('generated_or_ignored is surfaced in changed_counts', async () => {
+    const repo = makeRepo('vibecode-bs-generated-', { gitignoreVibecode: false });
+    // Write a .vibecode file (generated runtime path) and a source file.
+    write(repo, path.join('.vibecode', 'coordination', 'state.json'), '{}\n');
+    write(repo, 'src/a.ts');
+    const result = await getSessionBootstrap({ repoRoot: repo, ...baseOpts });
+    // generated_or_ignored is present and counts .vibecode/ paths.
+    expect(result.git.changed_counts.generated_or_ignored).toBeGreaterThanOrEqual(1);
+    // The source file is counted separately as untracked.
+    expect(result.git.changed_counts.untracked).toBeGreaterThanOrEqual(1);
+    // Total is the total number of changed files.
+    expect(result.git.changed_counts.total).toBeGreaterThanOrEqual(2);
+  });
+
+  test('defensive cap: rejects max_items above hard max', async () => {
+    const repo = makeRepo('vibecode-bs-cap-reject-');
+    await expect(
+      getSessionBootstrap({ repoRoot: repo, max_items: 101, ...baseOpts }),
+    ).rejects.toThrow(/exceeds maximum/);
+  });
+
+  test('defensive cap: accepts max_items at hard max (100)', async () => {
+    const repo = makeRepo('vibecode-bs-cap-boundary-');
+    const result = await getSessionBootstrap({ repoRoot: repo, max_items: 100, ...baseOpts });
+    expect(result.ok).toBe(true);
   });
 
   test('bounded sections: agents/claims/conflicts/evidence/scan/codegraph present', async () => {

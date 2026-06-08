@@ -4,9 +4,9 @@ import { Command } from 'commander';
 
 import {
   getGitChangesSummary,
+  GIT_CHANGES_MAX_FILES,
   type GitChangesSummary,
 } from '../../../core/workspace/git_changes_summary.js';
-import { HARD_MAX_GIT_CHANGES_FILES } from '../../mcp/schemas.js';
 import {
   type EmitCliStructuredError,
   type MakeCliStructuredError,
@@ -69,11 +69,11 @@ export function registerGitChangesCommands(
           );
           return;
         }
-        if (raw > HARD_MAX_GIT_CHANGES_FILES) {
+        if (raw > GIT_CHANGES_MAX_FILES) {
           emitCliStructuredError(
             makeCliStructuredError(
               'INVALID_ARGUMENT',
-              `invalid --max-files: value ${raw} exceeds maximum ${HARD_MAX_GIT_CHANGES_FILES}`,
+              `invalid --max-files: value ${raw} exceeds maximum ${GIT_CHANGES_MAX_FILES}`,
               repoRoot,
             ),
             { json: options.json, prefix: 'git changes failed' },

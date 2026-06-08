@@ -4,9 +4,9 @@ import { Command } from 'commander';
 
 import {
   getSessionBootstrap,
+  SESSION_BOOTSTRAP_MAX_ITEMS,
   type SessionBootstrapResult,
 } from '../../../core/agent_session/bootstrap.js';
-import { HARD_MAX_BOOTSTRAP_ITEMS } from '../../mcp/schemas.js';
 import {
   type EmitCliStructuredError,
   type MakeCliStructuredError,
@@ -83,11 +83,11 @@ export function registerSessionCommands(
           );
           return;
         }
-        if (raw > HARD_MAX_BOOTSTRAP_ITEMS) {
+        if (raw > SESSION_BOOTSTRAP_MAX_ITEMS) {
           emitCliStructuredError(
             makeCliStructuredError(
               'INVALID_ARGUMENT',
-              `invalid --max-items: value ${raw} exceeds maximum ${HARD_MAX_BOOTSTRAP_ITEMS}`,
+              `invalid --max-items: value ${raw} exceeds maximum ${SESSION_BOOTSTRAP_MAX_ITEMS}`,
               repoRoot,
             ),
             { json: options.json, prefix: 'session bootstrap failed' },

@@ -1961,6 +1961,30 @@ updated to include `metadata: { operating_mode: 'build', task: 'test' }` so
 agents pass the new validation. One CLI test helper updated to use
 `session bootstrap --register` instead of the old `agents register` path.
 
+### Phase 1A follow-up cleanups
+
+**1. Core services now defensively enforce cap limits.**
+`SESSION_BOOTSTRAP_MAX_ITEMS` (100) and `GIT_CHANGES_MAX_FILES` (200) are
+defined in their respective core modules (`bootstrap.ts`, `git_changes_summary.ts`)
+and enforced defensively by `getSessionBootstrap()` / `getGitChangesSummary()`.
+MCP schemas and CLI commands import from core to avoid drift. MCP/CLI adapters
+still reject invalid user input explicitly at the validation layer.
+
+**2. commit_guard / finalize mode-check duplication clarified.**
+Both `commit_guard` and `finalize_check` validate agent operating mode using
+the same shared helpers (`getAgentOperatingMode` / `getAgentTask` from
+`agent_operating_mode.ts`). The early check in `commit_guard` is intentional
+defense-in-depth — it ensures commit_guard never even invokes finalize for
+read_only/invalid agents, keeping the "block before staging" invariant
+independent of finalize's internal logic. A comment in `commit_guard.ts`
+documents this.
+
+**3. `generated_or_ignored` surfaced in `changed_counts`.**
+`session_bootstrap`'s `git.changed_counts` now includes `generated_or_ignored`
+as a first-class count, sourced from `getGitChangesSummary`'s classification
+counts. Generated `.vibecode/` paths remain excluded from unclaimed-source
+warnings.
+
 ### Next batch
 
 Phase 2 (make coordination harder to skip): bulk claims with intent, finalize

@@ -73,6 +73,13 @@ export const AGENT_OPERATING_PROTOCOL: readonly string[] = Object.freeze([
 /** Default cap on per-section item lists. */
 export const DEFAULT_BOOTSTRAP_MAX_ITEMS = 25;
 
+/**
+ * Hard maximum for bootstrap max_items. Core enforces this defensively so that
+ * internal callers cannot accidentally request unbounded output. MCP/CLI
+ * adapters also enforce it at the validation layer for user-facing rejection.
+ */
+export const SESSION_BOOTSTRAP_MAX_ITEMS = 100;
+
 /** Default cap on the sample changed-file path preview. */
 export const DEFAULT_BOOTSTRAP_SAMPLE_FILES = 10;
 
@@ -139,6 +146,7 @@ export interface SessionBootstrapResult {
       untracked: number;
       deleted: number;
       renamed: number;
+      generated_or_ignored: number;
       total: number;
     };
     sample_changed_files: string[];
@@ -445,7 +453,13 @@ function recommendations(args: {
 export async function getSessionBootstrap(input: SessionBootstrapInput): Promise<SessionBootstrapResult> {
   const checkedAt = input.now ?? new Date().toISOString();
   const repoRoot = input.repoRoot;
-  const maxItems = input.max_items && input.max_items > 0 ? input.max_items : DEFAULT_BOOTSTRAP_MAX_ITEMS;
+  const rawMaxItems = input.max_items && input.max_items > 0 ? input.max_items : DEFAULT_BOOTSTRAP_MAX_ITEMS;
+  if (rawMaxItems > SESSION_BOOTSTRAP_MAX_ITEMS) {
+    throw new Error(
+      `max_items ${rawMaxItems} exceeds maximum ${SESSION_BOOTSTRAP_MAX_ITEMS}`,
+    );
+  }
+  const maxItems = rawMaxItems;
   const runRef = input.run_ref && input.run_ref.trim().length > 0 ? input.run_ref.trim() : 'current';
   const includeInstructions = input.include_instructions !== false;
   const gitRunner = input.gitRunner ?? defaultGitReadOnlyRunner;
@@ -489,6 +503,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
       untracked: changes.summary.untracked,
       deleted: changes.summary.deleted,
       renamed: changes.summary.renamed,
+      generated_or_ignored: changes.summary.generated_or_ignored,
       total: changes.summary.changed_count,
     },
     sample_changed_files: changes.files.map((f) => f.path),

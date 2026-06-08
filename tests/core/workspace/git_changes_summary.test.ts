@@ -119,6 +119,20 @@ describe('getGitChangesSummary — counts + truncation', () => {
     expect(summary.truncated).toBe(false);
     expect(summary.returned_changed).toBe(1);
   });
+
+  test('defensive cap: rejects max_files above hard max', () => {
+    const repo = makeRepo('vibecode-gcs-cap-reject-');
+    write(repo, 'src/a.ts');
+    expect(() => getGitChangesSummary(repo, { maxFiles: 201 })).toThrow(/exceeds maximum/);
+  });
+
+  test('defensive cap: accepts max_files at hard max (200)', () => {
+    const repo = makeRepo('vibecode-gcs-cap-boundary-');
+    write(repo, 'src/a.ts');
+    const summary = getGitChangesSummary(repo, { maxFiles: 200 });
+    expect(summary.ok).toBe(true);
+    expect(summary.returned_changed).toBe(1);
+  });
 });
 
 describe('getGitChangesSummary — diff stat', () => {

@@ -34,6 +34,13 @@ import {
 /** Default cap on the number of changed-file entries returned. */
 export const DEFAULT_GIT_CHANGES_MAX_FILES = 50;
 
+/**
+ * Hard maximum for git_changes max_files. Core enforces this defensively so that
+ * internal callers cannot accidentally request unbounded output. MCP/CLI
+ * adapters also enforce it at the validation layer for user-facing rejection.
+ */
+export const GIT_CHANGES_MAX_FILES = 200;
+
 /** Default byte cap on the bounded diff stat. */
 export const DEFAULT_DIFF_STAT_MAX_BYTES = 4_000;
 
@@ -257,7 +264,13 @@ export function getGitChangesSummary(
 ): GitChangesSummary {
   const checkedAt = options.now ?? new Date().toISOString();
   const runner = options.gitRunner ?? defaultGitReadOnlyRunner;
-  const maxFiles = options.maxFiles ?? DEFAULT_GIT_CHANGES_MAX_FILES;
+  const rawMaxFiles = options.maxFiles ?? DEFAULT_GIT_CHANGES_MAX_FILES;
+  if (rawMaxFiles > GIT_CHANGES_MAX_FILES) {
+    throw new Error(
+      `max_files ${rawMaxFiles} exceeds maximum ${GIT_CHANGES_MAX_FILES}`,
+    );
+  }
+  const maxFiles = rawMaxFiles;
   const includeDiffStat = options.includeDiffStat !== false;
   const warnings: GitChangesWarning[] = [];
 
