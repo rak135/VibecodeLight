@@ -1,30 +1,30 @@
 import fs from 'fs';
 
-import {
-  RUN_SHOW_ARTIFACTS,
-  readRunArtifactText,
-} from '../../../core/runs/run_artifacts.js';
+import { readRunArtifactChunk } from '../../../core/runs/artifact_pagination.js';
+import { RUN_SHOW_ARTIFACTS } from '../../../core/runs/run_artifacts.js';
+import { HARD_MAX_ARTIFACT_CHUNK_BYTES } from '../../../core/runs/artifact_pagination.js';
 import { buildMcpError } from '../errors.js';
 import { MCP_TEXT_OUTPUT_LIMIT, formatError, formatSimpleSuccess, type McpToolFormattedResult } from '../format.js';
 import {
   ARTIFACT_READ_INPUT_SCHEMA,
   rejectUnknownKeys,
+  validateBoundedInteger,
   validateNonEmptyString,
-  validatePositiveInteger,
+  validateNonNegativeInteger,
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
 import { selectRunForMcp } from './_run_select.js';
 
 const TOOL_NAME = 'vibecode_artifact_read';
-const ALLOWED_KEYS = new Set(['run_id', 'artifact', 'max_bytes']);
+const ALLOWED_KEYS = new Set(['run_id', 'artifact', 'byte_offset', 'max_bytes']);
 
 /**
- * Default max bytes returned by the tool when the caller does not specify one.
+ * Default max bytes returned per chunk when the caller does not specify one.
  * Keeps responses bounded for model consumption without forcing the agent to
  * compute byte budgets up-front. Aliased to the shared MCP text bound from
- * format.ts (single source of truth) so a full artifact and the wrapping text
- * content stay within the same envelope budget and cannot drift apart.
+ * format.ts (single source of truth) so a default-sized chunk and the wrapping
+ * text content stay within the same envelope budget and cannot drift apart.
  */
 export const DEFAULT_MAX_BYTES = MCP_TEXT_OUTPUT_LIMIT;
 
@@ -34,7 +34,7 @@ export function buildArtifactReadTool(): McpToolDefinition {
     name: TOOL_NAME,
     title: 'Vibecode artifact (read)',
     description:
-      'Read one allowlisted Vibecode run artifact (final_prompt, context_pack, flash_output, codegraph, task-intent, …). Prefer this over manually opening .vibecode files. Read-only. run_id accepts "latest"/"current". max_bytes bounds returned content.',
+      'Read one allowlisted Vibecode run artifact (final_prompt, context_pack, flash_output, codegraph, task-intent, …) as a bounded, UTF-8-safe chunk. Prefer this over manually opening .vibecode files. Read-only. run_id accepts "latest"/"current". For large artifacts, continue with byte_offset=<next_byte_offset> until has_more=false; chained chunks reconstruct the exact file.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();
@@ -70,7 +70,17 @@ export function buildArtifactReadTool(): McpToolDefinition {
           error: buildMcpError('INVALID_ARGUMENT', artifact.message),
         });
       }
-      const maxBytes = validatePositiveInteger(args.max_bytes, 'max_bytes');
+      const byteOffset = validateNonNegativeInteger(args.byte_offset, 'byte_offset');
+      if (!byteOffset.ok) {
+        return formatError({
+          tool: TOOL_NAME,
+          repoRoot: input.context.repoRoot,
+          warnings: [],
+          durationMs: Date.now() - started,
+          error: buildMcpError('INVALID_ARGUMENT', byteOffset.message),
+        });
+      }
+      const maxBytes = validateBoundedInteger(args.max_bytes, 'max_bytes', HARD_MAX_ARTIFACT_CHUNK_BYTES);
       if (!maxBytes.ok) {
         return formatError({
           tool: TOOL_NAME,
@@ -99,17 +109,29 @@ export function buildArtifactReadTool(): McpToolDefinition {
         });
       }
 
-      const read = readRunArtifactText(selected.runDir, artifact.value, {
+      const read = readRunArtifactChunk(selected.runDir, artifact.value, {
         allowlist: RUN_SHOW_ARTIFACTS,
         applyAliases: true,
+        byteOffset: byteOffset.value ?? 0,
         maxBytes: maxBytes.value ?? DEFAULT_MAX_BYTES,
       });
 
       if (!read.ok) {
-        const code =
-          read.error.code === 'ARTIFACT_NOT_ALLOWED' || read.error.code === 'PATH_OUTSIDE_RUN'
-            ? 'ARTIFACT_NOT_ALLOWED'
-            : 'ARTIFACT_NOT_FOUND';
+        let code: Parameters<typeof buildMcpError>[0];
+        switch (read.error.code) {
+          case 'ARTIFACT_NOT_ALLOWED':
+          case 'PATH_OUTSIDE_RUN':
+            code = 'ARTIFACT_NOT_ALLOWED';
+            break;
+          case 'ARTIFACT_NOT_FOUND':
+            code = 'ARTIFACT_NOT_FOUND';
+            break;
+          // INVALID_BYTE_OFFSET / INVALID_MAX_BYTES / BYTE_OFFSET_OUT_OF_RANGE are
+          // all argument problems relative to the resolved file.
+          default:
+            code = 'INVALID_ARGUMENT';
+            break;
+        }
         return formatError({
           tool: TOOL_NAME,
           repoRoot: input.context.repoRoot,
@@ -119,27 +141,49 @@ export function buildArtifactReadTool(): McpToolDefinition {
         });
       }
 
+      const chunk = read.value;
       const warnings: string[] = [];
-      if (read.value.truncated) {
-        warnings.push(`OUTPUT_TRUNCATED: artifact bytes_read=${read.value.bytesRead} bound to max_bytes=${maxBytes.value ?? DEFAULT_MAX_BYTES}`);
+      if (chunk.hasMore) {
+        warnings.push(
+          `HAS_MORE: read ${chunk.bytesRead}/${chunk.totalBytes} bytes from offset ${chunk.byteOffset}. Continue with byte_offset=${chunk.nextByteOffset}.`,
+        );
       }
       const data = {
         run_id: selected.runId,
         run_dir: selected.runDir,
-        relative_path: read.value.relativePath,
-        absolute_path: read.value.absolutePath,
-        bytes_read: read.value.bytesRead,
-        truncated: read.value.truncated,
-        content: read.value.content,
+        artifact: artifact.value,
+        relative_path: chunk.relativePath,
+        absolute_path: chunk.absolutePath,
+        byte_offset: chunk.byteOffset,
+        requested_max_bytes: chunk.requestedMaxBytes,
+        bytes_read: chunk.bytesRead,
+        total_bytes: chunk.totalBytes,
+        has_more: chunk.hasMore,
+        next_byte_offset: chunk.nextByteOffset,
+        content_sha256: chunk.contentSha256,
+        // Backward-compatible alias: pre-1B-1 callers read `truncated` to mean
+        // "the file was larger than what you got back" — now equal to has_more.
+        truncated: chunk.hasMore,
+        content: chunk.content,
       };
-      const text = [
-        `# Vibecode artifact: ${read.value.relativePath}`,
+      const headerLines = [
+        `# Vibecode artifact: ${chunk.relativePath}`,
         '',
         `run_id: ${selected.runId}`,
-        `bytes_read: ${read.value.bytesRead}${read.value.truncated ? ' (truncated)' : ''}`,
-        '',
-        read.value.content,
-      ].join('\n');
+        `byte_offset: ${chunk.byteOffset}`,
+        `bytes_read: ${chunk.bytesRead}`,
+        `total_bytes: ${chunk.totalBytes}`,
+        `has_more: ${chunk.hasMore ? 'yes' : 'no'}`,
+        `next_byte_offset: ${chunk.nextByteOffset ?? 'null'}`,
+        `content_sha256: ${chunk.contentSha256}`,
+      ];
+      if (chunk.hasMore) {
+        headerLines.push(
+          `continue: call vibecode_artifact_read again with byte_offset: ${chunk.nextByteOffset}`,
+        );
+      }
+      headerLines.push('', chunk.content);
+      const text = headerLines.join('\n');
       return formatSimpleSuccess({
         tool: TOOL_NAME,
         repoRoot: input.context.repoRoot,

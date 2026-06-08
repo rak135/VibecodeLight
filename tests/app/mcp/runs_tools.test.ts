@@ -351,10 +351,22 @@ describe('vibecode_artifact_read', () => {
         requestId: null,
       });
       expect(result.isError).toBe(false);
-      const data = result.structuredContent.data as { content: string; bytes_read: number; truncated: boolean };
+      // Phase 1B-1 contract: bytes_read is the bytes actually returned in this
+      // chunk; total_bytes is the full file size; truncated mirrors has_more.
+      const data = result.structuredContent.data as {
+        content: string;
+        bytes_read: number;
+        total_bytes: number;
+        truncated: boolean;
+        has_more: boolean;
+        next_byte_offset: number | null;
+      };
       expect(data.content).toBe('x'.repeat(16));
       expect(data.truncated).toBe(true);
-      expect(data.bytes_read).toBe(2048);
+      expect(data.has_more).toBe(true);
+      expect(data.bytes_read).toBe(16);
+      expect(data.total_bytes).toBe(2048);
+      expect(data.next_byte_offset).toBe(16);
     } finally {
       cleanup();
     }

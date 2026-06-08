@@ -10,6 +10,11 @@ import {
   RUN_SHOW_ARTIFACTS,
   resolveRunArtifactPath as resolveRunArtifactPathCore,
 } from '../../../core/runs/run_artifacts.js';
+import {
+  DEFAULT_ARTIFACT_CHUNK_BYTES,
+  HARD_MAX_ARTIFACT_CHUNK_BYTES,
+  readRunArtifactChunk,
+} from '../../../core/runs/artifact_pagination.js';
 import { resolveRunDir as resolveRunDirCore } from '../../../core/runs/run_resolver.js';
 import { getWorkspacePaths } from '../../../core/workspace/paths.js';
 import type { TaskIntent } from '../../../adapters/task_normalizer/types.js';
@@ -122,6 +127,101 @@ function writeCodeGraphSummary(info: ReturnType<typeof getRunInfo>): void {
  * shared with the Desktop and (future) MCP adapters.
  */
 export const resolveRunDir = resolveRunDirCore;
+
+interface ArtifactReadEnvelopeError {
+  code: string;
+  message: string;
+  path: string;
+  details: string[];
+}
+
+type ArtifactReadEnvelope =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: ArtifactReadEnvelopeError };
+
+/**
+ * Agent-facing artifact continuation read shared by the `vibecode runs
+ * artifact-read` JSON and human output paths. Thin adapter over the core
+ * {@link readRunArtifactChunk} service so it stays in parity with the MCP
+ * `vibecode_artifact_read` tool (same allowlist, aliases, byte-offset, UTF-8
+ * safety, hashing, and bounds). Never throws; returns a structured envelope.
+ */
+function buildArtifactReadEnvelope(args: {
+  repoRoot: string;
+  run: string;
+  artifact: string;
+  byteOffset?: number;
+  maxBytes?: number;
+}): ArtifactReadEnvelope {
+  let resolvedRun: { runId: string; runDir: string };
+  try {
+    resolvedRun = resolveRunDir(args.repoRoot, args.run);
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: 'RUN_NOT_FOUND',
+        message: err instanceof Error ? err.message : String(err),
+        path: args.run,
+        details: [],
+      },
+    };
+  }
+  if (!fs.existsSync(resolvedRun.runDir)) {
+    return {
+      ok: false,
+      error: { code: 'RUN_NOT_FOUND', message: `run not found: ${resolvedRun.runId}`, path: resolvedRun.runDir, details: [] },
+    };
+  }
+
+  const read = readRunArtifactChunk(resolvedRun.runDir, args.artifact, {
+    allowlist: RUN_SHOW_ARTIFACTS,
+    applyAliases: true,
+    byteOffset: args.byteOffset,
+    maxBytes: args.maxBytes,
+  });
+  if (!read.ok) {
+    let code: string;
+    if (read.error.code === 'ARTIFACT_NOT_ALLOWED' || read.error.code === 'PATH_OUTSIDE_RUN') {
+      code = 'ARTIFACT_NOT_ALLOWED';
+    } else if (read.error.code === 'ARTIFACT_NOT_FOUND') {
+      code = 'ARTIFACT_NOT_FOUND';
+    } else {
+      // INVALID_BYTE_OFFSET / INVALID_MAX_BYTES / BYTE_OFFSET_OUT_OF_RANGE
+      code = 'INVALID_ARGUMENT';
+    }
+    return {
+      ok: false,
+      error: {
+        code,
+        message: read.error.message,
+        path: read.error.resolvedPath ?? args.artifact,
+        details: read.error.allowed ?? [],
+      },
+    };
+  }
+
+  const chunk = read.value;
+  return {
+    ok: true,
+    data: {
+      run_id: resolvedRun.runId,
+      run_dir: resolvedRun.runDir,
+      artifact: args.artifact,
+      relative_path: chunk.relativePath,
+      absolute_path: chunk.absolutePath,
+      byte_offset: chunk.byteOffset,
+      requested_max_bytes: chunk.requestedMaxBytes,
+      bytes_read: chunk.bytesRead,
+      total_bytes: chunk.totalBytes,
+      has_more: chunk.hasMore,
+      next_byte_offset: chunk.nextByteOffset,
+      content_sha256: chunk.contentSha256,
+      truncated: chunk.hasMore,
+      content: chunk.content,
+    },
+  };
+}
 
 export function registerRunCreateCommand(program: Command): void {
   const run = program.command('run').description('Run operations');
@@ -273,5 +373,65 @@ export function registerRunsCommands(program: Command): void {
       for (const [label, artifactPath] of artifactLines) {
         console.log(`  ${label}: ${artifactPath ? 'exists' : 'missing'}`);
       }
+    });
+
+  runs
+    .command('artifact-read')
+    .description('Read an allowlisted run artifact as a bounded, continuation-friendly chunk (agent-facing JSON)')
+    .requiredOption('--artifact <name>', 'Allowlisted artifact name (for example final_prompt, context_pack, flash_output, codegraph)')
+    .option('--run <id>', 'Run id, or one of the aliases "latest"/"current"', 'latest')
+    .option('--byte-offset <n>', 'Byte offset into the original artifact file (default 0). Pass the previous response next_byte_offset to continue.')
+    .option('--max-bytes <n>', `Max bytes of UTF-8 content to return for this chunk (default ${DEFAULT_ARTIFACT_CHUNK_BYTES}, max ${HARD_MAX_ARTIFACT_CHUNK_BYTES})`)
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: {
+      artifact: string;
+      run: string;
+      byteOffset?: string;
+      maxBytes?: string;
+      repo: string;
+      json?: boolean;
+    }) => {
+      const repoRoot = path.resolve(options.repo);
+      // Parse numeric flags loosely; core performs the authoritative validation
+      // (non-negative integer / positive bounded integer) and returns structured
+      // errors, keeping the CLI a thin adapter over the shared service.
+      const byteOffset = options.byteOffset === undefined ? undefined : Number(options.byteOffset);
+      const maxBytes = options.maxBytes === undefined ? undefined : Number(options.maxBytes);
+
+      const result = buildArtifactReadEnvelope({
+        repoRoot,
+        run: options.run,
+        artifact: options.artifact,
+        byteOffset,
+        maxBytes,
+      });
+
+      if (!result.ok) {
+        if (options.json) console.log(JSON.stringify({ ok: false, error: result.error }));
+        else console.error(`runs artifact-read failed: [${result.error.code}] ${result.error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({ ok: true, data: result.data, artifacts: [], warnings: [] }));
+        return;
+      }
+
+      const data = result.data as Record<string, unknown> & { content: string };
+      console.log(`artifact: ${data.relative_path}`);
+      console.log(`run_id: ${data.run_id}`);
+      console.log(`byte_offset: ${data.byte_offset}`);
+      console.log(`bytes_read: ${data.bytes_read}`);
+      console.log(`total_bytes: ${data.total_bytes}`);
+      console.log(`has_more: ${data.has_more ? 'yes' : 'no'}`);
+      console.log(`next_byte_offset: ${data.next_byte_offset ?? 'null'}`);
+      console.log(`content_sha256: ${data.content_sha256}`);
+      if (data.has_more) {
+        console.log(`continue: vibecode runs artifact-read --run ${data.run_id} --artifact ${options.artifact} --byte-offset ${data.next_byte_offset} --json`);
+      }
+      console.log('---');
+      process.stdout.write(data.content);
     });
 }

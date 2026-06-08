@@ -19,6 +19,7 @@ import { AGENT_TYPES } from '../../core/coordination/types.js';
 import { AGENT_OPERATING_MODES } from '../../core/agent_session/bootstrap.js';
 import { SESSION_BOOTSTRAP_MAX_ITEMS } from '../../core/agent_session/bootstrap.js';
 import { GIT_CHANGES_MAX_FILES } from '../../core/workspace/git_changes_summary.js';
+import { HARD_MAX_ARTIFACT_CHUNK_BYTES } from '../../core/runs/artifact_pagination.js';
 
 export interface JsonSchema {
   type?: string;
@@ -36,6 +37,11 @@ const POSITIVE_INT: JsonSchema = {
   minimum: 1,
 };
 
+const NON_NEGATIVE_INT: JsonSchema = {
+  type: 'integer',
+  minimum: 0,
+};
+
 /**
  * Hard cap for bootstrap max_items. Re-exported from core to avoid drift.
  * @deprecated Import directly from `core/agent_session/bootstrap.js` instead.
@@ -47,6 +53,12 @@ export const HARD_MAX_BOOTSTRAP_ITEMS = SESSION_BOOTSTRAP_MAX_ITEMS;
  * @deprecated Import directly from `core/workspace/git_changes_summary.js` instead.
  */
 export const HARD_MAX_GIT_CHANGES_FILES = GIT_CHANGES_MAX_FILES;
+
+/**
+ * Hard cap for artifact_read max_bytes. Re-exported from core to avoid drift.
+ * @deprecated Import directly from `core/runs/artifact_pagination.js` instead.
+ */
+export const HARD_MAX_ARTIFACT_BYTES = HARD_MAX_ARTIFACT_CHUNK_BYTES;
 
 /** Hard cap for generic positive integer bounds. */
 export const HARD_MAX_GENERIC_ITEMS = 500;
@@ -147,7 +159,16 @@ export const ARTIFACT_READ_INPUT_SCHEMA: JsonSchema = {
       type: 'string',
       description: 'Allowlisted artifact name (e.g. final_prompt, context_pack, flash_output, codegraph, task-intent).',
     },
-    max_bytes: { ...POSITIVE_INT, description: 'Cap on bytes of UTF-8 content returned.' },
+    byte_offset: {
+      ...NON_NEGATIVE_INT,
+      description:
+        'Byte offset into the original artifact file to start reading from (default 0). For continuation, pass the previous response\'s next_byte_offset.',
+    },
+    max_bytes: {
+      ...POSITIVE_INT,
+      maximum: HARD_MAX_ARTIFACT_CHUNK_BYTES,
+      description: `Cap on bytes of UTF-8 content returned for this chunk (positive integer, max ${HARD_MAX_ARTIFACT_CHUNK_BYTES}).`,
+    },
   },
   required: ['run_id', 'artifact'],
 };
@@ -430,6 +451,18 @@ export function validatePositiveInteger(
   if (value === undefined || value === null) return { ok: true };
   if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
     return { ok: false, message: `invalid ${field}: expected a positive integer, got ${JSON.stringify(value)}` };
+  }
+  return { ok: true, value };
+}
+
+/** Helper for tool handlers: verify a non-negative integer (>= 0) or return undefined. */
+export function validateNonNegativeInteger(
+  value: unknown,
+  field: string,
+): { ok: true; value?: number } | { ok: false; message: string } {
+  if (value === undefined || value === null) return { ok: true };
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    return { ok: false, message: `invalid ${field}: expected a non-negative integer, got ${JSON.stringify(value)}` };
   }
   return { ok: true, value };
 }

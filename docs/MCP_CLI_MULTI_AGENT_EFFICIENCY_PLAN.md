@@ -2037,7 +2037,167 @@ commands. The session bootstrap `register=true` flow continues to work.
 
 Phase 2 (make coordination harder to skip): bulk claims with intent, finalize
 "next action" command output, tool profiles (default `standard`), terminal
-protocol banner. Scan summary / artifact continuation can follow per §13.
+protocol banner. Scan summary can follow per §13.
+
+## 14B. Phase 1B-1 — artifact_read continuation (Implemented)
+
+This section records what was actually built for artifact continuation (Problem
+§4.4, spec §9 "artifact continuation"). It is the second slice of Phase 1 work,
+shipped after Phase 1A. Where the implementation differs from the earlier
+proposal, the implementation wins.
+
+### Scope (and explicit non-scope)
+
+In scope: byte-offset continuation for the existing run-artifact allowlist, on
+both MCP and CLI, with UTF-8-safe chunking and a stable full-file hash.
+
+**NOT in this batch** (deferred, unchanged from §13/§7): `scan_summary`,
+`scan_artifact_read`, any scan-artifact exposure, tool profiles, bulk claims, an
+MCP commit tool, subagents/handoff/notice board, UI changes, hard file locks, and
+full-diff exposure. No new artifact categories were added — continuation reads
+the *same* `RUN_SHOW_ARTIFACTS` allowlist as before.
+
+### Shared core service
+
+`src/core/runs/artifact_pagination.ts` (`readRunArtifactChunk`) is the single
+source of truth. Both adapters are thin wrappers over it; neither re-implements
+slicing, validation, UTF-8 boundary handling, hashing, or bounds. It reuses
+`resolveRunArtifactPath` from `run_artifacts.ts`, so the allowlist + realpath
+containment (no traversal, no symlink escape, no source/scan exposure) are
+inherited unchanged.
+
+Bounds are defined in core, not only in the adapters:
+
+- `DEFAULT_ARTIFACT_CHUNK_BYTES = 16000` (matches `MCP_TEXT_OUTPUT_LIMIT`).
+- `HARD_MAX_ARTIFACT_CHUNK_BYTES = 65536` (64 KiB). No MCP/CLI path can request
+  an unbounded read.
+
+### MCP tool input/output
+
+Tool name is unchanged: `vibecode_artifact_read`. New optional inputs:
+
+- `byte_offset?` — non-negative integer byte offset into the original file
+  (default 0). For continuation, pass the previous response's `next_byte_offset`.
+- `max_bytes?` — positive integer, now hard-capped at 65536.
+
+`structuredContent.data` always includes the full continuation metadata even when
+the bounded 16000-byte text block truncates the inline content:
+
+```json
+{
+  "run_id": "r1",
+  "artifact": "final_prompt",
+  "relative_path": "output/final_prompt.md",
+  "byte_offset": 16000,
+  "requested_max_bytes": 16000,
+  "bytes_read": 16000,
+  "total_bytes": 48000,
+  "has_more": true,
+  "next_byte_offset": 32000,
+  "content_sha256": "<sha256 of the full artifact file>",
+  "truncated": true,
+  "content": "..."
+}
+```
+
+The text block restates `byte_offset` / `bytes_read` / `total_bytes` /
+`has_more` / `next_byte_offset` / `content_sha256`, and when `has_more` is true it
+explicitly says: *continue: call vibecode_artifact_read again with
+byte_offset: <next_byte_offset>*.
+
+**Hash naming:** `content_sha256` is the SHA-256 of the **full artifact file**,
+stable across chunks (so a caller can verify a reconstructed file). It is not a
+per-chunk hash; the name is unambiguous.
+
+**Backward compatibility:** a call without `byte_offset` behaves like before
+(reads from 0). The legacy `truncated` field is retained and now equals
+`has_more`. The one intentional contract refinement: `bytes_read` is now the
+bytes *actually returned in this chunk* and `total_bytes` is the full file size —
+previously `bytes_read` reported the whole file size on a truncated read. The MCP
+test for this was updated.
+
+### CLI command chosen
+
+`vibecode runs artifact-read --run <current|latest|run_id> --artifact <name>
+[--byte-offset <n>] [--max-bytes <n>] [--repo <path>] --json`
+
+A **dedicated** command was added rather than extending `runs show --artifact`,
+because `runs show --artifact` intentionally streams **raw** artifact bytes to
+stdout (even with `--json`) for humans, and that behavior is pinned by a
+characterization test. `runs artifact-read --json` emits the canonical envelope
+`{ ok, data, artifacts, warnings }` with the same `data` fields as the MCP tool;
+without `--json` it prints a short human summary plus the chunk content. CLI-only
+agents therefore never need to read `.vibecode/runs/...` files directly.
+
+### Continuation workflow
+
+```text
+1. call with byte_offset 0 (or omit it)
+2. if has_more=true, call again with byte_offset = next_byte_offset
+3. repeat until has_more=false (next_byte_offset becomes null)
+4. concatenate the content chunks to reconstruct the full artifact
+```
+
+### byte_offset / max_bytes behavior
+
+- `byte_offset` defaults to 0; rejects negative / non-integer values
+  (`INVALID_BYTE_OFFSET` in core → `INVALID_ARGUMENT` on MCP/CLI).
+- `byte_offset == total_bytes` is a valid terminal read: empty content,
+  `has_more=false`, `next_byte_offset=null`.
+- `byte_offset > total_bytes` → `BYTE_OFFSET_OUT_OF_RANGE` (→ `INVALID_ARGUMENT`).
+- `max_bytes` defaults to 16000; rejects zero / negative / non-integer / values
+  above 65536 (`INVALID_MAX_BYTES` → `INVALID_ARGUMENT`).
+
+### UTF-8 safety
+
+The chunk window end is trimmed backward to the nearest UTF-8 code-point boundary
+so returned content never contains a spurious U+FFFD. `next_byte_offset` is the
+real byte length consumed (computed from the byte buffer, never from JS string
+length), so chained reads from 0 → EOF reconstruct the exact original file,
+including multi-byte content. If `max_bytes` is smaller than the next code point,
+exactly one whole code point is returned to guarantee forward progress (no
+zero-length stall).
+
+### Hard caps
+
+Default 16000 bytes/chunk; hard maximum 65536 bytes/chunk, enforced in core and
+mirrored in the MCP schema `maximum` and CLI validation. The MCP text block stays
+bounded at `MCP_TEXT_OUTPUT_LIMIT`; structured metadata is always complete.
+
+### Examples
+
+```powershell
+# MCP (conceptually): vibecode_artifact_read { run_id:"latest", artifact:"final_prompt", byte_offset:0, max_bytes:16000 }
+vibecode runs artifact-read --run latest --artifact final_prompt --max-bytes 16000 --json
+vibecode runs artifact-read --run latest --artifact final_prompt --byte-offset 16000 --max-bytes 16000 --json
+```
+
+### Tests proving behavior
+
+- `tests/core/runs/artifact_continuation.test.ts` — single-chunk, large ASCII
+  reconstruction, multi-byte UTF-8 reconstruction with no replacement chars,
+  tiny-max progress guarantee, offset at/beyond EOF, negative/non-integer offset,
+  max_bytes 0/negative/over-cap/at-cap, alias resolution, traversal +
+  non-allowlisted scan artifact rejection, full-file hash stability.
+- `tests/app/mcp/artifact_read_continuation.test.ts` — new fields, has_more +
+  continuation hint, chained reconstruction, complete metadata under text-block
+  truncation, EOF, invalid offset/max_bytes, unknown-key rejection, scan rejection.
+- `tests/app/mcp/runs_tools.test.ts` — existing read tests still pass (the
+  truncation test updated to the refined `bytes_read`/`total_bytes` contract).
+- `tests/app/cli/runs_artifact_read_commands.test.ts` — JSON envelope, chunked
+  paging, large UTF-8 reconstruction, invalid offset/max_bytes envelopes, scan
+  rejection, CLI/MCP field parity, and preservation of raw `runs show --artifact`.
+- `tests/app/mcp/limits.test.ts` — default still equals `MCP_TEXT_OUTPUT_LIMIT`.
+
+### Known limitations
+
+- Continuation only covers the existing `RUN_SHOW_ARTIFACTS` allowlist. Scan
+  artifacts (`symbols.json`, `tests.json`, etc.) remain unreadable — `scan_summary`
+  / scan-artifact exposure is explicitly **not** part of this batch (see §13/§9).
+- Pure agent-arbitrary `byte_offset` values that fall mid-code-point at the chunk
+  *start* are not re-aligned; agents are expected to chain from `next_byte_offset`
+  (always a valid boundary). Reconstruction guarantees hold for chained reads.
+- No tool profiles, bulk claims, MCP commit tool, or full-diff exposure (deferred).
 
 ## 14. Appendix  Open Questions
 
