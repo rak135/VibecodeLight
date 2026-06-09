@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import fs from 'fs';
 import path from 'path';
 
 import { CoordinationError } from './errors.js';
@@ -117,6 +118,23 @@ function pathsOverlap(a: string, b: string): boolean {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
+/**
+ * True when the repo-relative path resolves to an EXISTING directory on disk.
+ *
+ * Claims authorize a path and (via prefix overlap) everything under it, so a
+ * directory claim would silently authorize descendant files the agent never
+ * declared. This is the single check used by the single-file claim, the claim
+ * plan, and the bulk claim to reject existing directories. It is read-only and
+ * never throws (a stat failure / missing path is treated as "not a directory").
+ */
+export function isExistingDirectory(repoRoot: string, normalizedPath: string): boolean {
+  try {
+    return fs.statSync(path.join(repoRoot, normalizedPath)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function claimBlocks(requestMode: ClaimMode, existing: FileClaim): boolean {
   return requestMode === 'exclusive' || existing.mode === 'exclusive';
 }
@@ -192,6 +210,19 @@ export function addFileClaim(
   }
 
   const normalizedPath = normalizeClaimPath(repoRoot, input.path);
+
+  // Reject existing directories: claims must target explicit files only. A
+  // directory claim would authorize every descendant the agent did not declare,
+  // violating the exact-path principle. This is a local validation failure, so
+  // it throws (like an invalid path) and records no conflict.
+  if (isExistingDirectory(repoRoot, normalizedPath)) {
+    throw new CoordinationError(
+      'DIRECTORY_CLAIM_NOT_ALLOWED',
+      `Claim path ${normalizedPath} is an existing directory; claim explicit file paths only (a directory claim would authorize files you did not declare).`,
+      { path: input.path, normalized_path: normalizedPath },
+    );
+  }
+
   const state = loadCoordinationState(repoRoot, { now });
   const agent = requireClaimingAgent(state.agents, input.agent_id, nowMs, ttlMs);
 

@@ -124,6 +124,20 @@ describe('VibecodeMCP advisory claim tools', () => {
     expect(invalid.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
   });
 
+  test('vibecode_claim_add rejects an existing directory path', async () => {
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
+
+    const result = await buildClaimAddTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: agent.agent_id, path: 'src', mode: 'exclusive' },
+      requestId: null,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+    expect(result.structuredContent.error?.message).toMatch(/director/i);
+  });
+
   test('claim denial payload includes structured blocking-claim details', async () => {
     const a = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
     const b = registerAgent(repo.repoRoot, { agent_name: 'B', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });

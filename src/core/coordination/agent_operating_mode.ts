@@ -59,8 +59,16 @@ export function validateAgentMode(agent: AgentSession): AgentModeValidation {
 
 /**
  * Check whether an agent is allowed to claim files.
- * Only `build` agents with valid mode+task may claim.
- * Throws {@link CoordinationError} if the agent is not allowed.
+ *
+ * Only a VALID build session may claim: `operating_mode === 'build'` AND a
+ * non-empty `task`. This is the single source of truth used by the single-file
+ * claim, the claim plan, and the bulk claim, so they all gate identically and
+ * match what Phase 1A bootstrap / finalize / commit guard already enforce.
+ *
+ * Throws {@link CoordinationError}:
+ *   - `INVALID_AGENT_MODE`    when there is no valid operating_mode (legacy),
+ *   - `READ_ONLY_AGENT`       when the agent is read_only,
+ *   - `INVALID_AGENT_SESSION` when mode is build but the task is missing/empty.
  */
 export function requireBuildAgent(agent: AgentSession): void {
   const mode = getAgentOperatingMode(agent);
@@ -76,6 +84,16 @@ export function requireBuildAgent(agent: AgentSession): void {
       'READ_ONLY_AGENT',
       `Agent ${agent.agent_id} is operating in read_only mode and cannot claim files or modify the working tree.`,
       { agent_id: agent.agent_id, operating_mode: mode },
+    );
+  }
+  // mode === 'build': a valid working session also requires a non-empty task.
+  // Without it, finalize/commit guard would later block the agent anyway, so we
+  // reject up-front at claim/plan time for a consistent, early failure.
+  if (getAgentTask(agent) === null) {
+    throw new CoordinationError(
+      'INVALID_AGENT_SESSION',
+      `Agent ${agent.agent_id} has operating_mode=build but no non-empty task. Re-register through session_bootstrap with register=true, agent_mode=build, and a task.`,
+      { agent_id: agent.agent_id, operating_mode: mode, task: null },
     );
   }
 }

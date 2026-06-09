@@ -300,6 +300,36 @@ describe('Phase 1A agent operating mode enforcement', () => {
       const validation = validateAgentMode(agent);
       expect(validation.valid).toBe(false);
     });
+
+    test('requireBuildAgent rejects a build agent with no task (INVALID_AGENT_SESSION)', () => {
+      const agent = registerAgent(repo.repoRoot, {
+        agent_name: 'NoTask',
+        agent_type: 'codex',
+        metadata: { operating_mode: 'build' },
+      });
+      expect(() => requireBuildAgent(agent)).toThrow(CoordinationError);
+      try {
+        requireBuildAgent(agent);
+      } catch (err) {
+        expect((err as CoordinationError).code).toBe('INVALID_AGENT_SESSION');
+      }
+    });
+
+    test('build agent with no task is denied a single-file claim', () => {
+      const agent = registerAgent(repo.repoRoot, {
+        agent_name: 'NoTask',
+        agent_type: 'codex',
+        metadata: { operating_mode: 'build' },
+      });
+      const result = addFileClaim(repo.repoRoot, {
+        agent_id: agent.agent_id,
+        path: 'src/app.ts',
+        mode: 'exclusive',
+      });
+      expect(result.denied).toBe(true);
+      expect(result.claim).toBeNull();
+      expect(listFileClaims(repo.repoRoot)).toHaveLength(0);
+    });
   });
 
   // =========================================================================

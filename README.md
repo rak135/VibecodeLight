@@ -1222,20 +1222,30 @@ detects conflicts, applies the claims safely, and makes the declared work scope
 visible to other agents. There is **no** automatic file selection, task-to-files
 inference, glob/wildcard/directory expansion, or scanner-based auto-claim.
 
+**Explicit file paths only — directories are rejected.** A claim authorizes a
+path and, via prefix overlap, everything under it, so claiming a directory like
+`src` would silently authorize descendant files the agent never declared. Both
+plan and add-bulk reject existing directories (`directory_not_supported`), and
+the single-file `vibecode_claim_add` / `vibecode claims add` reject them too
+(`DIRECTORY_CLAIM_NOT_ALLOWED`) so the exact-path principle holds everywhere.
+
 `vibecode_claims_plan` is read-only: given an agent and an explicit list of
-paths, it classifies each one (`claimable`, `already_claimed_by_agent`,
+paths, it classifies each one (`claimable`, `missing`, `already_claimed_by_agent`,
 `claimed_by_other_active_agent`, `stale_claim_overlap`, `generated_or_ignored`,
-`missing`, `invalid`) and reports whether the whole set can be claimed
-atomically — without mutating any state. `vibecode_claims_add_bulk` claims the
-declared paths as one atomic **work intent**: if any requested path is blocked by
-another active claim, invalid, or generated, **no** claims are created (a
-structured `status: "blocked"` result is returned and a conflict is recorded);
-otherwise all new claims are created in a single state write and tagged with the
-intent metadata. It is idempotent for paths the agent already owns. Pass `intent`
-to create a new work scope, or `intent_id` to extend your own intent later (for
-example, to add a `package-lock.json` you discovered you must edit). Only build
-agents may plan or bulk-claim; read_only / invalid / no-mode agents are blocked.
-Bulk-created claims behave like normal advisory claims for `git_changes`,
+`directory_not_supported`, `invalid`) and reports whether the whole set can be
+claimed atomically — without mutating any state. `vibecode_claims_add_bulk` claims
+the declared paths as one atomic **work intent**: if any requested path is blocked
+(claimed by another active agent, an existing directory, generated/ignored, or
+invalid), **no** claims are created and a structured `status: "blocked"` result is
+returned; a coordination conflict is recorded only when the block is another
+agent's active claim (local validation blocks like directories/invalid paths
+record no conflict). Otherwise all new claims are created in a single state write
+and tagged with the intent metadata. It is idempotent for paths the agent already
+owns. Pass `intent` to create a new work scope, or `intent_id` to extend your own
+intent later (for example, to add a `package-lock.json` you discovered you must
+edit). Only valid build sessions may plan or bulk-claim — `operating_mode=build`
+**and** a non-empty `task`; read_only / invalid / no-mode / no-task agents are
+blocked. Bulk-created claims behave like normal advisory claims for `git_changes`,
 `finalize_check`, and the commit guard, and active intents are summarized in
 `session_bootstrap` (`active_work_intents`). The equivalent CLI commands are
 `vibecode claims plan --agent <agent_id> --path <p> --json` and

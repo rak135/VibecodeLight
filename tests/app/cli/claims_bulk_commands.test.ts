@@ -117,6 +117,61 @@ describe('vibecode claims plan / add-bulk (CLI)', () => {
     expect((JSON.parse(res.logs[0]) as ErrorEnvelope).error.code).toBe('READ_ONLY_AGENT');
   });
 
+  test('claims plan rejects an existing directory (directory_not_supported, can_claim_all=false)', async () => {
+    const agent = await register();
+    fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
+    const res = await runCli(['claims', 'plan', '--repo', repo.repoRoot, '--agent', agent, '--path', 'src', '--json']);
+    expect(res.exitCode).toBe(0);
+    const data = (JSON.parse(res.logs[0]) as SuccessEnvelope).data as { can_claim_all: boolean; paths: Array<{ status: string }> };
+    expect(data.can_claim_all).toBe(false);
+    expect(data.paths[0].status).toBe('directory_not_supported');
+  });
+
+  test('claims add-bulk rejects an existing directory atomically (no claims/intents)', async () => {
+    const agent = await register();
+    fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
+    const res = await runCli(['claims', 'add-bulk', '--repo', repo.repoRoot, '--agent', agent, '--intent', 'x', '--path', 'src', '--json']);
+    expect(res.exitCode).toBe(0);
+    const data = (JSON.parse(res.logs[0]) as SuccessEnvelope).data as { status: string; created_claims: unknown[] };
+    expect(data.status).toBe('blocked');
+    expect(data.created_claims).toEqual([]);
+    expect(fs.existsSync(path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json'))).toBe(true);
+    const state = JSON.parse(fs.readFileSync(path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json'), 'utf8'));
+    expect(state.claims).toHaveLength(0);
+    expect(state.intents).toHaveLength(0);
+  });
+
+  test('claims add rejects an existing directory path', async () => {
+    const agent = await register();
+    fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
+    const res = await runCli(['claims', 'add', '--repo', repo.repoRoot, '--agent', agent, '--path', 'src', '--mode', 'exclusive', '--json']);
+    expect(res.exitCode).toBe(1);
+    expect((JSON.parse(res.logs[0]) as ErrorEnvelope).error.code).toBe('DIRECTORY_CLAIM_NOT_ALLOWED');
+  });
+
+  test('build agent with no task is blocked from plan and add-bulk', async () => {
+    // Register a build session WITHOUT a task by editing state directly is not
+    // possible via the CLI bootstrap (it requires --task), so drive core through
+    // a registered agent whose metadata lacks a task.
+    const agent = await register();
+    // Strip the task from the registered agent's metadata to simulate a legacy
+    // build session that bypassed the task requirement.
+    const stateFile = path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json');
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    state.agents = state.agents.map((a: { agent_id: string; metadata: Record<string, unknown> }) =>
+      a.agent_id === agent ? { ...a, metadata: { operating_mode: 'build' } } : a,
+    );
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8');
+
+    const plan = await runCli(['claims', 'plan', '--repo', repo.repoRoot, '--agent', agent, '--path', 'src/a.ts', '--json']);
+    expect(plan.exitCode).toBe(1);
+    expect((JSON.parse(plan.logs[0]) as ErrorEnvelope).error.code).toBe('INVALID_AGENT_SESSION');
+
+    const bulk = await runCli(['claims', 'add-bulk', '--repo', repo.repoRoot, '--agent', agent, '--intent', 'x', '--path', 'src/a.ts', '--json']);
+    expect(bulk.exitCode).toBe(1);
+    expect((JSON.parse(bulk.logs[0]) as ErrorEnvelope).error.code).toBe('INVALID_AGENT_SESSION');
+  });
+
   test('conflict blocks atomically (ok:true, status=blocked, no claims created)', async () => {
     const a = await register('A');
     const b = await register('B');

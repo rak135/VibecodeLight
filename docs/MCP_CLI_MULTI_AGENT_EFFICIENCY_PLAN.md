@@ -2739,7 +2739,8 @@ expansion, directory claims, or scanner-based auto-claim.
   `status: "blocked"` (no claims created), mirroring `finalize_check`; only
   invocation/validation problems are MCP errors.
 
-Tool count: 36 → **38**. Both write only generated
+Tool count: 37 → **39** (the canonical `VIBECODE_MCP_TOOL_NAMES` registry length
+after these two additions). Both write only generated
 `.vibecode/coordination/state.json` (plan writes nothing); neither touches source
 files, the shell, git, or the terminal, and neither infers or expands paths. The
 two tools were added to the canonical registry, schemas, MCP error codes,
@@ -2765,7 +2766,8 @@ The shared evaluator (`evaluateClaimPaths`) dedupes normalized paths (first wins
 and classifies each: `claimable`, `missing` (claimable; file does not exist yet),
 `already_claimed_by_agent` (idempotent — no new claim), `stale_claim_overlap`
 (claimable; only a stale claim overlaps), `claimed_by_other_active_agent`
-(blocking), `generated_or_ignored` (blocking; `node_modules`/`.codegraph`), and
+(blocking), `generated_or_ignored` (blocking; `node_modules`/`.codegraph`),
+`directory_not_supported` (blocking; the path is an existing directory), and
 `invalid` (blocking; traversal, absolute, `.vibecode`/`.git`, empty). The same
 evaluator powers both `plan` (preview) and `add_bulk` (apply) so they can never
 disagree.
@@ -2773,9 +2775,36 @@ disagree.
 ### Atomicity
 
 Bulk claim evaluates the whole set first. If ANY requested path is blocking, NO
-new claims are created — the only mutation is an advisory conflict record (for
-other-agent blocks). On success, all new claims, the agent's claim list, and the
-intent are written in a SINGLE `writeCoordinationState` call.
+new claims are created. A coordination conflict is recorded ONLY when the block
+is another agent's active claim; local validation blocks (directories,
+generated/ignored, invalid paths) record no conflict and create no intent. On
+success, all new claims, the agent's claim list, and the intent are written in a
+SINGLE `writeCoordinationState` call.
+
+### Exact file paths only — directories rejected (blocker fix)
+
+A claim authorizes a path and, via prefix overlap, every descendant under it.
+Claiming a directory like `src` would silently authorize `src/a.ts`, `src/b.ts`,
+and every other descendant the agent never declared — exactly what the exact-path
+principle forbids. So an existing directory is rejected everywhere: the evaluator
+classifies it `directory_not_supported` (blocking) for plan/add-bulk, and the
+single-file `addFileClaim` (MCP `vibecode_claim_add` / CLI `vibecode claims add`)
+throws `DIRECTORY_CLAIM_NOT_ALLOWED` (mapped to `INVALID_ARGUMENT` over MCP).
+Directory rejection happens before any state mutation, so a directory never
+creates a claim, an intent, or a conflict. (Non-existent paths that later become
+directories are out of scope; the check targets EXISTING directories at claim
+time, matching the prefix-overlap risk.)
+
+### Valid build session required (blocker fix)
+
+Planning or claiming requires a VALID build session, not merely
+`operating_mode=build`: the agent must also have a non-empty `task` (the same
+contract Phase 1A bootstrap / finalize / commit guard enforce). The single source
+of truth is `requireBuildAgent`, now strengthened to throw `INVALID_AGENT_SESSION`
+when a build agent has no task (and still `INVALID_AGENT_MODE` for legacy/no-mode,
+`READ_ONLY_AGENT` for read_only). `resolveBuildClaimAgent` (plan/bulk) and
+`addFileClaim` (single claim) both gate through it, so a build/no-task agent
+cannot plan, bulk-claim, or single-claim.
 
 ### Claim intent metadata
 
@@ -2790,10 +2819,12 @@ agent; intent text is required and trimmed when creating a new intent.
 ### Extending an existing intent (Part D behavior)
 
 Pass `intent_id` to extend an intent you own with new explicit paths (validated
-to exist, belong to you, and that you are still a build agent; new paths are
-atomic and de-duplicated). If only `intent` text is supplied (no `intent_id`), a
-**new** intent is always created — extension requires the explicit `intent_id`
-(deterministic and documented).
+to exist, belong to you, and that you are still a valid build session — mode=build
+and a non-empty task; new paths are atomic and de-duplicated). If both `intent`
+and `intent_id` are supplied, `intent_id` wins (the existing intent's text is
+kept; the passed `intent` text is ignored). If only `intent` text is supplied (no
+`intent_id`), a **new** intent is always created — extension requires the explicit
+`intent_id` (deterministic and documented).
 
 ### Integration
 

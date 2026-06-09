@@ -180,6 +180,63 @@ describe('VibecodeMCP Phase 2A claim plan / bulk tools', () => {
     expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
   });
 
+  test('plan classifies an existing directory as directory_not_supported (blocking)', async () => {
+    build(repo.repoRoot, 'agent-a');
+    fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
+
+    const result = await buildClaimsPlanTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-a', paths: ['src'] },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as { can_claim_all: boolean; paths: Array<{ status: string }> };
+    expect(data.can_claim_all).toBe(false);
+    expect(data.paths[0].status).toBe('directory_not_supported');
+  });
+
+  test('add-bulk rejects an existing directory atomically (no claims created)', async () => {
+    build(repo.repoRoot, 'agent-a');
+    fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
+
+    const result = await buildClaimsAddBulkTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-a', intent: 'x', paths: ['src', 'src/new.ts'] },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as { status: string; created_claims: unknown[]; blocked_paths: Array<{ path: string; reason: string }> };
+    expect(data.status).toBe('blocked');
+    expect(data.created_claims).toEqual([]);
+    expect(data.blocked_paths.some((b) => b.path === 'src' && b.reason === 'directory_not_supported')).toBe(true);
+    expect(loadCoordinationState(repo.repoRoot).claims).toHaveLength(0);
+    expect(loadCoordinationState(repo.repoRoot).intents).toHaveLength(0);
+  });
+
+  test('build agents with no task get a structured INVALID_AGENT_SESSION error', async () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'nt', agent_type: 'codex', metadata: { operating_mode: 'build' } },
+      { agentId: 'agent-nt' },
+    );
+    const plan = await buildClaimsPlanTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-nt', paths: ['src/a.ts'] },
+      requestId: null,
+    });
+    expect(plan.isError).toBe(true);
+    expect(plan.structuredContent.error?.code).toBe('INVALID_AGENT_SESSION');
+
+    const bulk = await buildClaimsAddBulkTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-nt', intent: 'x', paths: ['src/a.ts'] },
+      requestId: null,
+    });
+    expect(bulk.isError).toBe(true);
+    expect(bulk.structuredContent.error?.code).toBe('INVALID_AGENT_SESSION');
+    expect(loadCoordinationState(repo.repoRoot).claims).toHaveLength(0);
+  });
+
   test('tools call the shared core service and do not shell out to the CLI', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../../src/app/mcp/tools/claims_bulk.ts'),

@@ -42,6 +42,7 @@ function mcpErrorForCoordination(
     case 'CLAIM_NOT_FOUND':
       return 'CLAIM_NOT_FOUND';
     case 'INVALID_CLAIM_PATH':
+    case 'DIRECTORY_CLAIM_NOT_ALLOWED':
     case 'INVALID_CLAIM_MODE':
       return 'INVALID_ARGUMENT';
     case 'READ_ONLY_AGENT':

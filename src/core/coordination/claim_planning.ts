@@ -4,6 +4,7 @@ import path from 'path';
 import { listAgents } from './agents.js';
 import { requireBuildAgent } from './agent_operating_mode.js';
 import {
+  isExistingDirectory,
   listFileClaims,
   normalizeClaimPath,
   requireClaimingAgent,
@@ -36,6 +37,7 @@ export type ClaimPathPlanStatus =
   | 'claimed_by_other_active_agent'
   | 'stale_claim_overlap'
   | 'generated_or_ignored'
+  | 'directory_not_supported'
   | 'invalid';
 
 /** Evaluation of a single explicitly-declared path. */
@@ -84,6 +86,19 @@ function classifyExplicitPath(args: {
       ...base,
       status: 'generated_or_ignored',
       reason: 'Generated/ignored runtime path; not eligible for advisory claims.',
+      blocking: true,
+      creates_claim: false,
+    };
+  }
+
+  // Existing directories are rejected before any overlap classification: a
+  // directory claim would authorize every descendant the agent did not declare
+  // (claims overlap by path prefix). Declare explicit file paths only.
+  if (isExistingDirectory(args.repoRoot, args.normalized)) {
+    return {
+      ...base,
+      status: 'directory_not_supported',
+      reason: 'Path is an existing directory; declare explicit file paths only (a directory claim would authorize files you did not declare).',
       blocking: true,
       creates_claim: false,
     };
@@ -290,7 +305,9 @@ export function planClaims(input: ClaimPlanInput): ClaimPlanResult {
   const staleCount = evaluated.filter((e) => e.status === 'stale_claim_overlap').length;
   const missingCount = evaluated.filter((e) => e.status === 'missing').length;
   const generatedCount = evaluated.filter((e) => e.status === 'generated_or_ignored').length;
+  const directoryCount = evaluated.filter((e) => e.status === 'directory_not_supported').length;
   const invalidCount = evaluated.filter((e) => e.status === 'invalid').length;
+  if (directoryCount > 0) warnings.push(`${directoryCount} path(s) are existing directories and cannot be claimed; declare explicit file paths only.`);
   if (staleCount > 0) warnings.push(`${staleCount} path(s) overlap only a stale claim; claiming will create a fresh claim.`);
   if (missingCount > 0) warnings.push(`${missingCount} path(s) do not exist yet — claim them only if you intend to create them.`);
   if (generatedCount > 0) warnings.push(`${generatedCount} path(s) are generated/ignored and cannot be claimed.`);
