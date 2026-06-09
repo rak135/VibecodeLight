@@ -146,6 +146,7 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
     ],
     warnings: [
       'Claim each file before editing it; edit only files your agent has claimed.',
+      'npm/pnpm/yarn install or dependency changes can modify a lockfile (e.g. package-lock.json). Claim the lockfile before finalize if you changed it on purpose; revert it before finalize if it changed by accident.',
     ],
   },
   build_post_edit: {
@@ -250,6 +251,7 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
     warnings: [
       'Commit mutation is CLI-only by design; there is no MCP commit tool.',
       'The guard never stages broad paths and leaves other agents’ files untouched.',
+      'A lockfile (e.g. package-lock.json) changed by an install can block finalize. Claim it if the change is intentional, or revert it if it is accidental, before committing.',
     ],
   },
   conflict_resolution: {

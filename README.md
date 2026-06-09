@@ -1517,6 +1517,10 @@ pnpm vibecode desktop smoke --json
 
 `desktop smoke` exercises the same `DesktopTerminalService` that Electron uses, spawns a real PTY in the requested repo, writes `Write-Output "VIBECODE_ELECTRON_PTY_OK"`, verifies the marker appears in the output, then closes the session. It does not create any `.vibecode/`, `terminal/`, `output/`, or `after/` artifacts.
 
+### Terminal agent protocol banner
+
+When the desktop opens a new terminal, it prints a short, one-time **agent protocol banner** to the terminal display (Phase 1B-4). The banner is guidance only — it tells a fresh agent the exact first command (`vibecode session bootstrap --register --agent-mode <read_only|build> --task "<task>" --json`), distinguishes the MCP-preferred path (`vibecode_session_bootstrap` / `vibecode_tool_profile`) from the CLI fallback (`vibecode tools profile --json`, `vibecode git changes`, `vibecode scan summary`, `vibecode runs artifact-read`, `vibecode finalize check`, `vibecode commit guard`), reminds build agents to claim before editing and to finalize + commit guard before committing, and says not to push unless explicitly asked. It is **display-only** (never written into the PTY/shell stdin), never registers an agent, infers a mode, runs the scanner, or mutates state, and never pollutes JSON CLI output. Set `VIBECODE_AGENT_BANNER=0` to silence it.
+
 The desktop app should provide:
 
 - a real embedded PTY terminal; currently implemented in the checkpoint shell;

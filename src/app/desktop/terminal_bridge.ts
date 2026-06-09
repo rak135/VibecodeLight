@@ -7,6 +7,11 @@ import {
   runTerminalAgentPreflight,
   type TerminalAgentPreflightResult,
 } from '../../core/agent_guidance/terminal_agent_preflight.js';
+import {
+  getTerminalAgentProtocolBanner,
+  getTerminalPreflightSummary,
+  isTerminalAgentBannerEnabled,
+} from '../../core/agent_guidance/terminal_protocol.js';
 import { prepareVibecodeCliShim, resolveAppCliPath } from '../../core/terminal/cli_shim.js';
 
 export interface DesktopTerminalEvents {
@@ -19,6 +24,12 @@ export interface DesktopTerminalMetadata {
   cwd: string;
   shell: string;
   sessionId: string;
+  /**
+   * One-time agent protocol banner for this session (Phase 1B-4). The renderer
+   * prints it to the xterm DISPLAY; it is never written into the PTY. Absent
+   * when the banner is disabled (opt-out) or unavailable.
+   */
+  banner?: string;
 }
 
 export interface DesktopActiveSession {
@@ -37,6 +48,11 @@ type PtyFactory = typeof createPtySession;
 
 export type TerminalEnvPreparer = (repoPath: string) => Record<string, string> | undefined;
 export type DesktopTerminalPreflightRunner = (repoPath: string) => Promise<TerminalAgentPreflightResult> | TerminalAgentPreflightResult;
+/**
+ * Produces the one-time agent protocol banner for a new terminal in `repoPath`.
+ * Return `undefined`/`null`/'' to emit no banner. Must never mutate state.
+ */
+export type DesktopTerminalBannerProvider = (repoPath: string) => string | null | undefined;
 
 export interface DesktopTerminalServiceOptions {
   /**
@@ -53,6 +69,25 @@ export interface DesktopTerminalServiceOptions {
    * Pass null to disable the integration in focused tests.
    */
   terminalPreflight?: DesktopTerminalPreflightRunner | null;
+  /**
+   * Builds the one-time agent protocol banner attached to a new session's
+   * metadata (Phase 1B-4). The default returns the static protocol banner plus a
+   * cheap, read-only preflight preface, honoring the `VIBECODE_AGENT_BANNER`
+   * opt-out. Pass null to disable the banner entirely.
+   */
+  agentBanner?: DesktopTerminalBannerProvider | null;
+}
+
+/** Default banner provider: static protocol + cheap preflight, opt-out aware. */
+function defaultBannerProvider(): DesktopTerminalBannerProvider {
+  return (repoPath: string) => {
+    try {
+      if (!isTerminalAgentBannerEnabled(process.env)) return undefined;
+      return getTerminalAgentProtocolBanner({ preflight: getTerminalPreflightSummary(repoPath) });
+    } catch {
+      return undefined;
+    }
+  };
 }
 
 function defaultTerminalEnvPreparer(): TerminalEnvPreparer | undefined {
@@ -98,6 +133,7 @@ export class DesktopTerminalService {
 
   private readonly prepareTerminalEnv: TerminalEnvPreparer | undefined;
   private readonly terminalPreflight: DesktopTerminalPreflightRunner | undefined;
+  private readonly agentBanner: DesktopTerminalBannerProvider | undefined;
 
   constructor(
     private readonly ptyFactory: PtyFactory = createPtySession,
@@ -112,6 +148,11 @@ export class DesktopTerminalService {
       this.terminalPreflight = undefined;
     } else {
       this.terminalPreflight = options.terminalPreflight ?? ((repoPath: string) => runTerminalAgentPreflight({ repoRoot: repoPath }));
+    }
+    if (options.agentBanner === null) {
+      this.agentBanner = undefined;
+    } else {
+      this.agentBanner = options.agentBanner ?? defaultBannerProvider();
     }
   }
 
@@ -139,7 +180,19 @@ export class DesktopTerminalService {
 
     this.runPreflight(sessionId, cwd);
 
-    return { pid: pty.pid, cwd, shell, sessionId };
+    const metadata: DesktopTerminalMetadata = { pid: pty.pid, cwd, shell, sessionId };
+    // Phase 1B-4: attach the one-time protocol banner for the renderer to DISPLAY
+    // (never written to the PTY). Best-effort: a provider failure must not block
+    // the terminal.
+    try {
+      const banner = this.agentBanner?.(cwd);
+      if (typeof banner === 'string' && banner.length > 0) {
+        metadata.banner = banner;
+      }
+    } catch {
+      // Banner is advisory; never fail a terminal because guidance could not be built.
+    }
+    return metadata;
   }
 
   private runPreflight(sessionId: string, cwd: string): void {

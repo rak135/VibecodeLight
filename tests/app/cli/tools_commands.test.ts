@@ -91,6 +91,14 @@ describe('vibecode tools profile', () => {
     expect(single.logs.join('\n')).toMatch(/mcp_tools:/);
   });
 
+  // A3: the non-JSON list should make clear that --json is the agent-readable form.
+  test('non-JSON list output steers agents to --json', async () => {
+    const list = await runCli(['tools', 'profile']);
+    expect(list.exitCode).toBe(0);
+    expect(list.logs.join('\n')).toMatch(/--json/);
+    expect(list.logs.join('\n').toLowerCase()).toMatch(/agent-readable|machine-readable/);
+  });
+
   test('CLI / MCP field parity for a single profile', async () => {
     const cli = await runCli(['tools', 'profile', '--profile', 'conflict_resolution', '--json']);
     const cliProfile = (JSON.parse(cli.logs[0]) as { data: { profile: Record<string, unknown> } }).data.profile;

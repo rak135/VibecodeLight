@@ -39,9 +39,9 @@ export function registerToolsCommands(
 
   tools
     .command('profile')
-    .description('Show named recommended tool sets (profiles). Omit --profile to list all profiles.')
+    .description('Show named recommended tool sets (profiles). Omit --profile to list all profiles. Add --json for agent-readable output.')
     .option('--profile <id>', 'Profile id to show in full (omit to list all profiles)')
-    .option('--json', 'Output canonical JSON envelope')
+    .option('--json', 'Output canonical JSON envelope (recommended for agents)')
     .action((options: { profile?: string; json?: boolean }) => {
       // List mode.
       if (options.profile === undefined) {
@@ -92,6 +92,7 @@ function printList(profiles: ToolProfileSummary[]): void {
     console.log(`  ${p.profile_id}: ${p.title} — ${p.purpose}`);
   }
   console.log('Run "vibecode tools profile --profile <id> --json" for one profile.');
+  console.log('Add --json for agent-readable (machine-readable) output.');
 }
 
 function printProfile(profile: ToolProfile): void {

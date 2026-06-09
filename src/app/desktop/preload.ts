@@ -464,7 +464,7 @@ export interface CodeGraphActionIpcResult {
 
 export interface VibecodePreloadApi {
   terminal: {
-    start(repoPath: string, cols: number, rows: number): Promise<{ pid: number; cwd: string; shell: string; sessionId: string }>;
+    start(repoPath: string, cols: number, rows: number): Promise<{ pid: number; cwd: string; shell: string; sessionId: string; banner?: string }>;
     write(sessionId: string, data: string): void;
     resize(sessionId: string, cols: number, rows: number): void;
     close(sessionId?: string): Promise<void>;
@@ -550,7 +550,7 @@ export function createVibecodeApi(): VibecodePreloadApi {
   return {
     terminal: {
       start(repoPath: string, cols: number, rows: number) {
-        return ipcRenderer.invoke('terminal:start', repoPath, cols, rows) as Promise<{ pid: number; cwd: string; shell: string; sessionId: string }>;
+        return ipcRenderer.invoke('terminal:start', repoPath, cols, rows) as Promise<{ pid: number; cwd: string; shell: string; sessionId: string; banner?: string }>;
       },
       write(sessionId: string, data: string) {
         ipcRenderer.send('terminal:input', sessionId, data);

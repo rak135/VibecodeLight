@@ -120,6 +120,35 @@ describe('tool profiles — no stale tool names', () => {
   });
 });
 
+describe('tool profiles — dogfood polish guidance', () => {
+  // A1: comma-valued --sections must be shown as ONE quoted argument so the
+  // example is correct under PowerShell/pnpm.
+  test('scan-related --sections examples are passed as one quoted argument', () => {
+    const sectionsCommands = listToolProfiles()
+      .flatMap((p) => p.cli_commands)
+      .filter((c) => c.command.includes('--sections'));
+    expect(sectionsCommands.length).toBeGreaterThan(0);
+    for (const c of sectionsCommands) {
+      // Quoted as a single arg, e.g. --sections "files,commands,tests,symbols".
+      expect(c.command).toMatch(/--sections "[^"]+"/);
+      // Never quote each section separately.
+      expect(c.command).not.toMatch(/--sections "\w+"\s+"\w+"/);
+    }
+  });
+
+  // A2: npm/pnpm/yarn install or package changes can modify lockfiles, which
+  // then block finalize. Build/commit profiles must warn about claiming a
+  // deliberate lockfile change or reverting an accidental one.
+  test('build_pre_edit and safe_commit warn about lockfile changes', () => {
+    for (const id of ['build_pre_edit', 'safe_commit'] as const) {
+      const profile = getToolProfile(id);
+      expect(profile).not.toBeNull();
+      const warnings = (profile?.warnings ?? []).join(' ').toLowerCase();
+      expect(warnings).toMatch(/lockfile|package-lock/);
+    }
+  });
+});
+
 describe('tool profiles — deterministic bootstrap recommendations', () => {
   const base: BootstrapProfileContext = {
     registered: true,

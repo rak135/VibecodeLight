@@ -50,7 +50,7 @@ export function registerScanReadCommands(
     .command('summary')
     .description('Compact bounded summary of existing scan artifacts for a run (read-only; does not run the scanner)')
     .option('--run <id>', 'Run id, or one of the aliases "latest"/"current"', 'current')
-    .option('--sections <list>', 'Comma-separated subset of sections (files,commands,tests,symbols,imports,entrypoints,instructions,tooling,git)')
+    .option('--sections <list>', 'Comma-separated subset of sections, passed as ONE quoted argument, e.g. --sections "files,commands,tests,symbols" (sections: files,commands,tests,symbols,imports,entrypoints,instructions,tooling,git)')
     .option('--max-items <n>', 'Cap on per-section item lists')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--json', 'Output canonical JSON envelope')

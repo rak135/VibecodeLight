@@ -279,6 +279,16 @@
         info,
       });
 
+      // Phase 1B-4: print the one-time agent protocol banner to the xterm
+      // DISPLAY (never into the PTY). It rides along with the start metadata so
+      // it is shown exactly once, when the tile is created. xterm needs CRLF for
+      // each line; normalize the core banner's \n endings before writing.
+      if (typeof session.banner === 'string' && session.banner.length > 0) {
+        try {
+          term.write('\x1b[2m' + session.banner.replace(/\r?\n/g, '\r\n') + '\x1b[0m\r\n\r\n');
+        } catch (_e) { /* best-effort: banner must not block tile creation */ }
+      }
+
       // Fit the xterm canvas to fill the tile; deferred to the next frame so
       // the CSS grid has finished computing row heights before we measure.
       if (fitAddon) {

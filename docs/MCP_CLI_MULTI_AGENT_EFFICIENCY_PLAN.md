@@ -2565,6 +2565,151 @@ capability of their own.
 - The recommendation logic is rule-based over coarse context (mode / edit state
   / scan / artifacts / conflicts), not a learned or task-specific ranking.
 
+## 14E. Phase 1B-4 — terminal protocol banner / preflight (Implemented)
+
+This section records what was actually built to make a freshly opened Vibecode
+terminal self-guiding. Agents now have good tools and profiles (Phase 1A–1B-3),
+but a newly opened terminal still gave a fresh agent no starting protocol. Phase
+1B-4 adds a short, static **agent protocol banner** (plus a cheap, read-only
+preflight preface) shown once when a new desktop terminal session starts. It is
+the fifth slice of Phase 1 work and also folds in the Phase 1B dogfood polish
+follow-ups (below). It is **guidance and preflight only — not orchestration.**
+
+### What appears in a new terminal
+
+When the desktop opens a new terminal in a Vibecode repo, the terminal **display**
+shows a one-time banner like:
+
+```text
+Repo: C:/path/to/repo | current run: yes | coordination: no
+Vibecode agent protocol — do this first in a new terminal:
+1. Orient: prefer MCP vibecode_session_bootstrap / vibecode_tool_profile; CLI fallback:
+   vibecode session bootstrap --register --agent-mode <read_only|build> --task "<task>" --json
+2. Mode: read_only for research/review, build to edit files.
+3. Pick tools by profile (do not guess): vibecode tools profile --json (e.g. --profile build_pre_edit --json).
+4. build agents: claim files before editing; run vibecode git changes --agent <agent_id> --json before/after edits.
+5. Orient with scan/artifact tools, not raw rg/find or direct .vibecode reads:
+   vibecode scan summary --run current --json
+   vibecode runs artifact-read --run current --artifact <artifact> --json
+6. Before commit: vibecode finalize check --agent <agent_id> --json, then vibecode commit guard.
+Do not push unless explicitly asked. (Set VIBECODE_AGENT_BANNER=0 to silence this banner.)
+```
+
+The first line is the optional preflight preface; the rest is the static protocol.
+
+### Why it exists
+
+A long, scattered guidance doc loses to familiar shell habits. The banner is the
+short, complete, actionable starting protocol the efficiency plan called for
+(Problem §8, spec §9 "agent protocol / guidance", Phase 2 "terminal protocol
+banner"): it tells a fresh agent the exact first command, distinguishes the MCP
+preferred path from the CLI fallback, and points at the safe coordinated path so
+the agent does not reach for raw `rg` / `git` / direct `.vibecode` reads.
+
+### MCP preferred path / CLI fallback / first command
+
+- MCP preferred: `vibecode_session_bootstrap`, `vibecode_tool_profile`.
+- CLI fallback (every step has one): `vibecode session bootstrap`,
+  `vibecode tools profile`, `vibecode git changes`, `vibecode scan summary`,
+  `vibecode runs artifact-read`, `vibecode finalize check`, `vibecode commit guard`.
+- Exact first command:
+  `vibecode session bootstrap --register --agent-mode <read_only|build> --task "<task>" --json`.
+
+### read_only vs build / claim-before-edit / finalize+guard / scan-artifact / no-push
+
+- read_only for research/review; build to edit files.
+- build agents must claim each file before editing and check
+  `vibecode git changes` before/after edits.
+- before committing: `vibecode finalize check`, then `vibecode commit guard`
+  (commit mutation is CLI-only — there is no MCP commit tool).
+- use scan/artifact tools (`scan summary`, `runs artifact-read`) instead of raw
+  `rg`/`find` or direct `.vibecode` reads.
+- do not push unless explicitly asked.
+
+### Shared core service
+
+`src/core/agent_guidance/terminal_protocol.ts` is the single source of truth:
+
+- `getTerminalAgentProtocolBanner({ preflight? })` — the static, bounded banner
+  string (line endings `\n`; the renderer normalizes to `\r\n` for xterm). Every
+  `vibecode_*` tool it names is a real registered MCP tool (a test cross-checks
+  the canonical registry, so a renamed/removed tool fails CI).
+- `getTerminalPreflightSummary(repoRoot)` — cheap, read-only facts gathered with
+  `fs.existsSync` only (no git, no scanner, no arbitrary file reads): repo root,
+  whether `.vibecode/` is initialized, whether `.vibecode/current/run_manifest.json`
+  exists, whether `.vibecode/coordination/state.json` exists, and the recommended
+  next command. Never throws.
+- `isTerminalAgentBannerEnabled(env)` / `TERMINAL_AGENT_BANNER_ENV` — the opt-out.
+
+### Terminal integration point
+
+The banner is the least-invasive **session-level** banner, not shell echo
+injection: `DesktopTerminalService.startSession` attaches the banner string to
+the returned session **metadata** (`DesktopTerminalMetadata.banner`). Because the
+banner rides with the start metadata, the renderer prints it to the xterm
+**display** exactly once when the tile is created — sidestepping any IPC ordering
+race and never touching shell stdin. A new `agentBanner` provider option (default
+= static banner + cheap preflight, opt-out aware; `null` disables it) mirrors the
+existing `terminalPreflight` injection seam.
+
+### Opt-out / noise control
+
+- The banner prints once per new terminal session (it is not part of the
+  `terminal:data` stream and never repeats on output refresh).
+- `VIBECODE_AGENT_BANNER=0` (also `false`/`off`/`no`, case-insensitive) silences
+  it. No persistent user config / settings UI was added in this batch.
+
+### What it is NOT (guarantees)
+
+- It is **guidance only**: it does not register an agent, infer mode, claim
+  files, run the scanner, execute any workflow command, or mutate repo/git state.
+- It is **not an MCP tool** and adds no MCP tool (tool count unchanged). It only
+  points at existing MCP/CLI tools.
+- It is **never written into the PTY** (no `pty.write`); the renderer writes it to
+  the xterm display only. Tests assert `pty.writes` stays empty.
+- It **never pollutes JSON CLI output** — only the interactive desktop terminal
+  emits it; no CLI command prints it, and MCP responses are untouched.
+
+### Phase 1B dogfood polish follow-ups (included)
+
+1. **A1 — cross-shell `--sections` quoting.** Comma-valued `--sections` is shown
+   as ONE quoted argument (e.g. `--sections "files,commands,tests,symbols"`) in
+   the `scan summary` CLI help and the `scan_inspection` tool profile; never quote
+   each section separately.
+2. **A2 — npm/lockfile speedbump.** `build_pre_edit` and `safe_commit` profiles
+   warn that an npm/pnpm/yarn install can modify a lockfile (e.g.
+   `package-lock.json`) which then blocks finalize: claim a deliberate lockfile
+   change before finalize, or revert an accidental one. (Finalize logic is
+   unchanged — no lockfile special-casing, no auto-claim, no ignore.)
+3. **A3 — `vibecode tools profile` non-JSON clarity.** The non-JSON list output
+   and command help now state that `--json` is the agent-readable form;
+   `vibecode tools profile --json` remains canonical and is shown in the banner.
+
+### Tests proving behavior
+
+- `tests/core/agent_guidance/terminal_protocol.test.ts` — banner content (first
+  command, MCP-preferred + CLI-fallback names, mode choice, claim-before-edit,
+  git changes, finalize/commit guard, scan/artifact, no-push, opt-out env),
+  bounded size, no stale/nonexistent tool names, no Phase 2+ features; preflight
+  summary (uninitialized vs seeded, never throws); opt-out helper.
+- `tests/app/desktop/terminal_banner.test.ts` — banner present once in session
+  metadata, never written to the PTY, ordinary output never contains it, opt-out
+  via constructor and via `VIBECODE_AGENT_BANNER=0`, custom provider used with
+  the cwd, shim/env preparation untouched.
+- `tests/core/agent_guidance/tool_profiles.test.ts` /
+  `tests/app/cli/tools_commands.test.ts` — A1 quoted `--sections`, A2 lockfile
+  warnings, A3 non-JSON `--json` steering.
+
+### Known limitations
+
+- The banner does not register agents automatically, does not infer mode, does
+  not run the scanner, does not orchestrate work, and does not execute tools —
+  it is guidance only.
+- The preflight preface uses only cheap `fs.existsSync` checks; it does not read
+  git branch/head, run the scanner, or read artifacts.
+- The banner integration is desktop-terminal-only; the standalone `vibecode
+  terminal demo` and non-desktop CLI flows do not print it.
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?
