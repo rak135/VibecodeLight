@@ -69,11 +69,11 @@ export interface AgentSession {
 }
 
 /**
- * Lifecycle status of an agent-declared work intent (Phase 2A).
- * Phase 2A only ever creates `active` intents; `closed` is reserved for a later
- * release-by-intent phase.
+ * Lifecycle status of an agent-declared work intent (Phase 2A / 2B).
+ * Phase 2A creates `active` intents. Phase 2B adds `released` when an intent's
+ * claims are released by intent. `closed` is an alias kept for backward compat.
  */
-export type ClaimIntentStatus = 'active' | 'closed';
+export type ClaimIntentStatus = 'active' | 'released' | 'closed';
 
 /**
  * An agent-declared work scope (Phase 2A).
@@ -91,7 +91,7 @@ export interface ClaimIntent {
   agent_id: string;
   /** Non-empty agent-declared intent/work-scope text. */
   intent: string;
-  /** Lifecycle status (Phase 2A only sets `active`). */
+  /** Lifecycle status (Phase 2A creates `active`; Phase 2B adds `released`). */
   status: ClaimIntentStatus;
   /** ISO-8601 timestamp of creation. */
   created_at: string;
@@ -101,6 +101,10 @@ export interface ClaimIntent {
   claim_ids: string[];
   /** Normalized repository-relative POSIX paths declared for this intent. */
   paths: string[];
+  /** ISO-8601 timestamp of release, when explicitly released (Phase 2B). */
+  released_at?: string | null;
+  /** Agent id that released this intent (Phase 2B). */
+  released_by_agent_id?: string | null;
 }
 
 /** Advisory claim over a repository-relative path. No source-file lock exists. */

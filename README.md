@@ -1252,6 +1252,28 @@ blocked. Bulk-created claims behave like normal advisory claims for `git_changes
 `vibecode claims add-bulk --agent <agent_id> --intent "<intent>" --path <p> --json`
 (extend with `--intent-id <id>`); both surfaces call the same shared core service.
 
+Claim intent lifecycle (Phase 2B):
+
+```text
+vibecode_claim_intents_list
+vibecode_claim_intent_release
+```
+
+`vibecode_claim_intents_list` is read-only: it lists the agent's work intents with
+claim detail (active/released counts, paths, timestamps). Filter by `agent_id`,
+`status` (`active` / `released` / `all`), or `intent_id`. Default returns active
+intents only. `vibecode_claim_intent_release` releases all active claims belonging
+to a work intent. Same-agent only. If any claimed path in the intent is dirty in
+the working tree, release is **blocked** (`release_allowed: false`,
+`blocked_reason: dirty_claimed_files`) and zero claims are released — commit
+through `vibecode commit guard` or revert the changes, then retry. Pass
+`dry_run: true` to preview what would happen without releasing. Already-released
+intents return an idempotent `already_released` response. The intent record is
+never deleted. The equivalent CLI commands are
+`vibecode claims intents list --agent <id> --json`,
+`vibecode claims intent-release --agent <id> --intent-id <id> --dry-run --json`,
+and `vibecode claims intent-release --agent <id> --intent-id <id> --json`.
+
 Read-only finalize check tool (Phase Coordination-4A):
 
 ```text

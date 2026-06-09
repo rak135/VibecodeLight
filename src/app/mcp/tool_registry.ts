@@ -16,6 +16,10 @@ import {
   buildClaimsAddBulkTool,
 } from './tools/claims_bulk.js';
 import {
+  buildClaimIntentsListTool,
+  buildClaimIntentReleaseTool,
+} from './tools/claim_intent_lifecycle.js';
+import {
   buildConflictsListTool,
   buildConflictResolveTool,
 } from './tools/conflicts.js';
@@ -147,6 +151,9 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     // Phase 2A: agent-declared work scope (explicit bulk claims + intents).
     buildClaimsPlanTool(),
     buildClaimsAddBulkTool(),
+    // Phase 2B: claim intent lifecycle (list + release).
+    buildClaimIntentsListTool(),
+    buildClaimIntentReleaseTool(),
     // Phase Coordination-4A: read-only agent-aware finalize check.
     buildFinalizeCheckTool(),
     // Phase Coordination-4C: watcher evidence (list is read-only; scan writes
@@ -210,6 +217,9 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   // Phase 2A
   'vibecode_claims_plan',
   'vibecode_claims_add_bulk',
+  // Phase 2B
+  'vibecode_claim_intents_list',
+  'vibecode_claim_intent_release',
   // Phase Coordination-4A
   'vibecode_finalize_check',
   // Phase Coordination-4C

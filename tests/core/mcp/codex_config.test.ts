@@ -141,6 +141,9 @@ describe('Codex MCP config generation', () => {
       // Phase 2A (agent-declared work scope: claim plan + explicit bulk claim)
       'vibecode_claims_plan',
       'vibecode_claims_add_bulk',
+      // Phase 2B (claim intent lifecycle: list + release)
+      'vibecode_claim_intents_list',
+      'vibecode_claim_intent_release',
       // Phase Coordination-4A (read-only finalize check)
       'vibecode_finalize_check',
       // Phase Coordination-4C (watcher evidence; list read-only, scan writes generated state only)

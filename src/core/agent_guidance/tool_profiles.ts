@@ -167,6 +167,7 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       { name: 'vibecode_finalize_check', reason: 'Read-only finalize: classify the working tree against your claims before commit.' },
       { name: 'vibecode_claims_add_bulk', reason: 'If finalize flags an unclaimed file you meant to change, claim it explicitly (extend your intent) before committing.' },
       { name: 'vibecode_claims_list', reason: 'Verify your claims still cover everything you changed.' },
+      { name: 'vibecode_claim_intents_list', reason: 'See your active work intents and their claim counts.' },
     ],
     cli_commands: [
       { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback for claim-aware dirty state.' },
@@ -178,10 +179,13 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
     next_steps: [
       'If finalize blocks on an unclaimed file: claim it explicitly if you meant to change it, or revert it if it changed by accident.',
       'When finalize is ok, use safe_commit (commit guard is CLI-only).',
+      'After a successful commit and clean tree, release your completed work intent.',
     ],
     warnings: [
       'Commit through `vibecode commit guard` — never raw git add/commit.',
       'Commit guard is intentionally CLI-only; there is no MCP commit tool.',
+      'A lockfile (e.g. package-lock.json) changed by an install can block finalize. Claim it if the change is intentional, or revert it if it is accidental, before committing.',
+      'Do not release a work intent while its claimed files are still dirty.',
     ],
   },
   scan_inspection: {
@@ -246,20 +250,27 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       { name: 'vibecode_git_changes', reason: 'Final claim-aware check of what is dirty.' },
       { name: 'vibecode_finalize_check', reason: 'Confirm finalize is not blocked; it returns the exact commit guard command.' },
       { name: 'vibecode_claims_list', reason: 'Confirm your claims cover the files you intend to commit.' },
+      { name: 'vibecode_claim_intents_list', reason: 'See your active work intents before releasing.' },
+      { name: 'vibecode_claim_intent_release', reason: 'Release a completed intent after a successful commit and clean tree.' },
     ],
     cli_commands: [
       { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback for the final dirty-state check.' },
       { command: 'vibecode finalize check --agent <agent_id> --json', reason: 'CLI fallback for the finalize gate.' },
       { command: 'vibecode commit guard --agent <agent_id> --dry-run --json', reason: 'Preview the scoped commit (no staging/commit).' },
       { command: 'vibecode commit guard --agent <agent_id> --message "<message>" --json', reason: 'Commit ONLY your claimed files through the guard.' },
+      { command: 'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --dry-run --json', reason: 'Preview intent release (confirm clean tree).' },
+      { command: 'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --json', reason: 'Release the completed work intent after commit.' },
     ],
     next_steps: [
-      'After a successful guarded commit, release claims or terminate the session when done.',
+      'After a successful guarded commit, release your completed work intent.',
+      'Dry-run intent release first to confirm the tree is clean.',
+      'Do not release while claimed files are dirty.',
     ],
     warnings: [
       'Commit mutation is CLI-only by design; there is no MCP commit tool.',
-      'The guard never stages broad paths and leaves other agents’ files untouched.',
+      'The guard never stages broad paths and leaves other agents\u2019 files untouched.',
       'A lockfile (e.g. package-lock.json) changed by an install can block finalize. Claim it if the change is intentional, or revert it if it is accidental, before committing.',
+      'Do not release another agent\u2019s intent — release is same-agent only.',
     ],
   },
   conflict_resolution: {

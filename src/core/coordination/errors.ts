@@ -23,7 +23,9 @@ export type CoordinationErrorCode =
   | 'NO_CLAIM_PATHS'
   | 'INVALID_INTENT'
   | 'INTENT_NOT_FOUND'
-  | 'INTENT_FORBIDDEN';
+  | 'INTENT_FORBIDDEN'
+  // Phase 2B: claim intent lifecycle / release-by-intent.
+  | 'INTENT_RELEASE_BLOCKED';
 
 /** A structured, code-carrying error raised by coordination core services. */
 export class CoordinationError extends Error {

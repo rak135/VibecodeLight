@@ -61,6 +61,10 @@ export type McpErrorCode =
   | 'INVALID_INTENT'
   | 'INTENT_NOT_FOUND'
   | 'INTENT_FORBIDDEN'
+  // Phase 2B: claim intent lifecycle / release-by-intent.
+  | 'CLAIM_INTENTS_LIST_FAILED'
+  | 'CLAIM_INTENT_RELEASE_FAILED'
+  | 'INTENT_RELEASE_BLOCKED'
   // Phase Coordination-4A: read-only finalize check.
   | 'FINALIZE_CHECK_FAILED'
   // Phase Coordination-4C: watcher evidence tools.
@@ -269,7 +273,22 @@ const ERROR_DEFAULTS: Record<
   INTENT_FORBIDDEN: {
     retryable: false,
     suggestion:
-      'Only the owning agent may extend a work intent. Create your own intent instead of extending another agent’s.',
+      'Only the owning agent may extend a work intent. Create your own intent instead of extending another agent\'s.',
+  },
+  CLAIM_INTENTS_LIST_FAILED: {
+    retryable: true,
+    suggestion:
+      'Listing intents is read-only and degrades to an empty list on a missing file. Verify agent_id, then retry if the failure is transient.',
+  },
+  CLAIM_INTENT_RELEASE_FAILED: {
+    retryable: true,
+    suggestion:
+      'Verify agent_id and intent_id exist. If blocked by dirty files, commit or revert them first, then retry.',
+  },
+  INTENT_RELEASE_BLOCKED: {
+    retryable: false,
+    suggestion:
+      'Release is blocked because claimed files are dirty. Commit through vibecode commit guard or revert the changes, then retry.',
   },
   FINALIZE_CHECK_FAILED: {
     retryable: true,

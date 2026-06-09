@@ -2845,6 +2845,75 @@ kept; the passed `intent` text is ignored). If only `intent` text is supplied (n
 - No release-by-intent / auto-release / auto-merge / auto-resolve, no MCP commit,
   no handoff, no orchestration, no full-diff exposure, no affected-tests inference.
 
+### Phase 2B — claim intent lifecycle and release-by-intent
+
+Status: **implemented and dogfooded via CLI fallback.**
+
+Goal: once an agent can create and extend a work intent, it must be able to see
+its active intents, inspect which claims belong to each, and safely release all
+claims for a completed or abandoned intent. Release is blocked when any claimed
+path is still dirty in the working tree.
+
+#### What was built
+
+Core:
+
+- `src/core/coordination/intent_lifecycle.ts` — `listClaimIntentsDetail`
+  (read-only intent listing with claim detail) and `releaseClaimIntent`
+  (dry-run + mutation, dirty-file safety).
+
+MCP tools:
+
+- `vibecode_claim_intents_list` — read-only; lists the agent's work intents
+  with active/released claim counts, paths, timestamps. Filter by `agent_id`,
+  `status` (`active` / `released` / `all`), or `intent_id`.
+- `vibecode_claim_intent_release` — releases all active claims belonging to a
+  work intent. Same-agent only. Blocked when claimed files are dirty. Supports
+  `dry_run: true`.
+
+CLI commands:
+
+- `vibecode claims intents list --agent <id> [--status active|released|all] [--intent-id <id>] --json`
+- `vibecode claims intent-release --agent <id> --intent-id <id> [--dry-run] --json`
+
+#### Release semantics
+
+- Same-agent only: only the owning agent may release an intent.
+- Dirty-file safety: if any currently-claimed path in the intent is dirty in the
+  working tree, release is blocked (`release_allowed: false`,
+  `blocked_reason: dirty_claimed_files`). Zero claims are released. The agent
+  should commit through `vibecode commit guard` or revert changes, then retry.
+- Atomic: either all active claims in the intent are released, or none are.
+- Idempotent: releasing an already-released intent returns `already_released`.
+- The intent record is never deleted; it is marked `released` with
+  `released_at` and `released_by_agent_id`.
+- No auto-release, no force release, no source mutation, no git mutation.
+
+#### Intent status model
+
+- `active` — intent has active claims.
+- `released` — intent's claims have been released by the owning agent.
+
+#### Integration points
+
+- Bootstrap: recommends intent release when a build agent has active intents
+  with no dirty files.
+- Tool profiles: `build_post_edit` and `safe_commit` include intent release
+  guidance.
+- Existing single-claim release and reap behavior still works alongside intent
+  release.
+
+#### MCP tool count
+
+After Phase 2B: **41 tools** (was 39 after Phase 2A).
+
+#### Known limitations
+
+- No auto-release after commit.
+- No force release of dirty files.
+- No handoff between agents.
+- No orchestration or subagents.
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

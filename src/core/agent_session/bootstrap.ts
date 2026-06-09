@@ -433,6 +433,7 @@ function recommendations(args: {
   hasAgentId: boolean;
   operatingMode: AgentOperatingMode | null;
   hasStaleCleanClaims: boolean;
+  hasReleasableIntents: boolean;
 }): { tools: string[]; commands: string[] } {
   const tools: string[] = [];
   const commands: string[] = [];
@@ -454,6 +455,15 @@ function recommendations(args: {
       'vibecode claims add --repo <path> --agent <agent_id> --path <path> --json',
       'vibecode finalize check --repo <path> --agent <agent_id> --json',
     );
+    // Phase 2B: recommend intent release when clean releasable intents exist.
+    if (args.hasReleasableIntents) {
+      tools.push('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+      commands.push(
+        'vibecode claims intents list --agent <agent_id> --json',
+        'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --dry-run --json',
+        'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --json',
+      );
+    }
   } else if (args.operatingMode === 'read_only') {
     // Read-only agents get project-instructions and artifact tools, not claim workflow.
     tools.push('vibecode_project_instructions', 'vibecode_workspace_info');
@@ -708,11 +718,13 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
   }
 
   const operatingMode = currentAgent ? getAgentOperatingMode(currentAgent) : null;
+  const hasReleasableIntents = activeWorkIntents.length > 0 && changes.ok && changes.summary.claimed_by_agent > 0 && changes.summary.unclaimed === 0;
   const rec = recommendations({
     registered: Boolean(currentAgent),
     hasAgentId: Boolean(input.agent_id),
     operatingMode,
     hasStaleCleanClaims,
+    hasReleasableIntents,
   });
 
   // Phase 1B-3: context-aware tool-profile recommendations (ids + reasons only).

@@ -70,6 +70,10 @@ export const CODEX_MCP_ENABLED_TOOLS = [
   // files, the shell, git, or the terminal, and never infer/expand paths.
   'vibecode_claims_plan',
   'vibecode_claims_add_bulk',
+  // Phase 2B: claim intent lifecycle — list (read-only) + release (same-agent,
+  // blocked on dirty files). Write ONLY advisory generated state.
+  'vibecode_claim_intents_list',
+  'vibecode_claim_intent_release',
   // Phase Coordination-4A: read-only agent-aware finalize check.
   // Read-only; classifies the working tree against advisory claims. Never
   // touches source files, the shell, git mutation, or the terminal.

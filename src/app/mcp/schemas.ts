@@ -373,6 +373,36 @@ export const CLAIMS_ADD_BULK_INPUT_SCHEMA: JsonSchema = {
 };
 
 // ---------------------------------------------------------------------------
+// Phase 2B: claim intent lifecycle — list + release
+// ---------------------------------------------------------------------------
+
+export const CLAIM_INTENTS_LIST_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Filter intents by agent id.' },
+    status: {
+      type: 'string',
+      enum: ['active', 'released', 'all'],
+      description: 'Filter by intent status: active | released | all. Default active.',
+    },
+    intent_id: { type: 'string', description: 'Filter to a specific intent id.' },
+    max_items: { ...POSITIVE_INT, description: 'Cap on number of intents returned.' },
+  },
+};
+
+export const CLAIM_INTENT_RELEASE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Id of the owning agent (same-agent only).' },
+    intent_id: { type: 'string', description: 'Id of the work intent to release.' },
+    dry_run: { type: 'boolean', description: 'When true, report what would happen without releasing claims.' },
+  },
+  required: ['agent_id', 'intent_id'],
+};
+
+// ---------------------------------------------------------------------------
 // Phase Coordination-4A: read-only finalize check input schema
 // ---------------------------------------------------------------------------
 

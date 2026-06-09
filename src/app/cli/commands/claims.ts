@@ -12,6 +12,12 @@ import {
 import { reapStaleClaims } from '../../../core/coordination/claim_cleanup.js';
 import { planClaims, type ClaimPlanResult } from '../../../core/coordination/claim_planning.js';
 import { addBulkClaims, type AddBulkClaimsResult } from '../../../core/coordination/bulk_claims.js';
+import {
+  listClaimIntentsDetail,
+  releaseClaimIntent,
+  type ListIntentsResult,
+  type IntentReleaseResult,
+} from '../../../core/coordination/intent_lifecycle.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import type { FileClaim } from '../../../core/coordination/types.js';
 import {
@@ -279,6 +285,79 @@ export function registerClaimsCommands(
         fail(repoRoot, options.json, 'claims reap failed', error);
       }
     });
+
+  // Phase 2B: claim intent lifecycle.
+
+  const intents = claims
+    .command('intents')
+    .description('Claim intent lifecycle: list and release work intents');
+
+  intents
+    .command('list')
+    .description('List claim intents with claim detail')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--agent <agent_id>', 'Filter by agent id')
+    .option('--status <status>', 'Filter by status: active | released | all', 'active')
+    .option('--intent-id <id>', 'Filter by specific intent id')
+    .option('--max-items <n>', 'Cap on number of intents returned')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; agent?: string; status?: string; intentId?: string; maxItems?: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      try {
+        const result = listClaimIntentsDetail(repoRoot, {
+          agent_id: options.agent,
+          status: (options.status ?? 'active') as 'active' | 'released' | 'all',
+          intent_id: options.intentId,
+          max_items: options.maxItems ? Number(options.maxItems) : undefined,
+        });
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, data: result, artifacts: [], warnings: result.warnings }));
+          return;
+        }
+        printIntentsListHuman(result);
+      } catch (error) {
+        fail(repoRoot, options.json, 'claims intents list failed', error);
+      }
+    });
+
+  claims
+    .command('intent-release')
+    .description('Release all active claims belonging to a work intent')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--agent <agent_id>', 'Agent id (same-agent only)')
+    .option('--intent-id <id>', 'Intent id to release')
+    .option('--dry-run', 'Preview without releasing')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; agent?: string; intentId?: string; dryRun?: boolean; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      if (!options.agent || !options.intentId) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'claims intent-release requires --agent and --intent-id.', repoRoot, [
+            ...(options.agent ? [] : ['Missing: --agent <agent_id>']),
+            ...(options.intentId ? [] : ['Missing: --intent-id <intent_id>']),
+          ]),
+          { json: options.json, prefix: 'claims intent-release failed' },
+        );
+        return;
+      }
+      let result: IntentReleaseResult;
+      try {
+        result = releaseClaimIntent({
+          repoRoot,
+          agent_id: options.agent,
+          intent_id: options.intentId,
+          dry_run: options.dryRun === true,
+        });
+      } catch (error) {
+        fail(repoRoot, options.json, 'claims intent-release failed', error);
+        return;
+      }
+      if (options.json) {
+        console.log(JSON.stringify({ ok: true, data: result, artifacts: [], warnings: result.warnings }));
+        return;
+      }
+      printIntentReleaseHuman(result);
+    });
 }
 
 function detailsToStrings(details: Record<string, unknown>): string[] {
@@ -375,5 +454,45 @@ function printReapHuman(result: { mode: string; stale_agents: Array<{ agent_id: 
   }
   if (result.mode === 'apply') {
     console.log(`reaped: ${result.reaped_claims.length}`);
+  }
+}
+
+function printIntentsListHuman(result: ListIntentsResult): void {
+  if (result.agent_id) console.log(`agent: ${result.agent_id}`);
+  console.log(`status_filter: ${result.status_filter}`);
+  console.log(`intents: ${result.intents.length}`);
+  for (const intent of result.intents) {
+    console.log(`  ${intent.intent_id} [${intent.status}] "${intent.intent}"`);
+    console.log(`    claims: ${intent.active_claim_count} active / ${intent.released_claim_count} released (${intent.claim_count} total)`);
+    if (intent.sample_paths.length > 0) {
+      console.log(`    paths: ${intent.sample_paths.join(', ')}${intent.sample_truncated ? ' ...' : ''}`);
+    }
+  }
+  if (result.truncated) console.log('(truncated)');
+  for (const w of result.warnings) console.log(`warning: ${w}`);
+}
+
+function printIntentReleaseHuman(result: IntentReleaseResult): void {
+  console.log(`status: ${result.status}`);
+  console.log(`agent: ${result.agent_id}`);
+  console.log(`intent_id: ${result.intent_id}`);
+  console.log(`release_allowed: ${result.release_allowed}`);
+  console.log(`intent_status: ${result.intent_status}`);
+  if (result.released_claims.length > 0) {
+    console.log('released_claims:');
+    for (const c of result.released_claims) console.log(`  ${c.claim_id} ${c.path}`);
+  }
+  if (result.already_released_claims.length > 0) {
+    console.log(`already_released_claims: ${result.already_released_claims.length}`);
+  }
+  if (result.dirty_claimed_paths.length > 0) {
+    console.log('dirty_claimed_paths:');
+    for (const p of result.dirty_claimed_paths) console.log(`  ${p}`);
+  }
+  if (result.blocked_reason) console.log(`blocked_reason: ${result.blocked_reason}`);
+  for (const w of result.warnings) console.log(`warning: ${w}`);
+  if (result.recommended_cli_commands.length > 0) {
+    console.log('recommended_cli_commands:');
+    for (const c of result.recommended_cli_commands) console.log(`  - ${c}`);
   }
 }
