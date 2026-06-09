@@ -2218,6 +2218,183 @@ vibecode runs artifact-read --run latest --artifact final_prompt --byte-offset 1
   (always a valid boundary). Reconstruction guarantees hold for chained reads.
 - No tool profiles, bulk claims, MCP commit tool, or full-diff exposure (deferred).
 
+## 14C. Phase 1B-2 — scan_summary + scan_artifact_read (Implemented)
+
+This section records what was actually built to make deterministic scan
+intelligence available to agents through safe MCP/CLI surfaces (Problem §4.3,
+spec §9 "scan_summary / scan artifact exposure"). It is the third slice of
+Phase 1 work, shipped after Phase 1B-1. Where the implementation differs from the
+earlier proposal, the implementation wins.
+
+### Scope (and explicit non-scope)
+
+In scope: a bounded scan summary and bounded, allowlisted, continuation-friendly
+reads of individual scan artifacts, on both MCP and CLI, reading **existing**
+scan artifacts produced by an earlier run.
+
+**These tools read existing scan artifacts and do NOT run the scanner.**
+
+**NOT in this batch** (deferred, unchanged from §13/§7): tool profiles, bulk
+claims, an MCP commit tool, subagents/handoff/notice board, UI changes, hard file
+locks, full-diff exposure, CodeGraph fuzzy resolve, affected-tests, and
+task-aware relevance scoring. No automatic scanner runs, no arbitrary scan
+directory browsing, and no arbitrary file reads.
+
+### Shared core services
+
+`src/core/runs/scan_artifacts.ts` and `src/core/runs/scan_summary.ts` are the
+single source of truth. Both adapters (MCP and CLI) are thin wrappers; neither
+re-implements allowlist resolution, slicing, validation, UTF-8 handling, hashing,
+or bounds.
+
+- `scan_artifacts.ts` owns the strict scan-artifact allowlist (agent-facing KEY →
+  run-relative path) and `readScanArtifactChunk`, which delegates to the Phase
+  1B-1 `readRunArtifactChunk` with a **scan-only** allowlist set. It therefore
+  inherits the same `resolveRunArtifactPath` allowlist + realpath containment
+  (no traversal, no symlink escape, no source/non-allowlisted exposure) and the
+  same continuation contract (byte offsets, UTF-8-safe slicing, full-file hash,
+  64 KiB hard cap). Unknown keys (including raw paths and traversal strings) are
+  rejected with `ARTIFACT_NOT_ALLOWED` before any filesystem access.
+- `scan_summary.ts` owns `getScanSummary`, which projects allowlisted scan
+  artifacts into compact, counted, bounded sections. It never reads source files
+  and never includes instruction/file *contents* (only paths/counts/metadata).
+
+### Scan artifact allowlist (KEY → real scanner path)
+
+These are the real filenames the Python scanner writes under
+`.vibecode/runs/<run_id>/scan/` (`base_scan.py`):
+
+```text
+file_inventory    -> scan/file_inventory.json
+commands          -> scan/commands.json
+repo_instructions -> scan/repo_instructions.json
+symbols           -> scan/symbols.json
+imports           -> scan/imports.json
+entrypoints       -> scan/entrypoints.json
+tests             -> scan/tests.json
+tooling           -> scan/tooling.json
+schemas           -> scan/schemas.json
+keyword_hits      -> scan/keyword_hits.json
+git_status        -> scan/git_status.json
+git_diff_stat     -> scan/git_diff_stat.txt
+```
+
+A run that did not produce a given artifact reports it as **missing**, never
+invented.
+
+### MCP tools
+
+- `vibecode_scan_summary` — input `{ run_id?, sections?, max_items? }`. `run_id`
+  accepts `latest`/`current` (default current). `sections` is an optional subset
+  of `files, commands, tests, symbols, imports, entrypoints, instructions,
+  tooling, git` (omit for all). Returns `run_id`, `run_ref`, `scan_available`,
+  `scan_dir_available`, `sections_requested`, `sections` (each with
+  `available`/`total`/`returned`/`truncated`/`items`, plus a compact `summary`
+  for `tooling`/`git`), `available_artifacts`, `missing_artifacts`, `max_items`,
+  `warnings`, and `recommended_next_tools` / `recommended_cli_commands`.
+- `vibecode_scan_artifact_read` — input `{ run_id?, artifact, byte_offset?,
+  max_bytes? }`. `artifact` is an allowlist KEY (enum). Returns the same
+  continuation fields as `vibecode_artifact_read` (`relative_path`,
+  `byte_offset`, `requested_max_bytes`, `bytes_read`, `total_bytes`, `has_more`,
+  `next_byte_offset`, `content_sha256`, `content`) plus the `artifact` key.
+
+Tool count: 34 → **36**.
+
+### CLI commands (chosen shape)
+
+```powershell
+vibecode scan summary --run current --sections files,commands,tests,symbols --max-items 50 --json
+vibecode scan artifact-read --run current --artifact commands --byte-offset 0 --max-bytes 16000 --json
+```
+
+These attach as subcommands on the **existing** `vibecode scan` command. The
+legacy `vibecode scan "<task>"` form (which runs the scanner) is preserved:
+`createCli()` calls `program.enablePositionalOptions()` so the `summary` /
+`artifact-read` subcommand names are routed ahead of the positional `<task>`
+argument while their `--repo`/`--json` options are scoped to the subcommand
+(without the parent greedily consuming them). Any other first token is still
+treated as the task to scan. JSON output uses the canonical
+`{ ok, data, artifacts, warnings }` envelope; structured errors use
+`{ ok: false, error: { code, message, path, details } }`.
+
+### Run selection + continuation
+
+`--run` / `run_id` accept `current`, `latest`, or an explicit run id, with
+`current`/`latest` both resolving to the `.vibecode/current` pointer — the same
+`normalizeRunSelector` convention shared with Phase 1B-1. Continuation is
+identical to `vibecode_artifact_read`: chain `byte_offset = next_byte_offset`
+until `has_more=false`; chained chunks reconstruct the exact UTF-8 file, and
+`content_sha256` is the full-file hash (stable across chunks).
+
+### Validation and hard caps
+
+- `scan_summary` `max_items`: positive integer, default 50, hard max
+  `SCAN_SUMMARY_MAX_ITEMS = 100`. Unknown sections → `INVALID_SECTION` (core) →
+  `INVALID_ARGUMENT` (MCP/CLI). Out-of-range `max_items` → `INVALID_MAX_ITEMS` →
+  `INVALID_ARGUMENT`.
+- `scan_artifact_read` reuses the Phase 1B-1 byte-offset/max-bytes validation:
+  default 16000 bytes/chunk, hard max 65536; negative/non-integer offsets and
+  zero/negative/over-cap `max_bytes` are rejected; offset beyond EOF →
+  `BYTE_OFFSET_OUT_OF_RANGE`; offset exactly at EOF is a valid empty terminal
+  read.
+- MCP schemas use `additionalProperties: false`; unknown argument keys are
+  rejected with `INVALID_ARGUMENT`.
+
+### Missing-scan behavior
+
+A missing `scan/` directory or a missing individual artifact is **not** an error:
+`scan_summary` returns ok with `scan_available=false` (or per-section
+`available=false`) plus an actionable warning and a recommendation to run a
+scan. `scan_artifact_read` of an allowlisted-but-absent artifact returns
+`ARTIFACT_NOT_FOUND`. Only an invalid/missing run itself fails the call.
+
+### Security boundaries
+
+No arbitrary file read, no source-file read, no directory listing, no
+non-allowlisted scan-file read, no shell exec, no source writes, no git mutation,
+and no scanner execution flow through either tool. The scan tool names also pass
+the MCP security suite (no `write/shell/git/terminal/commit` patterns).
+
+### Example agent workflow
+
+```text
+1. call session_bootstrap (note scan_available)
+2. if scan_available=true, call vibecode_scan_summary
+3. inspect commands/tests/files/symbols section counts + samples
+4. for detail, call vibecode_scan_artifact_read for one allowlisted artifact
+5. follow next_byte_offset until has_more=false if the full artifact is needed
+```
+
+### Tests proving behavior
+
+- `tests/core/runs/scan_artifacts.test.ts` — allowlist names, available/missing
+  listing, JSON/text reads, malformed-JSON tolerance, chunk continuation +
+  UTF-8 reconstruction, unknown key / traversal / raw-path / source rejection,
+  not-found, offset-beyond-EOF.
+- `tests/core/runs/scan_summary.test.ts` — populated sections (files/commands/
+  tests/symbols/imports/entrypoints/instructions/tooling/git), no content leak,
+  caps/truncation, missing scan dir, missing/malformed artifact degradation,
+  unknown section + max_items validation, section de-duplication.
+- `tests/app/mcp/scan_tools.test.ts` — structured summary, sections filter,
+  missing-scan ok, validation, continuation reconstruction, unknown
+  section/artifact/key + bad offset + unknown-field rejection.
+- `tests/app/cli/scan_read_commands.test.ts` — JSON envelopes, sections/max-items,
+  chunked paging, UTF-8 reconstruction, structured errors, run selectors, CLI/MCP
+  field parity, and the legacy `scan <task>` form is not shadowed.
+- Lockstep updates: `tool_registry`, `security`, `registry_parity`,
+  `workspace_info` group total, `agent_guidance_mcp_tools`, Codex/Claude
+  `enabled_tools`, README tool-name contract.
+
+### Known limitations
+
+- Section projections are deterministic field picks from current scanner shapes;
+  if the Python scanner renames an artifact or restructures its JSON, the
+  allowlist/summarizers must be revisited (a core test pins the real names).
+- These tools never run or refresh the scanner; a stale scan stays stale until a
+  new `vibecode scan` run.
+- No tool profiles, CodeGraph fuzzy resolve, affected-tests, or task-aware
+  relevance scoring (deferred).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

@@ -55,6 +55,8 @@ const RUNS_ARTIFACTS_TOOL_NAMES = Object.freeze([
   'vibecode_run_get',
   'vibecode_artifact_read',
   'vibecode_codegraph_usage',
+  'vibecode_scan_summary',
+  'vibecode_scan_artifact_read',
 ]);
 
 const WORKSPACE_ORIENTATION_TOOL_NAMES = Object.freeze([

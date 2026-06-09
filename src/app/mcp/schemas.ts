@@ -20,6 +20,8 @@ import { AGENT_OPERATING_MODES } from '../../core/agent_session/bootstrap.js';
 import { SESSION_BOOTSTRAP_MAX_ITEMS } from '../../core/agent_session/bootstrap.js';
 import { GIT_CHANGES_MAX_FILES } from '../../core/workspace/git_changes_summary.js';
 import { HARD_MAX_ARTIFACT_CHUNK_BYTES } from '../../core/runs/artifact_pagination.js';
+import { SCAN_ARTIFACT_KEYS } from '../../core/runs/scan_artifacts.js';
+import { SCAN_SUMMARY_SECTIONS, SCAN_SUMMARY_MAX_ITEMS } from '../../core/runs/scan_summary.js';
 
 export interface JsonSchema {
   type?: string;
@@ -30,6 +32,8 @@ export interface JsonSchema {
   maximum?: number;
   description?: string;
   enum?: readonly string[];
+  /** Element schema for `type: 'array'` properties. */
+  items?: JsonSchema;
 }
 
 const POSITIVE_INT: JsonSchema = {
@@ -441,6 +445,58 @@ export const GIT_CHANGES_INPUT_SCHEMA: JsonSchema = {
     max_files: { ...POSITIVE_INT, maximum: HARD_MAX_GIT_CHANGES_FILES, description: `Cap on the number of changed-file entries returned (counts are unaffected, max ${HARD_MAX_GIT_CHANGES_FILES}).` },
     include_diff_stat: { type: 'boolean', description: 'Include a bounded git diff --stat (default true). Never a full diff.' },
   },
+};
+
+// ---------------------------------------------------------------------------
+// Phase 1B-2: bounded scan summary + allowlisted scan artifact reads
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard cap for scan_summary max_items. Re-exported from core to avoid drift.
+ * @deprecated Import directly from `core/runs/scan_summary.js` instead.
+ */
+export const HARD_MAX_SCAN_SUMMARY_ITEMS = SCAN_SUMMARY_MAX_ITEMS;
+
+export const SCAN_SUMMARY_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    run_id: { type: 'string', description: 'Run id, or one of the aliases "latest"/"current". Defaults to current.' },
+    sections: {
+      type: 'array',
+      description: `Optional subset of summary sections (${SCAN_SUMMARY_SECTIONS.join(', ')}). Omit for all sections.`,
+      items: { type: 'string', enum: [...SCAN_SUMMARY_SECTIONS] },
+    },
+    max_items: {
+      ...POSITIVE_INT,
+      maximum: SCAN_SUMMARY_MAX_ITEMS,
+      description: `Cap on per-section item lists (positive integer, max ${SCAN_SUMMARY_MAX_ITEMS}).`,
+    },
+  },
+};
+
+export const SCAN_ARTIFACT_READ_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    run_id: { type: 'string', description: 'Run id, or one of the aliases "latest"/"current". Defaults to current.' },
+    artifact: {
+      type: 'string',
+      enum: [...SCAN_ARTIFACT_KEYS],
+      description: `Allowlisted scan artifact key (one of: ${SCAN_ARTIFACT_KEYS.join(', ')}).`,
+    },
+    byte_offset: {
+      ...NON_NEGATIVE_INT,
+      description:
+        'Byte offset into the original scan artifact file to start reading from (default 0). For continuation, pass the previous response\'s next_byte_offset.',
+    },
+    max_bytes: {
+      ...POSITIVE_INT,
+      maximum: HARD_MAX_ARTIFACT_CHUNK_BYTES,
+      description: `Cap on bytes of UTF-8 content returned for this chunk (positive integer, max ${HARD_MAX_ARTIFACT_CHUNK_BYTES}).`,
+    },
+  },
+  required: ['artifact'],
 };
 
 /** Helper for tool handlers: verify a positive integer or return undefined. */

@@ -821,9 +821,12 @@ The CLI is a first-class debug and automation interface.
 ```powershell
 vibecode init
 vibecode scan "task"
+vibecode scan summary --run current --json
+vibecode scan artifact-read --run current --artifact commands --json
 vibecode prompt "task"
 vibecode runs list
 vibecode runs show latest
+vibecode runs artifact-read --run current --artifact final_prompt --json
 vibecode skills list
 vibecode skills project-list
 vibecode skills copy <skill-id>
@@ -1044,6 +1047,29 @@ vibecode_codegraph_usage
 `selected_skills`, `send_metadata`, `user_prompt`, `run_manifest`) and supports
 `run_id: "latest"` / `"current"`. Reading arbitrary repo source files or paths
 outside the run directory is rejected with `ARTIFACT_NOT_ALLOWED`.
+
+Scan intelligence tools (Phase 1B-2 — read-only):
+
+```text
+vibecode_scan_summary
+vibecode_scan_artifact_read
+```
+
+`vibecode_scan_summary` returns a compact, bounded orientation built from the
+deterministic scan artifacts of a run: per-section counts and a top sample for
+`files`, `commands`, `tests`, `symbols`, `imports`, `entrypoints`,
+`instructions`, `tooling`, and `git`, plus which allowlisted scan artifacts are
+available/missing. `vibecode_scan_artifact_read` reads one allowlisted scan
+artifact **by key** (`file_inventory`, `commands`, `repo_instructions`,
+`symbols`, `imports`, `entrypoints`, `tests`, `tooling`, `schemas`,
+`keyword_hits`, `git_status`, `git_diff_stat`) in bounded, UTF-8-safe chunks
+with the same `byte_offset` / `next_byte_offset` / `content_sha256` continuation
+contract as `vibecode_artifact_read`. Both accept `run_id: "latest"` /
+`"current"`, **read existing scan artifacts only — they never run the scanner**,
+and reject raw paths, traversal, source files, and non-allowlisted scan files
+(`ARTIFACT_NOT_ALLOWED`). CLI parity: `vibecode scan summary --json` and
+`vibecode scan artifact-read --json`. CodeGraph fuzzy resolve, affected-tests,
+and tool profiles are intentionally **not** part of this batch.
 
 Workspace orientation tools (Phase MCP-3 — read-only):
 

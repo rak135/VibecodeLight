@@ -112,6 +112,9 @@ describe('Codex MCP config generation', () => {
       'vibecode_run_get',
       'vibecode_artifact_read',
       'vibecode_codegraph_usage',
+      // Phase 1B-2 (read-only bounded scan summary + allowlisted scan artifact reads)
+      'vibecode_scan_summary',
+      'vibecode_scan_artifact_read',
       // Phase MCP-3 (read-only workspace orientation tools)
       'vibecode_workspace_info',
       'vibecode_workspace_status',

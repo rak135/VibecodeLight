@@ -68,7 +68,10 @@ export type McpErrorCode =
   | 'SESSION_BOOTSTRAP_FAILED'
   | 'GIT_CHANGES_FAILED'
   | 'READ_ONLY_AGENT'
-  | 'INVALID_AGENT_SESSION';
+  | 'INVALID_AGENT_SESSION'
+  // Phase 1B-2: bounded scan summary + allowlisted scan artifact reads.
+  | 'SCAN_SUMMARY_FAILED'
+  | 'SCAN_ARTIFACT_READ_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -283,6 +286,16 @@ const ERROR_DEFAULTS: Record<
     retryable: false,
     suggestion:
       'The agent session is missing required metadata (operating_mode or task). Re-register through session_bootstrap with register=true, agent_mode, and task.',
+  },
+  SCAN_SUMMARY_FAILED: {
+    retryable: true,
+    suggestion:
+      'scan_summary reads existing scan artifacts read-only and degrades to scan_available=false when none exist. It never runs the scanner. Retry only if the failure is transient (e.g. a filesystem error).',
+  },
+  SCAN_ARTIFACT_READ_FAILED: {
+    retryable: true,
+    suggestion:
+      'scan_artifact_read reads one allowlisted scan artifact in bounded chunks. Verify the artifact key (see vibecode_scan_summary.available_artifacts) and offset/max_bytes, then retry if the failure is transient.',
   },
 };
 

@@ -33,6 +33,8 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_run_get',
     'vibecode_artifact_read',
     'vibecode_codegraph_usage',
+    'vibecode_scan_summary',
+    'vibecode_scan_artifact_read',
   ]),
   coordination: Object.freeze([
     'vibecode_coordination_status',
@@ -73,6 +75,8 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_run_get: 'Show one Vibecode run by id or via the alias latest/current.',
   vibecode_artifact_read: 'Read one allowlisted Vibecode run artifact (final_prompt, context_pack, …).',
   vibecode_codegraph_usage: 'Return structured CodeGraph usage for a Vibecode run.',
+  vibecode_scan_summary: 'Compact bounded summary of existing scan artifacts (files/commands/tests/symbols/imports/entrypoints/instructions/tooling/git). Read-only; does not run the scanner.',
+  vibecode_scan_artifact_read: 'Read one allowlisted scan artifact by key in bounded, continuation-friendly chunks. Read-only; does not run the scanner.',
   vibecode_coordination_status: 'Read-only multi-agent coordination status (advisory; no source-file locks).',
   vibecode_agent_register: 'Register a persistent agent session (advisory; writes only generated coordination state).',
   vibecode_agent_heartbeat: 'Record a heartbeat for a registered agent, reviving a stale/idle session to active.',

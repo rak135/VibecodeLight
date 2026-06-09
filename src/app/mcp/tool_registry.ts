@@ -27,6 +27,8 @@ import { buildEvidenceListTool, buildEvidenceScanTool } from './tools/evidence.j
 import { buildFinalizeCheckTool } from './tools/finalize_check.js';
 import { buildCurrentRunTool } from './tools/current_run.js';
 import { buildGitChangesTool } from './tools/git_changes.js';
+import { buildScanSummaryTool } from './tools/scan_summary.js';
+import { buildScanArtifactReadTool } from './tools/scan_artifact_read.js';
 import { buildSessionBootstrapTool } from './tools/session_bootstrap.js';
 import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from './tools/project_instructions.js';
@@ -111,6 +113,9 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildRunGetTool(),
     buildArtifactReadTool(),
     buildCodeGraphUsageTool(),
+    // Phase 1B-2: bounded scan summary + allowlisted scan artifact reads.
+    buildScanSummaryTool(),
+    buildScanArtifactReadTool(),
     // Phase MCP-3: read-only workspace orientation.
     buildWorkspaceInfoTool(),
     buildWorkspaceStatusTool(),
@@ -166,6 +171,9 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_run_get',
   'vibecode_artifact_read',
   'vibecode_codegraph_usage',
+  // Phase 1B-2
+  'vibecode_scan_summary',
+  'vibecode_scan_artifact_read',
   // Phase MCP-3
   'vibecode_workspace_info',
   'vibecode_workspace_status',

@@ -62,6 +62,7 @@ import { registerEvidenceCommands } from './commands/evidence.js';
 import { registerFinalizeCommands } from './commands/finalize.js';
 import { registerGitChangesCommands } from './commands/git_changes.js';
 import { registerMcpCommands } from './commands/mcp.js';
+import { registerScanReadCommands } from './commands/scan.js';
 import { registerSessionCommands } from './commands/session.js';
 import { registerRunCreateCommand, registerRunsCommands, resolveRunDir } from './commands/runs.js';
 import { registerSkillsCommands } from './commands/skills.js';
@@ -288,6 +289,11 @@ export async function runContextFinalize(opts: {
 export function createCli(): Command {
   const program = new Command();
   program.name('vibecode').description('VibecodeLight CLI');
+  // Scope options to the command they follow. Required so the `scan` command can
+  // carry both a positional <task> (legacy `vibecode scan "task"`) and the
+  // Phase 1B-2 `scan summary` / `scan artifact-read` subcommands that redeclare
+  // --repo/--json without the parent greedily consuming those options.
+  program.enablePositionalOptions();
 
   registerDoctorCommand(program);
   registerWorkspaceCommands(program);
@@ -304,7 +310,7 @@ export function createCli(): Command {
   registerCommitCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentGuidanceCommands(program, { makeCliStructuredError, emitCliStructuredError });
 
-  program
+  const scanCommand = program
     .command('scan <task>')
     .description('Create a new run and scan the repository')
     .option('--repo <path>', 'Repository path', process.cwd())
@@ -346,6 +352,10 @@ export function createCli(): Command {
       }
     });
 
+  // Phase 1B-2: read-only `scan summary` / `scan artifact-read` subcommands.
+  // These attach to the same `scan` command above; Commander routes the
+  // subcommand names ahead of the positional <task> argument.
+  registerScanReadCommands(scanCommand, { makeCliStructuredError, emitCliStructuredError });
 
   registerRunCreateCommand(program);
 
