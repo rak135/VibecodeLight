@@ -30,6 +30,7 @@ import { buildGitChangesTool } from './tools/git_changes.js';
 import { buildScanSummaryTool } from './tools/scan_summary.js';
 import { buildScanArtifactReadTool } from './tools/scan_artifact_read.js';
 import { buildSessionBootstrapTool } from './tools/session_bootstrap.js';
+import { buildToolProfileTool } from './tools/tool_profile.js';
 import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from './tools/project_instructions.js';
 import { buildRunGetTool } from './tools/run_get.js';
@@ -122,6 +123,8 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildMcpGuidanceTool(),
     buildProjectInstructionsTool(),
     buildArtifactsListTool(),
+    // Phase 1B-3: named recommended tool sets (read-only, static).
+    buildToolProfileTool(),
     // Phase 1A: one-call session bootstrap + claim-aware git changes.
     buildSessionBootstrapTool(),
     buildGitChangesTool(),
@@ -180,6 +183,8 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_mcp_guidance',
   'vibecode_project_instructions',
   'vibecode_artifacts_list',
+  // Phase 1B-3
+  'vibecode_tool_profile',
   // Phase 1A
   'vibecode_session_bootstrap',
   'vibecode_git_changes',

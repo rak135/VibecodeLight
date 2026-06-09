@@ -122,10 +122,25 @@ export function buildScanArtifactReadTool(): McpToolDefinition {
         });
       }
 
-      const read = readScanArtifactChunk(selected.runDir, artifact.value, {
-        byteOffset: byteOffset.value ?? 0,
-        maxBytes: maxBytes.value ?? DEFAULT_MAX_BYTES,
-      });
+      // readScanArtifactChunk is documented to return errors rather than throw,
+      // but wrap the read + formatting so any unexpected throw (e.g. a transient
+      // filesystem fault) maps to the stable SCAN_ARTIFACT_READ_FAILED code
+      // instead of escaping as an unhandled rejection.
+      let read: ReturnType<typeof readScanArtifactChunk>;
+      try {
+        read = readScanArtifactChunk(selected.runDir, artifact.value, {
+          byteOffset: byteOffset.value ?? 0,
+          maxBytes: maxBytes.value ?? DEFAULT_MAX_BYTES,
+        });
+      } catch (err) {
+        return formatError({
+          tool: TOOL_NAME,
+          repoRoot: input.context.repoRoot,
+          warnings: [],
+          durationMs: Date.now() - started,
+          error: buildMcpError('SCAN_ARTIFACT_READ_FAILED', err instanceof Error ? err.message : String(err)),
+        });
+      }
 
       if (!read.ok) {
         let code: Parameters<typeof buildMcpError>[0];

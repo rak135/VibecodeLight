@@ -22,6 +22,10 @@ import {
 } from '../coordination/agent_operating_mode.js';
 import { listFileClaims } from '../coordination/claims.js';
 import { listConflicts, type ConflictRecord } from '../coordination/conflicts.js';
+import {
+  recommendBootstrapToolProfiles,
+  type ToolProfileRecommendation,
+} from '../agent_guidance/tool_profiles.js';
 import { getCoordinationStatus } from '../coordination/status.js';
 import { isAgentType, type AgentSession } from '../coordination/types.js';
 import { buildProjectInstructions } from '../runs/project_instructions.js';
@@ -207,6 +211,12 @@ export interface SessionBootstrapResult {
   blockers: BootstrapNotice[];
   recommended_next_tools: string[];
   recommended_cli_commands: string[];
+  /**
+   * Phase 1B-3: compact, context-aware tool-profile recommendations (ids +
+   * short reasons, NOT full profiles). Fetch a full profile with
+   * `vibecode_tool_profile` / `vibecode tools profile`.
+   */
+  recommended_tool_profiles: ToolProfileRecommendation[];
   checked_at: string;
 }
 
@@ -667,11 +677,23 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     }
   }
 
+  const operatingMode = currentAgent ? getAgentOperatingMode(currentAgent) : null;
   const rec = recommendations({
     registered: Boolean(currentAgent),
     hasAgentId: Boolean(input.agent_id),
-    operatingMode: currentAgent ? getAgentOperatingMode(currentAgent) : null,
+    operatingMode,
     hasStaleCleanClaims,
+  });
+
+  // Phase 1B-3: context-aware tool-profile recommendations (ids + reasons only).
+  const recommendedToolProfiles = recommendBootstrapToolProfiles({
+    registered: Boolean(currentAgent),
+    operatingMode,
+    hasClaimedDirtyFiles: changes.ok && changes.summary.claimed_by_agent > 0,
+    scanAvailable: scanCurrentRunAvailable,
+    artifactsAvailable: currentRun.available && currentRun.available_artifacts.length > 0,
+    hasConflictsOrStaleClaims:
+      unresolved.length > 0 || hasStaleCleanClaims || staleClaims.length > 0,
   });
 
   return {
@@ -698,6 +720,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     blockers,
     recommended_next_tools: rec.tools,
     recommended_cli_commands: rec.commands,
+    recommended_tool_profiles: recommendedToolProfiles,
     checked_at: checkedAt,
   };
 }

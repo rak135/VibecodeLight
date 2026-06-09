@@ -71,7 +71,9 @@ export type McpErrorCode =
   | 'INVALID_AGENT_SESSION'
   // Phase 1B-2: bounded scan summary + allowlisted scan artifact reads.
   | 'SCAN_SUMMARY_FAILED'
-  | 'SCAN_ARTIFACT_READ_FAILED';
+  | 'SCAN_ARTIFACT_READ_FAILED'
+  // Phase 1B-3: tool profiles / recommended tool sets.
+  | 'TOOL_PROFILE_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -296,6 +298,11 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'scan_artifact_read reads one allowlisted scan artifact in bounded chunks. Verify the artifact key (see vibecode_scan_summary.available_artifacts) and offset/max_bytes, then retry if the failure is transient.',
+  },
+  TOOL_PROFILE_FAILED: {
+    retryable: false,
+    suggestion:
+      'tool_profile is static and read-only. Omit profile to list profiles, or pass a known profile id (see the list response). This error indicates an unexpected internal failure, not a bad argument.',
   },
 };
 

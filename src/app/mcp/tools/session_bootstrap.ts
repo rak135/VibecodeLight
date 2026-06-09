@@ -98,6 +98,10 @@ function renderText(result: SessionBootstrapResult): string {
   for (const step of result.agent_protocol) lines.push(`  - ${step}`);
   lines.push('', 'recommended_next_tools:');
   for (const t of result.recommended_next_tools) lines.push(`  - ${t}`);
+  if (result.recommended_tool_profiles.length > 0) {
+    lines.push('', 'recommended_tool_profiles:');
+    for (const p of result.recommended_tool_profiles) lines.push(`  - ${p.profile_id}: ${p.reason}`);
+  }
   return lines.join('\n');
 }
 

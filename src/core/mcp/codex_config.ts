@@ -41,6 +41,8 @@ export const CODEX_MCP_ENABLED_TOOLS = [
   'vibecode_mcp_guidance',
   'vibecode_project_instructions',
   'vibecode_artifacts_list',
+  // Phase 1B-3: named recommended tool sets (static, read-only).
+  'vibecode_tool_profile',
   // Phase 1A: one-call session bootstrap + claim-aware git changes.
   // session_bootstrap writes ONLY advisory generated state when asked to
   // register/heartbeat; git_changes is read-only. Neither touches source files,

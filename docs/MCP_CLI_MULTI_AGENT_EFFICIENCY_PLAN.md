@@ -2303,7 +2303,7 @@ Tool count: 34 → **36**.
 ### CLI commands (chosen shape)
 
 ```powershell
-vibecode scan summary --run current --sections files,commands,tests,symbols --max-items 50 --json
+vibecode scan summary --run current --sections "files,commands,tests,symbols" --max-items 50 --json
 vibecode scan artifact-read --run current --artifact commands --byte-offset 0 --max-bytes 16000 --json
 ```
 
@@ -2394,6 +2394,176 @@ the MCP security suite (no `write/shell/git/terminal/commit` patterns).
   new `vibecode scan` run.
 - No tool profiles, CodeGraph fuzzy resolve, affected-tests, or task-aware
   relevance scoring (deferred).
+
+## 14D. Phase 1B-3 — tool profiles / recommended tool sets (Implemented)
+
+This section records what was actually built to make tool choice easier and
+safer by exposing small, deterministic, context-aware recommended tool sets
+("tool profiles"). It is the fourth slice of Phase 1 work, shipped after Phase
+1B-2, and it also folds in the Phase 1B-2 review follow-ups (below). Where the
+implementation differs from the earlier proposal, the implementation wins.
+
+### Purpose
+
+Agents now have 30+ MCP tools and a matching CLI surface. Choosing the right
+tool for a situation is itself friction, and friction is what pushes agents back
+to raw `rg` / `git`. Tool profiles are **named, deterministic bundles** of the
+recommended VibecodeMCP tools and CLI commands for a common agent situation. The
+purpose is **not** new power — it is to reduce confusion and raw-shell fallback,
+so an agent can ask "what should I use for X?" instead of reasoning over the
+whole tool list every time.
+
+### Scope (and explicit non-scope)
+
+In scope: a shared core service for tool profiles, one MCP tool and one CLI
+command (MCP/CLI parity), and compact profile recommendations integrated into
+`session_bootstrap` and `workspace_info`.
+
+**Profiles are static/deterministic.** NOT in this batch (and deliberately
+excluded): LLM-based relevance ranking, automatic task-aware relevance scoring,
+bulk claims, an MCP commit tool, subagents/handoff/notice board, UI changes,
+hard file locks, full-diff exposure, CodeGraph fuzzy resolve, affected-tests,
+automatic scanner runs, and arbitrary scan/file reads. Profiles do not execute
+any tool, run the scanner, or mutate anything.
+
+### Shared core service
+
+`src/core/agent_guidance/tool_profiles.ts` is the single source of truth. It
+declares the profiles as static data and exposes pure functions:
+`listToolProfiles()`, `listToolProfileSummaries()`, `getToolProfile(id)`,
+`isToolProfileId(v)`, `toolProfileMcpToolNames()`, and
+`recommendBootstrapToolProfiles(ctx)`. It imports nothing from the app layer;
+the test suite (not the module) cross-checks every referenced MCP tool name
+against the canonical registry so a renamed/removed tool fails CI (no stale tool
+names).
+
+Profile DTO (bounded and simple):
+
+```json
+{
+  "profile_id": "build_pre_edit",
+  "title": "Build agent before editing",
+  "purpose": "Orient and claim files before modifying anything.",
+  "when_to_use": ["..."],
+  "mcp_tools": [{ "name": "vibecode_git_changes", "reason": "Check claim-aware dirty state before editing." }],
+  "cli_commands": [{ "command": "vibecode git changes --agent <agent_id> --json", "reason": "CLI fallback for claim-aware dirty state." }],
+  "next_steps": ["..."],
+  "warnings": ["..."]
+}
+```
+
+### Available profile ids
+
+- `read_only_orientation` — inspect the repo without editing.
+- `build_pre_edit` — orient and claim files before editing.
+- `build_post_edit` — validate changes and head toward a scoped commit.
+- `scan_inspection` — use deterministic scanner intelligence.
+- `artifact_continuation` — read large run/scan artifacts fully via continuation.
+- `safe_commit` — commit only your claimed files through the CLI guard.
+- `conflict_resolution` — inspect/resolve overlapping claims or recorded conflicts.
+
+`conflict_resolution` references the real `vibecode_conflict_resolve` /
+`vibecode_conflicts_list` tools (there is no `vibecode_conflict_record` tool, so
+the proposal's name was corrected to the existing one). No profile references an
+MCP commit tool — commit mutation is CLI-only.
+
+### MCP tool
+
+`vibecode_tool_profile` — input `{ profile? }` (`additionalProperties: false`).
+
+- Omit `profile` → returns `{ mode: "list", profiles: [summary…], count }`
+  (compact id/title/purpose summaries).
+- Pass a profile id → returns `{ mode: "profile", profile: {…full DTO…} }`.
+- Unknown profile id → `INVALID_ARGUMENT`; unknown fields → `INVALID_ARGUMENT`;
+  an unexpected internal failure maps to `TOOL_PROFILE_FAILED`.
+- Read-only and static: no filesystem reads, no shell, no scanner, no git.
+
+Tool count: 36 → **37**.
+
+### CLI command
+
+```powershell
+vibecode tools profile --json                          # list all profiles
+vibecode tools profile --profile build_pre_edit --json # one profile
+```
+
+`--profile` is optional; omitted returns the profile list. JSON output uses the
+canonical envelope `{ ok, data, artifacts, warnings }` with the same `data`
+shape as the MCP tool (`mode` + `profiles`/`profile`); an unknown profile returns
+the structured error envelope `{ ok:false, error:{ code, message, path, details } }`.
+Non-JSON output is a short, readable summary. The new `vibecode tools` namespace
+is independent of `vibecode mcp tools` (which lists live MCP tool names); the two
+do not collide.
+
+### Integration into existing outputs
+
+- `session_bootstrap` (MCP + CLI) returns a new compact
+  `recommended_tool_profiles: [{ profile_id, reason }]` — ids + short reasons,
+  NOT full profiles. The mapping is deterministic:
+  - not registered / unknown mode → `read_only_orientation`;
+  - `read_only` agent → `read_only_orientation`;
+  - `build` agent with no claimed dirty files → `build_pre_edit`;
+  - `build` agent with claimed dirty files → `build_post_edit` + `safe_commit`;
+  - scan available for the current run → add `scan_inspection`;
+  - run artifacts available → add `artifact_continuation`;
+  - unresolved conflicts / possibly-stale claims → add `conflict_resolution`.
+  The list is deduped and bounded; the existing `recommended_next_tools` /
+  `recommended_cli_commands` are unchanged.
+- `workspace_info` (MCP) adds a compact `tool_profiles` list (summaries only —
+  no full tool lists) so an agent can see which profiles exist at orientation
+  time.
+
+### CLI-only agents
+
+CLI-only agents call `vibecode tools profile --json` (and
+`--profile <id> --json`) to get the same profiles, and read
+`recommended_tool_profiles` from `vibecode session bootstrap --json`. Both call
+the same shared core service as the MCP surface, so MCP and CLI return identical
+profile data.
+
+### Example agent workflow
+
+```text
+1. call session_bootstrap → read recommended_tool_profiles (e.g. build_pre_edit)
+2. call vibecode_tool_profile { profile: "build_pre_edit" } for the full set
+3. use the listed MCP tools (or CLI fallbacks) for that situation
+4. after editing, bootstrap now recommends build_post_edit / safe_commit
+```
+
+### Relationship to Phase 1A / 1B-1 / 1B-2
+
+Profiles only *reference* the tools those phases shipped: Phase 1A
+(`session_bootstrap`, `git_changes`, claims/finalize), Phase 1B-1
+(`artifact_read` continuation → `artifact_continuation`), and Phase 1B-2
+(`scan_summary` / `scan_artifact_read` → `scan_inspection`). They add no new
+capability of their own.
+
+### Phase 1B-2 review follow-ups included in this batch
+
+1. Docs: comma-valued `--sections` examples are quoted
+   (`--sections "files,commands,tests,symbols"`) for PowerShell/pnpm reliability.
+2. CLI hardening tests: invalid numeric `--max-items` / `--byte-offset` /
+   `--max-bytes` are structured `INVALID_ARGUMENT` errors; `--sections` trims
+   whitespace and dedupes repeated sections while preserving order; unknown
+   sections are rejected.
+3. Scan artifact chunk edge tests: empty artifact (content "", total_bytes 0,
+   has_more false), artifact exactly equal to chunk size (has_more false), and
+   one byte over (has_more true, next read finishes).
+4. Symlink availability: `listAllowedScanArtifacts` now uses `lstatSync`, so a
+   symlink planted at an allowlisted path is NOT advertised as a normal available
+   artifact; the read-time realpath-containment guard remains the authoritative
+   security boundary.
+5. `SCAN_ARTIFACT_READ_FAILED` is now used as the catch-all error code in the
+   `vibecode_scan_artifact_read` handler (no dead error code).
+
+### Known limitations
+
+- Profiles are deterministic/static — no LLM ranking and no automatic
+  task-aware relevance scoring.
+- No orchestration, no tool execution, no scanner execution — profiles only
+  describe which tools to use.
+- The recommendation logic is rule-based over coarse context (mode / edit state
+  / scan / artifacts / conflicts), not a learned or task-specific ranking.
 
 ## 14. Appendix  Open Questions
 

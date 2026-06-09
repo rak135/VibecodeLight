@@ -64,6 +64,7 @@ import { registerGitChangesCommands } from './commands/git_changes.js';
 import { registerMcpCommands } from './commands/mcp.js';
 import { registerScanReadCommands } from './commands/scan.js';
 import { registerSessionCommands } from './commands/session.js';
+import { registerToolsCommands } from './commands/tools.js';
 import { registerRunCreateCommand, registerRunsCommands, resolveRunDir } from './commands/runs.js';
 import { registerSkillsCommands } from './commands/skills.js';
 import { registerWorkspaceCommands } from './commands/workspace.js';
@@ -301,6 +302,7 @@ export function createCli(): Command {
   registerConfigCommands(program);
   registerCoordinationCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerSessionCommands(program, { makeCliStructuredError, emitCliStructuredError });
+  registerToolsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerGitChangesCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerClaimsCommands(program, { makeCliStructuredError, emitCliStructuredError });

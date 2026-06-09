@@ -239,6 +239,72 @@ describe('vibecode scan artifact-read --json', () => {
   });
 });
 
+describe('Phase 1B-2 follow-up A2: scan CLI input hardening', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => {
+    repo = makeRepo('vibecode-cli-scan-harden-');
+    vi.resetModules();
+  });
+  afterEach(() => {
+    repo.cleanup();
+    vi.resetModules();
+  });
+
+  test('scan summary --max-items with a non-numeric string is a structured error', async () => {
+    writeRun(repo.repoRoot, 'r1', SCAN_FILES);
+    const cli = await runCli(['scan', 'summary', '--run', 'r1', '--max-items', 'nope', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(1);
+    const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; error: { code: string } };
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe('INVALID_ARGUMENT');
+  });
+
+  test('scan artifact-read --byte-offset with a non-numeric string is a structured error', async () => {
+    writeRun(repo.repoRoot, 'r1', { 'scan/commands.json': '{}' });
+    const cli = await runCli(['scan', 'artifact-read', '--run', 'r1', '--artifact', 'commands', '--byte-offset', 'nope', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(1);
+    expect(cli.stdout).toBe('');
+    const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; error: { code: string } };
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe('INVALID_ARGUMENT');
+  });
+
+  test('scan artifact-read --max-bytes with a non-numeric string is a structured error', async () => {
+    writeRun(repo.repoRoot, 'r1', { 'scan/commands.json': '{}' });
+    const cli = await runCli(['scan', 'artifact-read', '--run', 'r1', '--artifact', 'commands', '--max-bytes', 'nope', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(1);
+    expect(cli.stdout).toBe('');
+    const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; error: { code: string } };
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe('INVALID_ARGUMENT');
+  });
+
+  test('scan summary --sections trims surrounding whitespace around comma-separated values', async () => {
+    writeRun(repo.repoRoot, 'r1', SCAN_FILES);
+    const cli = await runCli(['scan', 'summary', '--run', 'r1', '--sections', 'files, commands, tests', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(0);
+    const data = (JSON.parse(cli.logs[0]) as { data: { sections_requested: string[] } }).data;
+    expect(data.sections_requested).toEqual(['files', 'commands', 'tests']);
+  });
+
+  test('scan summary --sections dedupes repeated sections while preserving order', async () => {
+    writeRun(repo.repoRoot, 'r1', SCAN_FILES);
+    const cli = await runCli(['scan', 'summary', '--run', 'r1', '--sections', 'files,files,commands,files', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(0);
+    const data = (JSON.parse(cli.logs[0]) as { data: { sections_requested: string[]; sections: Record<string, unknown> } }).data;
+    expect(data.sections_requested).toEqual(['files', 'commands']);
+    expect(Object.keys(data.sections).sort()).toEqual(['commands', 'files']);
+  });
+
+  test('scan summary --sections rejects an unknown section even mixed with valid ones', async () => {
+    writeRun(repo.repoRoot, 'r1', SCAN_FILES);
+    const cli = await runCli(['scan', 'summary', '--run', 'r1', '--sections', 'files,bogus', '--repo', repo.repoRoot, '--json']);
+    expect(cli.exitCode).toBe(1);
+    const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; error: { code: string } };
+    expect(envelope.error.code).toBe('INVALID_ARGUMENT');
+  });
+});
+
 describe('CLI / MCP parity (scan summary)', () => {
   beforeEach(() => vi.resetModules());
   afterEach(() => vi.resetModules());

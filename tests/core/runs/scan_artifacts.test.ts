@@ -214,6 +214,122 @@ describe('readScanArtifactChunk — continuation + security', () => {
   });
 });
 
+/**
+ * Phase 1B-2 follow-up A3: exact chunk-boundary behavior. These pin that an
+ * empty artifact, an artifact whose size equals the chunk size, and one a single
+ * byte larger each report has_more / next_byte_offset correctly — the off-by-one
+ * cases a paginating agent is most likely to mishandle.
+ */
+describe('readScanArtifactChunk — chunk-boundary edges', () => {
+  let runDir: string;
+  beforeEach(() => {
+    runDir = makeRunDir('vibecode-scan-art-edge-');
+  });
+  afterEach(() => {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  });
+
+  test('empty artifact returns empty content, total_bytes 0, has_more false', () => {
+    writeScan(runDir, 'scan/symbols.json', '');
+    const res = readScanArtifactChunk(runDir, 'symbols', { byteOffset: 0, maxBytes: 16 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.content).toBe('');
+    expect(res.value.totalBytes).toBe(0);
+    expect(res.value.bytesRead).toBe(0);
+    expect(res.value.hasMore).toBe(false);
+    expect(res.value.nextByteOffset).toBeNull();
+  });
+
+  test('artifact exactly equal to chunk size returns has_more false in one read', () => {
+    const content = 'a'.repeat(64); // pure ASCII so byte length === char length
+    writeScan(runDir, 'scan/symbols.json', content);
+    const res = readScanArtifactChunk(runDir, 'symbols', { byteOffset: 0, maxBytes: 64 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.content).toBe(content);
+    expect(res.value.totalBytes).toBe(64);
+    expect(res.value.bytesRead).toBe(64);
+    expect(res.value.hasMore).toBe(false);
+    expect(res.value.nextByteOffset).toBeNull();
+  });
+
+  test('artifact one byte over chunk size paginates and the next read finishes', () => {
+    const content = 'a'.repeat(65);
+    writeScan(runDir, 'scan/symbols.json', content);
+    const first = readScanArtifactChunk(runDir, 'symbols', { byteOffset: 0, maxBytes: 64 });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.value.bytesRead).toBe(64);
+    expect(first.value.totalBytes).toBe(65);
+    expect(first.value.hasMore).toBe(true);
+    expect(first.value.nextByteOffset).toBe(64);
+
+    const second = readScanArtifactChunk(runDir, 'symbols', {
+      byteOffset: first.value.nextByteOffset as number,
+      maxBytes: 64,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.value.content).toBe('a');
+    expect(second.value.bytesRead).toBe(1);
+    expect(second.value.hasMore).toBe(false);
+    expect(second.value.nextByteOffset).toBeNull();
+    expect(first.value.content + second.value.content).toBe(content);
+  });
+});
+
+/**
+ * Phase 1B-2 follow-up A4: symlink availability hardening. A symlink planted at
+ * an allowlisted scan path must NOT be advertised as a normal available artifact
+ * by listAllowedScanArtifacts (it uses lstat), and the read path's realpath
+ * containment guard remains the authoritative boundary that rejects the escape.
+ */
+describe('listAllowedScanArtifacts — symlink hardening', () => {
+  let runDir: string;
+  let outside: string;
+  beforeEach(() => {
+    runDir = makeRunDir('vibecode-scan-art-symlink-');
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-scan-art-outside-'));
+  });
+  afterEach(() => {
+    fs.rmSync(runDir, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  function trySymlink(target: string, linkPath: string): boolean {
+    try {
+      fs.symlinkSync(target, linkPath);
+      return true;
+    } catch {
+      // Windows without Developer Mode / admin rights cannot create symlinks.
+      return false;
+    }
+  }
+
+  test('a symlink at an allowlisted path is reported unavailable, and read-time containment rejects it', () => {
+    const secret = path.join(outside, 'secret.json');
+    fs.writeFileSync(secret, '{"secret":true}', 'utf8');
+    const linkPath = path.join(runDir, 'scan', 'commands.json');
+    if (!trySymlink(secret, linkPath)) {
+      // Environment cannot create symlinks; the lstat behavior cannot be exercised here.
+      return;
+    }
+
+    const list = listAllowedScanArtifacts(runDir);
+    const commands = list.find((a) => a.key === 'commands');
+    // The symlink is NOT advertised as a normal available artifact.
+    expect(commands?.available).toBe(false);
+    expect(commands?.size_bytes).toBeNull();
+
+    // Read-time containment is authoritative: the escape is rejected, never read.
+    const res = readScanArtifactChunk(runDir, 'commands', {});
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(['ARTIFACT_NOT_ALLOWED', 'PATH_OUTSIDE_RUN', 'ARTIFACT_NOT_FOUND']).toContain(res.error.code);
+  });
+});
+
 function asObj(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }

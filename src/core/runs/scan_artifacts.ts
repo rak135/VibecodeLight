@@ -83,9 +83,16 @@ export interface ScanArtifactInfo {
 
 /**
  * Report, for every allowlisted scan artifact, whether it exists for this run
- * and its size. Read-only; never throws. Resolution goes through the shared
- * containment guard so a planted symlink at an allowlisted path is treated as
- * unavailable rather than leaking a foreign file's size.
+ * and its size. Read-only; never throws.
+ *
+ * Availability uses `lstatSync` (NOT `statSync`), so a symlink planted at an
+ * allowlisted path is NOT reported as a normal available artifact even though a
+ * symlink target might exist — `lstat` describes the link itself, whose
+ * `isFile()` is false. This keeps the advisory listing from advertising a file
+ * the authoritative read-time guard would then reject. Read-time containment
+ * (`readScanArtifactChunk` → `resolveRunArtifactPath` with `requireExists:true`,
+ * which realpath-resolves and rejects symlink escapes) remains the final
+ * security boundary; this listing is only an availability hint.
  */
 export function listAllowedScanArtifacts(runDir: string): ScanArtifactInfo[] {
   return SCAN_ARTIFACT_KEYS.map((key) => {
@@ -99,12 +106,15 @@ export function listAllowedScanArtifacts(runDir: string): ScanArtifactInfo[] {
       return { key, relative_path: relativePath, available: false, size_bytes: null };
     }
     try {
-      const stat = fs.statSync(resolved.value.absolutePath);
+      // lstat, not stat: a symlink (even to a real file) is reported as a
+      // non-file so the advisory listing never advertises an unsafe artifact.
+      const stat = fs.lstatSync(resolved.value.absolutePath);
+      const isPlainFile = stat.isFile();
       return {
         key,
         relative_path: relativePath,
-        available: stat.isFile(),
-        size_bytes: stat.isFile() ? stat.size : null,
+        available: isPlainFile,
+        size_bytes: isPlainFile ? stat.size : null,
       };
     } catch {
       return { key, relative_path: relativePath, available: false, size_bytes: null };

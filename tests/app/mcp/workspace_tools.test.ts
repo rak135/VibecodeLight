@@ -121,6 +121,28 @@ describe('vibecode_workspace_info', () => {
     }
   });
 
+  test('exposes the available tool profiles compactly (ids/titles/purpose, no full tool lists)', async () => {
+    const { repoRoot, cleanup } = makeRepo('vibecode-mcp3-info-profiles-');
+    try {
+      const tool = buildWorkspaceInfoTool({ codegraphStatus: async () => FAKE_CODEGRAPH_STATUS_AVAILABLE });
+      const result = await tool.handler({ context: ctx(repoRoot), arguments: {}, requestId: null });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as {
+        tool_profiles: Array<{ profile_id: string; title: string; purpose: string }>;
+      };
+      expect(Array.isArray(data.tool_profiles)).toBe(true);
+      const ids = data.tool_profiles.map((p) => p.profile_id);
+      expect(ids).toContain('read_only_orientation');
+      expect(ids).toContain('build_pre_edit');
+      // Compact: summaries carry no full mcp_tools / cli_commands lists.
+      for (const p of data.tool_profiles) {
+        expect(Object.keys(p).sort()).toEqual(['profile_id', 'purpose', 'title']);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
   test('surfaces current_run when a latest pointer exists', async () => {
     const { repoRoot, cleanup } = makeRepo('vibecode-mcp3-info-current-');
     try {

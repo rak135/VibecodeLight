@@ -23,6 +23,7 @@ import {
   buildAgentGuidanceRuntime,
   buildGuidanceStatusSummary,
 } from '../../../core/agent_guidance/agent_guidance_runtime.js';
+import { listToolProfileSummaries } from '../../../core/agent_guidance/tool_profiles.js';
 
 const TOOL_NAME = 'vibecode_workspace_info';
 const ALLOWED_KEYS = new Set<string>();
@@ -65,6 +66,7 @@ const WORKSPACE_ORIENTATION_TOOL_NAMES = Object.freeze([
   'vibecode_mcp_guidance',
   'vibecode_project_instructions',
   'vibecode_artifacts_list',
+  'vibecode_tool_profile',
   'vibecode_session_bootstrap',
   'vibecode_git_changes',
 ]);
@@ -240,6 +242,9 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
         current_run: currentRun,
         agent_guidance: [...AGENT_GUIDANCE],
         guidance_status: guidanceStatus,
+        // Phase 1B-3: compact list of available tool profiles (ids/titles only,
+        // not the full recommended tool sets). Call vibecode_tool_profile for one.
+        tool_profiles: listToolProfileSummaries(),
       };
 
       return formatSimpleSuccess({

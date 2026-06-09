@@ -1071,6 +1071,26 @@ and reject raw paths, traversal, source files, and non-allowlisted scan files
 `vibecode scan artifact-read --json`. CodeGraph fuzzy resolve, affected-tests,
 and tool profiles are intentionally **not** part of this batch.
 
+Tool profiles (Phase 1B-3 — read-only):
+
+```text
+vibecode_tool_profile
+```
+
+`vibecode_tool_profile` returns named, deterministic recommended tool sets for
+common agent situations so an agent does not have to reason over every tool.
+Omit `profile` to list the profiles; pass a profile id
+(`read_only_orientation`, `build_pre_edit`, `build_post_edit`, `scan_inspection`,
+`artifact_continuation`, `safe_commit`, `conflict_resolution`) to get its
+recommended MCP tools, CLI fallbacks, when-to-use notes, next steps, and
+warnings. Profiles are **static/deterministic** — no LLM ranking, no task-aware
+relevance scoring, and no tool execution. CLI parity:
+`vibecode tools profile --json` (list) and `vibecode tools profile --profile
+<id> --json` (one profile). `vibecode_session_bootstrap` returns compact
+`recommended_tool_profiles` (ids + reasons) for the current context, and
+`vibecode_workspace_info` lists the available profiles. See
+`docs/MCP_CLI_MULTI_AGENT_EFFICIENCY_PLAN.md` for the full contract.
+
 Workspace orientation tools (Phase MCP-3 — read-only):
 
 ```text

@@ -22,6 +22,7 @@ import { GIT_CHANGES_MAX_FILES } from '../../core/workspace/git_changes_summary.
 import { HARD_MAX_ARTIFACT_CHUNK_BYTES } from '../../core/runs/artifact_pagination.js';
 import { SCAN_ARTIFACT_KEYS } from '../../core/runs/scan_artifacts.js';
 import { SCAN_SUMMARY_SECTIONS, SCAN_SUMMARY_MAX_ITEMS } from '../../core/runs/scan_summary.js';
+import { TOOL_PROFILE_IDS } from '../../core/agent_guidance/tool_profiles.js';
 
 export interface JsonSchema {
   type?: string;
@@ -497,6 +498,22 @@ export const SCAN_ARTIFACT_READ_INPUT_SCHEMA: JsonSchema = {
     },
   },
   required: ['artifact'],
+};
+
+// ---------------------------------------------------------------------------
+// Phase 1B-3: tool profiles / recommended tool sets
+// ---------------------------------------------------------------------------
+
+export const TOOL_PROFILE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    profile: {
+      type: 'string',
+      enum: [...TOOL_PROFILE_IDS],
+      description: `Profile id to return in full (one of: ${TOOL_PROFILE_IDS.join(', ')}). Omit to list all profiles with short descriptions.`,
+    },
+  },
 };
 
 /** Helper for tool handlers: verify a positive integer or return undefined. */

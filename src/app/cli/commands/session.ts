@@ -184,4 +184,8 @@ function printHuman(result: SessionBootstrapResult): void {
   for (const t of result.recommended_next_tools) console.log(`  - ${t}`);
   console.log('recommended_cli_commands:');
   for (const c of result.recommended_cli_commands) console.log(`  - ${c}`);
+  if (result.recommended_tool_profiles.length > 0) {
+    console.log('recommended_tool_profiles:');
+    for (const p of result.recommended_tool_profiles) console.log(`  - ${p.profile_id}: ${p.reason}`);
+  }
 }
