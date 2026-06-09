@@ -312,3 +312,26 @@ describe('Phase 2A — addBulkClaims (atomic mutating)', () => {
     expect(listFileClaims(repo.repoRoot).map((c) => c.path).sort()).toEqual(['src/a.ts', 'src/b.ts']);
   });
 });
+
+describe('Phase 2A — listClaimIntents (read-only)', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => (repo = makeRepo('vibecode-lci-')));
+  afterEach(() => repo.cleanup());
+
+  test('returns empty array when no intents have been created', () => {
+    build(repo.repoRoot, 'agent-a');
+    expect(listClaimIntents(repo.repoRoot)).toEqual([]);
+  });
+
+  test('returns all intents including those with no remaining active claims', () => {
+    build(repo.repoRoot, 'agent-a');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'first', paths: ['src/a.ts'] });
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'second', paths: ['src/b.ts'] });
+    const intents = listClaimIntents(repo.repoRoot);
+    expect(intents).toHaveLength(2);
+    const intentsByText = Object.fromEntries(intents.map((i) => [i.intent, i]));
+    expect(intentsByText['first'].paths).toEqual(['src/a.ts']);
+    expect(intentsByText['second'].paths).toEqual(['src/b.ts']);
+    expect(intents.every((i) => i.agent_id === 'agent-a')).toBe(true);
+  });
+});

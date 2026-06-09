@@ -308,7 +308,15 @@ export function addBulkClaims(
   };
 }
 
-/** Read the agent-declared work intents (read-only). Missing state → []. */
+/**
+ * Read the agent-declared work intents (read-only).
+ *
+ * Returns every intent in coordination state, regardless of status (`active` or
+ * `closed`). Use {@link summariseActiveWorkIntents} from `claim_intents` to
+ * filter down to active intents only.
+ *
+ * When no coordination state file exists yet, returns `[]`.
+ */
 export function listClaimIntents(
   repoRoot: string,
   options: { now?: string } = {},

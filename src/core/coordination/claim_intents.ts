@@ -20,7 +20,13 @@ export function generateIntentId(existing: ReadonlySet<string>): string {
   return id;
 }
 
-/** Find an intent by id, or null when it does not exist. */
+/**
+ * Find a work intent by its intent_id.
+ *
+ * Returns `null` when the intent_id is empty/whitespace, or when no intent
+ * matching the exact id exists in the supplied array. This is a pure, read-only
+ * lookup used by both the read-only plan preview and the mutating bulk claim.
+ */
 export function findIntent(
   intents: readonly ClaimIntent[],
   intentId: string,
