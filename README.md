@@ -834,6 +834,8 @@ vibecode skills copy --all
 vibecode coordination status --repo <path> --json
 vibecode agents register|list|heartbeat|status|terminate --repo <path> --json
 vibecode claims add|list|status|release --repo <path> --json
+vibecode claims plan --repo <path> --agent <agent_id> --path <p> --json
+vibecode claims add-bulk --repo <path> --agent <agent_id> --intent "<intent>" --path <p> --json
 ```
 
 `skills list` and `skills project-list` accept `--json`. `skills copy` accepts `--force` to overwrite an existing destination and `--repo <path>` to target a specific repository.
@@ -1205,6 +1207,40 @@ both surfaces call the same shared TypeScript core service. Coordination-3A
 does **not** implement a file watcher, automatic conflict workflow, finalize or
 commit guard, handoff protocol, UI panel, prompt injection, or source-file hard
 locks.
+
+Agent-declared work scope — explicit bulk claims (Phase 2A):
+
+```text
+vibecode_claims_plan
+vibecode_claims_add_bulk
+```
+
+**Key principle: Vibecode does not decide which files an agent needs.** The agent
+researches the task, understands the likely implementation scope, and explicitly
+declares the exact paths it wants to claim. Vibecode only validates those paths,
+detects conflicts, applies the claims safely, and makes the declared work scope
+visible to other agents. There is **no** automatic file selection, task-to-files
+inference, glob/wildcard/directory expansion, or scanner-based auto-claim.
+
+`vibecode_claims_plan` is read-only: given an agent and an explicit list of
+paths, it classifies each one (`claimable`, `already_claimed_by_agent`,
+`claimed_by_other_active_agent`, `stale_claim_overlap`, `generated_or_ignored`,
+`missing`, `invalid`) and reports whether the whole set can be claimed
+atomically — without mutating any state. `vibecode_claims_add_bulk` claims the
+declared paths as one atomic **work intent**: if any requested path is blocked by
+another active claim, invalid, or generated, **no** claims are created (a
+structured `status: "blocked"` result is returned and a conflict is recorded);
+otherwise all new claims are created in a single state write and tagged with the
+intent metadata. It is idempotent for paths the agent already owns. Pass `intent`
+to create a new work scope, or `intent_id` to extend your own intent later (for
+example, to add a `package-lock.json` you discovered you must edit). Only build
+agents may plan or bulk-claim; read_only / invalid / no-mode agents are blocked.
+Bulk-created claims behave like normal advisory claims for `git_changes`,
+`finalize_check`, and the commit guard, and active intents are summarized in
+`session_bootstrap` (`active_work_intents`). The equivalent CLI commands are
+`vibecode claims plan --agent <agent_id> --path <p> --json` and
+`vibecode claims add-bulk --agent <agent_id> --intent "<intent>" --path <p> --json`
+(extend with `--intent-id <id>`); both surfaces call the same shared core service.
 
 Read-only finalize check tool (Phase Coordination-4A):
 

@@ -68,6 +68,11 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_claims_list',
   'vibecode_claim_status',
   'vibecode_claim_release',
+  // Phase 2A: agent-declared work scope — claim plan (read-only) + explicit bulk
+  // claim. These write ONLY advisory generated state; they never touch source
+  // files, the shell, git, or the terminal, and never infer/expand paths.
+  'vibecode_claims_plan',
+  'vibecode_claims_add_bulk',
   // Phase Coordination-4A: read-only agent-aware finalize check.
   // Read-only; classifies the working tree against advisory claims. Never
   // touches source files, the shell, git mutation, or the terminal.

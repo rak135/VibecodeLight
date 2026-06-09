@@ -79,6 +79,12 @@ function renderText(result: SessionBootstrapResult): string {
   lines.push(
     `claims: own=${result.claims.counts.own} other_active=${result.claims.counts.other_active} stale=${result.claims.counts.stale}`,
   );
+  if (result.active_work_intents.length > 0) {
+    lines.push('active_work_intents:');
+    for (const intent of result.active_work_intents) {
+      lines.push(`  - ${intent.intent_id} "${intent.intent}" claims=${intent.claim_count} paths=${intent.sample_paths.join(', ')}${intent.sample_truncated ? ', …' : ''}`);
+    }
+  }
   lines.push(`conflicts_unresolved: ${result.conflicts.unresolved_count}`);
   lines.push(
     `current_run: ${result.current_run.run_id ?? '(none)'} scan_available=${result.scan.current_run_scan_available ? 'yes' : 'no'}`,

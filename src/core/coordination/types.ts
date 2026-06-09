@@ -68,6 +68,41 @@ export interface AgentSession {
   metadata: Record<string, unknown>;
 }
 
+/**
+ * Lifecycle status of an agent-declared work intent (Phase 2A).
+ * Phase 2A only ever creates `active` intents; `closed` is reserved for a later
+ * release-by-intent phase.
+ */
+export type ClaimIntentStatus = 'active' | 'closed';
+
+/**
+ * An agent-declared work scope (Phase 2A).
+ *
+ * Core truth: Vibecode does NOT decide which files an agent needs. The agent
+ * researches the task and explicitly declares the paths it intends to work on;
+ * an intent is the readable, extendable record of that declaration. It belongs
+ * to exactly one agent, references the advisory claims created for it, and is
+ * never inferred, expanded, or auto-populated.
+ */
+export interface ClaimIntent {
+  /** Stable, unique, filesystem/JSON-safe identifier. */
+  intent_id: string;
+  /** Owning registered agent id. Only this agent may extend the intent. */
+  agent_id: string;
+  /** Non-empty agent-declared intent/work-scope text. */
+  intent: string;
+  /** Lifecycle status (Phase 2A only sets `active`). */
+  status: ClaimIntentStatus;
+  /** ISO-8601 timestamp of creation. */
+  created_at: string;
+  /** ISO-8601 timestamp of the last extension/update. */
+  updated_at: string;
+  /** Advisory claim ids created for this intent. */
+  claim_ids: string[];
+  /** Normalized repository-relative POSIX paths declared for this intent. */
+  paths: string[];
+}
+
 /** Advisory claim over a repository-relative path. No source-file lock exists. */
 export interface FileClaim {
   /** Stable, unique, filesystem/JSON-safe identifier. */
@@ -117,4 +152,6 @@ export interface WorkspaceCoordinationState {
   conflicts: readonly unknown[];
   /** Handoff requests (Phase 1: always empty). */
   handoffs: readonly unknown[];
+  /** Agent-declared work intents (Phase 2A; older states normalize to []). */
+  intents: readonly ClaimIntent[];
 }

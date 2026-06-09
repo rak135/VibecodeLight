@@ -54,6 +54,13 @@ export type McpErrorCode =
   | 'CLAIMS_LIST_FAILED'
   | 'CLAIM_STATUS_FAILED'
   | 'CLAIM_RELEASE_FAILED'
+  // Phase 2A: agent-declared work scope — claim plan + explicit bulk claim.
+  | 'CLAIMS_PLAN_FAILED'
+  | 'CLAIMS_ADD_BULK_FAILED'
+  | 'NO_CLAIM_PATHS'
+  | 'INVALID_INTENT'
+  | 'INTENT_NOT_FOUND'
+  | 'INTENT_FORBIDDEN'
   // Phase Coordination-4A: read-only finalize check.
   | 'FINALIZE_CHECK_FAILED'
   // Phase Coordination-4C: watcher evidence tools.
@@ -233,6 +240,36 @@ const ERROR_DEFAULTS: Record<
   CLAIM_RELEASE_FAILED: {
     retryable: true,
     suggestion: 'Verify the claim_id exists and retry if the failure is transient.',
+  },
+  CLAIMS_PLAN_FAILED: {
+    retryable: true,
+    suggestion:
+      'claims_plan is read-only and evaluates only the explicit paths you supply (no inference). Verify agent_id and paths, then retry if the failure is transient.',
+  },
+  CLAIMS_ADD_BULK_FAILED: {
+    retryable: true,
+    suggestion:
+      'claims_add_bulk claims the explicit paths atomically. A conflict is returned as ok=true with status="blocked" (no claims created), not as this error. Verify inputs and retry only if the failure is transient.',
+  },
+  NO_CLAIM_PATHS: {
+    retryable: false,
+    suggestion:
+      'Supply at least one explicit path. Vibecode does not infer which files an agent needs; declare the exact paths yourself.',
+  },
+  INVALID_INTENT: {
+    retryable: false,
+    suggestion:
+      'Provide a non-empty intent when creating a new work scope, or pass intent_id to extend an existing one.',
+  },
+  INTENT_NOT_FOUND: {
+    retryable: false,
+    suggestion:
+      'The intent_id does not exist. Create a new intent by passing intent (without intent_id), or list your intents via vibecode_session_bootstrap.',
+  },
+  INTENT_FORBIDDEN: {
+    retryable: false,
+    suggestion:
+      'Only the owning agent may extend a work intent. Create your own intent instead of extending another agent’s.',
   },
   FINALIZE_CHECK_FAILED: {
     retryable: true,

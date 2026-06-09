@@ -70,6 +70,9 @@ describe('VibecodeMCP stdio server smoke (over in-memory transport)', () => {
       expect(names).toContain('vibecode_claims_list');
       expect(names).toContain('vibecode_claim_status');
       expect(names).toContain('vibecode_claim_release');
+      // Phase 2A agent-declared work scope tools.
+      expect(names).toContain('vibecode_claims_plan');
+      expect(names).toContain('vibecode_claims_add_bulk');
       // Phase Coordination-4A finalize check tool.
       expect(names).toContain('vibecode_finalize_check');
       // Phase Coordination-4C watcher evidence tools.

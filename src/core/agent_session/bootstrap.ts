@@ -21,6 +21,11 @@ import {
   type AgentOperatingMode,
 } from '../coordination/agent_operating_mode.js';
 import { listFileClaims } from '../coordination/claims.js';
+import { listClaimIntents } from '../coordination/bulk_claims.js';
+import {
+  summarizeActiveWorkIntents,
+  type ActiveWorkIntentSummary,
+} from '../coordination/claim_intents.js';
 import { listConflicts, type ConflictRecord } from '../coordination/conflicts.js';
 import {
   recommendBootstrapToolProfiles,
@@ -180,6 +185,12 @@ export interface SessionBootstrapResult {
     other_active: BootstrapClaimItem[];
     stale: BootstrapClaimItem[];
   };
+  /**
+   * Phase 2A: compact summary of the current build agent's active work intents
+   * (declared work scopes). Empty for read_only / unregistered agents. Bounded
+   * by max_items; full detail lives in coordination state, not here.
+   */
+  active_work_intents: ActiveWorkIntentSummary[];
   conflicts: {
     unresolved_count: number;
     items: BootstrapConflictItem[];
@@ -433,9 +444,13 @@ function recommendations(args: {
   commands.push('vibecode git changes --repo <path> --agent <agent_id> --json');
 
   if (args.operatingMode === 'build') {
-    // Build agents get the claim workflow.
-    tools.push('vibecode_claim_add', 'vibecode_finalize_check');
+    // Build agents get the claim workflow. Prefer declaring an explicit work
+    // scope (plan → add-bulk) over claiming files one-by-one; claim_add remains
+    // the single-file fallback.
+    tools.push('vibecode_claims_plan', 'vibecode_claims_add_bulk', 'vibecode_claim_add', 'vibecode_finalize_check');
     commands.push(
+      'vibecode claims plan --repo <path> --agent <agent_id> --path <path> --json',
+      'vibecode claims add-bulk --repo <path> --agent <agent_id> --intent "<intent>" --path <path> --json',
       'vibecode claims add --repo <path> --agent <agent_id> --path <path> --json',
       'vibecode finalize check --repo <path> --agent <agent_id> --json',
     );
@@ -597,6 +612,21 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     stale: staleClaims.slice(0, maxItems).map(toClaimItem),
   };
 
+  // --- active work intents (Phase 2A; build agents only, bounded) ---
+  let activeWorkIntents: ActiveWorkIntentSummary[] = [];
+  if (currentAgent && getAgentOperatingMode(currentAgent) === 'build') {
+    const intents = listClaimIntents(repoRoot, { now: checkedAt });
+    const activeClaimIds = new Set(
+      claims.filter((c) => c.status === 'active').map((c) => c.claim_id),
+    );
+    activeWorkIntents = summarizeActiveWorkIntents({
+      intents,
+      agentId: currentAgent.agent_id,
+      activeClaimIds,
+      options: { maxItems },
+    });
+  }
+
   const conflictRecords = listConflicts(repoRoot, undefined, { now: checkedAt }).filter(
     (c): c is ConflictRecord => Boolean(c) && typeof c === 'object',
   );
@@ -705,6 +735,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     agents: agentsSection,
     current_agent: currentAgent ? toIdentity(currentAgent) : null,
     claims: claimsSection,
+    active_work_intents: activeWorkIntents,
     conflicts: conflictsSection,
     evidence: {
       recent_count: coordination.evidence.recent_count,

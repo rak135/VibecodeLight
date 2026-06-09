@@ -338,6 +338,41 @@ export const CLAIM_RELEASE_INPUT_SCHEMA: JsonSchema = {
 };
 
 // ---------------------------------------------------------------------------
+// Phase 2A: agent-declared work scope — claim plan + explicit bulk claim
+// ---------------------------------------------------------------------------
+
+export const CLAIMS_PLAN_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Id of an active build agent.' },
+    paths: {
+      type: 'array',
+      description: 'Explicit repository-relative paths the agent declares it wants to claim. No globs, no directory expansion — Vibecode evaluates exactly what you supply.',
+      items: { type: 'string' },
+    },
+    intent: { type: 'string', description: 'Optional work-intent text echoed into the recommended add-bulk command.' },
+  },
+  required: ['agent_id', 'paths'],
+};
+
+export const CLAIMS_ADD_BULK_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Id of an active build agent.' },
+    paths: {
+      type: 'array',
+      description: 'Explicit repository-relative paths to claim as one work scope. No globs, no expansion.',
+      items: { type: 'string' },
+    },
+    intent: { type: 'string', description: 'Work-intent text. Required when creating a NEW intent.' },
+    intent_id: { type: 'string', description: 'Existing intent id to extend (same agent only).' },
+  },
+  required: ['agent_id', 'paths'],
+};
+
+// ---------------------------------------------------------------------------
 // Phase Coordination-4A: read-only finalize check input schema
 // ---------------------------------------------------------------------------
 
@@ -575,6 +610,27 @@ export function validateNonEmptyString(
     return { ok: false, message: `invalid ${field}: expected a non-empty string` };
   }
   return { ok: true, value };
+}
+
+/** Helper for tool handlers: verify a non-empty array of non-empty strings. */
+export function validateStringArray(
+  value: unknown,
+  field: string,
+): { ok: true; value: string[] } | { ok: false; message: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, message: `invalid ${field}: expected a non-empty array of strings` };
+  }
+  if (value.length === 0) {
+    return { ok: false, message: `invalid ${field}: expected at least one path` };
+  }
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string' || item.trim().length === 0) {
+      return { ok: false, message: `invalid ${field}: every entry must be a non-empty string` };
+    }
+    out.push(item);
+  }
+  return { ok: true, value: out };
 }
 
 /** Helper for tool handlers: reject any property the schema does not allow. */

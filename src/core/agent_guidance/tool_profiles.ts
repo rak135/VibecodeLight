@@ -130,23 +130,28 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       { name: 'vibecode_git_changes', reason: 'Check claim-aware dirty state before editing.' },
       { name: 'vibecode_scan_summary', reason: 'Find relevant commands/tests/files/symbols from existing scan artifacts.' },
       { name: 'vibecode_scan_artifact_read', reason: 'Drill into one scan artifact for detail.' },
-      { name: 'vibecode_claim_add', reason: 'Claim each file before editing it (advisory ownership).' },
+      { name: 'vibecode_claims_plan', reason: 'After researching the task, declare your intended files and preview whether they can be claimed (read-only).' },
+      { name: 'vibecode_claims_add_bulk', reason: 'Claim your declared files as one atomic work intent before editing.' },
+      { name: 'vibecode_claim_add', reason: 'Single-file fallback: claim one more file before editing it.' },
       { name: 'vibecode_claims_list', reason: 'See current claims to avoid overlapping another agent.' },
       { name: 'vibecode_project_instructions', reason: 'Re-read the repo working agreement before changing it.' },
     ],
     cli_commands: [
       { command: 'vibecode session bootstrap --register --agent-mode build --task "<task>" --json', reason: 'Register a build session and orient in one call.' },
       { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback for claim-aware dirty state.' },
-      { command: 'vibecode scan summary --run current --json', reason: 'CLI fallback for the scan summary.' },
-      { command: 'vibecode claims add --agent <agent_id> --path <path> --json', reason: 'Claim a file before editing it.' },
+      { command: 'vibecode claims plan --agent <agent_id> --path <path> --json', reason: 'Preview whether your declared files can be claimed (read-only).' },
+      { command: 'vibecode claims add-bulk --agent <agent_id> --intent "<intent>" --path <path> --json', reason: 'Claim your declared files as one work intent.' },
+      { command: 'vibecode claims add --agent <agent_id> --path <path> --json', reason: 'Single-file fallback to claim one more file.' },
       { command: 'vibecode claims list --json', reason: 'CLI fallback to inspect current claims.' },
     ],
     next_steps: [
+      'Research the task FIRST, then declare your explicit files — Vibecode does not choose them for you.',
       'After editing, switch to build_post_edit to validate and prepare a guarded commit.',
     ],
     warnings: [
       'Claim each file before editing it; edit only files your agent has claimed.',
-      'npm/pnpm/yarn install or dependency changes can modify a lockfile (e.g. package-lock.json). Claim the lockfile before finalize if you changed it on purpose; revert it before finalize if it changed by accident.',
+      'Declare explicit paths only — no globs, directories, or inference. Vibecode coordinates the scope you declare; it does not decide it.',
+      'npm/pnpm/yarn install or dependency changes can modify a lockfile (e.g. package-lock.json). Claim the lockfile (claims add-bulk --intent-id <id> --path package-lock.json) before finalize if you changed it on purpose; revert it before finalize if it changed by accident.',
     ],
   },
   build_post_edit: {
@@ -160,15 +165,18 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
     mcp_tools: [
       { name: 'vibecode_git_changes', reason: 'Confirm which dirty files are yours vs another agent / unclaimed.' },
       { name: 'vibecode_finalize_check', reason: 'Read-only finalize: classify the working tree against your claims before commit.' },
+      { name: 'vibecode_claims_add_bulk', reason: 'If finalize flags an unclaimed file you meant to change, claim it explicitly (extend your intent) before committing.' },
       { name: 'vibecode_claims_list', reason: 'Verify your claims still cover everything you changed.' },
     ],
     cli_commands: [
       { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback for claim-aware dirty state.' },
       { command: 'vibecode finalize check --agent <agent_id> --json', reason: 'CLI fallback for the finalize check; returns the recommended commit guard command.' },
+      { command: 'vibecode claims add-bulk --agent <agent_id> --intent-id <intent_id> --path <path> --json', reason: 'Claim a file finalize flagged as unclaimed (only if you meant to change it).' },
       { command: 'vibecode commit guard --agent <agent_id> --dry-run --json', reason: 'Preview exactly which files the guard would stage (no staging/commit).' },
       { command: 'vibecode commit guard --agent <agent_id> --message "<message>" --json', reason: 'Commit ONLY your claimed files through the guard.' },
     ],
     next_steps: [
+      'If finalize blocks on an unclaimed file: claim it explicitly if you meant to change it, or revert it if it changed by accident.',
       'When finalize is ok, use safe_commit (commit guard is CLI-only).',
     ],
     warnings: [

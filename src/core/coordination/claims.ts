@@ -157,7 +157,7 @@ function activeBlockingClaims(args: {
     );
 }
 
-function requireClaimingAgent(
+export function requireClaimingAgent(
   agents: readonly AgentSession[],
   agentId: string,
   nowMs: number,

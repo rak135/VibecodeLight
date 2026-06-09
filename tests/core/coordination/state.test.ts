@@ -66,6 +66,7 @@ describe('createEmptyCoordinationState', () => {
       claims: [],
       conflicts: [],
       handoffs: [],
+      intents: [],
     });
     expect(COORDINATION_STATE_VERSION).toBe(1);
   });

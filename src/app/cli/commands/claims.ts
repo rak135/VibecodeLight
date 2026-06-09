@@ -10,6 +10,8 @@ import {
   type AddFileClaimResult,
 } from '../../../core/coordination/claims.js';
 import { reapStaleClaims } from '../../../core/coordination/claim_cleanup.js';
+import { planClaims, type ClaimPlanResult } from '../../../core/coordination/claim_planning.js';
+import { addBulkClaims, type AddBulkClaimsResult } from '../../../core/coordination/bulk_claims.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import type { FileClaim } from '../../../core/coordination/types.js';
 import {
@@ -112,6 +114,85 @@ export function registerClaimsCommands(
       }
 
       success(options.json, { claim: result.claim });
+    });
+
+  const collectPath = (value: string, previous: string[] = []): string[] => previous.concat([value]);
+
+  claims
+    .command('plan')
+    .description('Read-only: evaluate whether the explicit paths you declare can be claimed (no inference)')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--agent <agent_id>', 'Build agent id')
+    .option('--path <path>', 'Repository-relative path to evaluate (repeatable)', collectPath, [])
+    .option('--intent <text>', 'Optional work-intent text echoed into the recommended add-bulk command')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; agent?: string; path?: string[]; intent?: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      if (!options.agent || !options.path || options.path.length === 0) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'claims plan requires --agent and at least one --path.', repoRoot, [
+            ...(options.agent ? [] : ['Missing: --agent <agent_id>']),
+            ...(options.path && options.path.length > 0 ? [] : ['Missing: --path <path> (repeatable)']),
+          ]),
+          { json: options.json, prefix: 'claims plan failed' },
+        );
+        return;
+      }
+      let result: ClaimPlanResult;
+      try {
+        result = planClaims({ repoRoot, agent_id: options.agent, paths: options.path, intent: options.intent });
+      } catch (error) {
+        fail(repoRoot, options.json, 'claims plan failed', error);
+        return;
+      }
+      if (options.json) {
+        console.log(JSON.stringify({ ok: true, data: result, artifacts: [], warnings: result.warnings }));
+        return;
+      }
+      printPlanHuman(result);
+    });
+
+  claims
+    .command('add-bulk')
+    .description('Claim explicit paths as one atomic work intent (build agents only; no globs/inference)')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--agent <agent_id>', 'Build agent id')
+    .option('--path <path>', 'Repository-relative path to claim (repeatable)', collectPath, [])
+    .option('--intent <text>', 'Work-intent text (required when creating a new intent)')
+    .option('--intent-id <id>', 'Existing intent id to extend (same agent only)')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; agent?: string; path?: string[]; intent?: string; intentId?: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+      if (!options.agent || !options.path || options.path.length === 0) {
+        emitCliStructuredError(
+          makeCliStructuredError('MISSING_REQUIRED_OPTION', 'claims add-bulk requires --agent and at least one --path.', repoRoot, [
+            ...(options.agent ? [] : ['Missing: --agent <agent_id>']),
+            ...(options.path && options.path.length > 0 ? [] : ['Missing: --path <path> (repeatable)']),
+          ]),
+          { json: options.json, prefix: 'claims add-bulk failed' },
+        );
+        return;
+      }
+      let result: AddBulkClaimsResult;
+      try {
+        result = addBulkClaims({
+          repoRoot,
+          agent_id: options.agent,
+          paths: options.path,
+          intent: options.intent,
+          intent_id: options.intentId,
+        });
+      } catch (error) {
+        fail(repoRoot, options.json, 'claims add-bulk failed', error);
+        return;
+      }
+      // A blocked result is a valid structured response (no claims created),
+      // mirroring finalize: it is reported as ok:true with status="blocked".
+      if (options.json) {
+        console.log(JSON.stringify({ ok: true, data: result, artifacts: [], warnings: result.warnings }));
+        return;
+      }
+      printBulkHuman(result);
     });
 
   claims
@@ -238,6 +319,47 @@ function printHuman(data: Record<string, unknown>): void {
     console.log(`matching_claims: ${status.matching_claims.length}`);
     console.log(`can_claim_shared: ${status.can_claim_shared ? 'yes' : 'no'}`);
     console.log(`can_claim_exclusive: ${status.can_claim_exclusive ? 'yes' : 'no'}`);
+  }
+}
+
+function printPlanHuman(result: ClaimPlanResult): void {
+  console.log(`agent: ${result.agent_id} (mode=${result.agent_mode})`);
+  console.log(`intent: ${result.intent ?? '(none)'}`);
+  console.log(`can_claim_all: ${result.can_claim_all ? 'yes' : 'no'}`);
+  console.log('paths:');
+  for (const p of result.paths) {
+    console.log(`  ${p.path} [${p.status}] ${p.reason}`);
+  }
+  if (result.warnings.length > 0) {
+    console.log('warnings:');
+    for (const w of result.warnings) console.log(`  ${w}`);
+  }
+  if (result.recommended_cli_commands.length > 0) {
+    console.log('recommended_cli_commands:');
+    for (const c of result.recommended_cli_commands) console.log(`  - ${c}`);
+  }
+}
+
+function printBulkHuman(result: AddBulkClaimsResult): void {
+  console.log(`status: ${result.status}`);
+  console.log(`agent: ${result.agent_id}`);
+  console.log(`intent_id: ${result.intent_id ?? '(none)'}`);
+  console.log(`intent: ${result.intent ?? '(none)'}`);
+  if (result.created_claims.length > 0) {
+    console.log('created_claims:');
+    for (const c of result.created_claims) console.log(`  ${c.claim_id} ${c.path}`);
+  }
+  if (result.already_owned_paths.length > 0) {
+    console.log(`already_owned_paths: ${result.already_owned_paths.join(', ')}`);
+  }
+  if (result.blocked_paths.length > 0) {
+    console.log('blocked_paths:');
+    for (const b of result.blocked_paths) console.log(`  ${b.path} [${b.reason}]`);
+  }
+  if (result.conflict_id) console.log(`conflict_id: ${result.conflict_id}`);
+  if (result.recommended_cli_commands.length > 0) {
+    console.log('recommended_cli_commands:');
+    for (const c of result.recommended_cli_commands) console.log(`  - ${c}`);
   }
 }
 

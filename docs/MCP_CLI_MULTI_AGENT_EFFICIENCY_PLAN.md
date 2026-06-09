@@ -2710,6 +2710,110 @@ existing `terminalPreflight` injection seam.
 - The banner integration is desktop-terminal-only; the standalone `vibecode
   terminal demo` and non-desktop CLI flows do not print it.
 
+## 14F. Phase 2A — agent-declared work scope / explicit bulk claims (Implemented)
+
+This section records what was built so a build agent can declare an initial work
+scope and claim multiple explicit paths safely as one intentional unit, instead
+of claiming files one-by-one.
+
+### Key principle
+
+**Vibecode does NOT decide which files an agent needs.** The agent researches the
+task, understands the likely implementation scope, and explicitly declares the
+exact paths it wants to claim. Vibecode's role is only to: validate the declared
+paths, detect conflicts, apply the claims safely (atomically), make the declared
+work scope visible to other agents, allow the agent to extend that scope later
+with more explicit paths, and preserve finalize/commit safety. This is **not**
+automatic claiming, task-to-files inference, LLM relevance scoring, glob/wildcard
+expansion, directory claims, or scanner-based auto-claim.
+
+### MCP tools
+
+- `vibecode_claims_plan` — read-only. Input `{ agent_id, paths[], intent? }`
+  (`additionalProperties: false`). Classifies each explicit path and reports
+  whether the whole set can be claimed atomically. Never mutates state, never
+  suggests paths the agent did not supply.
+- `vibecode_claims_add_bulk` — mutating. Input
+  `{ agent_id, paths[], intent?, intent_id? }`. Claims the explicit paths as one
+  atomic work intent. A conflict is returned as `ok=true` with
+  `status: "blocked"` (no claims created), mirroring `finalize_check`; only
+  invocation/validation problems are MCP errors.
+
+Tool count: 36 → **38**. Both write only generated
+`.vibecode/coordination/state.json` (plan writes nothing); neither touches source
+files, the shell, git, or the terminal, and neither infers or expands paths. The
+two tools were added to the canonical registry, schemas, MCP error codes,
+`workspace_info` coordination group, the Agent Guidance Settings group, and the
+Codex/Claude `enabled_tools` lists in lockstep.
+
+### CLI commands
+
+```powershell
+vibecode claims plan --agent <agent_id> --path src/a.ts --path tests/a.test.ts --json
+vibecode claims add-bulk --agent <agent_id> --intent "add alpha feature" --path src/a.ts --path tests/a.test.ts --json
+vibecode claims add-bulk --agent <agent_id> --intent-id <intent_id> --path package-lock.json --json
+```
+
+`--path` is repeatable; both surfaces call the same shared core services
+(`core/coordination/claim_planning` / `bulk_claims`) so MCP and CLI return
+equivalent data. A blocked bulk claim is reported as a valid `ok:true` envelope
+with `data.status="blocked"` (exit 0), mirroring finalize.
+
+### Per-path classification
+
+The shared evaluator (`evaluateClaimPaths`) dedupes normalized paths (first wins)
+and classifies each: `claimable`, `missing` (claimable; file does not exist yet),
+`already_claimed_by_agent` (idempotent — no new claim), `stale_claim_overlap`
+(claimable; only a stale claim overlaps), `claimed_by_other_active_agent`
+(blocking), `generated_or_ignored` (blocking; `node_modules`/`.codegraph`), and
+`invalid` (blocking; traversal, absolute, `.vibecode`/`.git`, empty). The same
+evaluator powers both `plan` (preview) and `add_bulk` (apply) so they can never
+disagree.
+
+### Atomicity
+
+Bulk claim evaluates the whole set first. If ANY requested path is blocking, NO
+new claims are created — the only mutation is an advisory conflict record (for
+other-agent blocks). On success, all new claims, the agent's claim list, and the
+intent are written in a SINGLE `writeCoordinationState` call.
+
+### Claim intent metadata
+
+A new `ClaimIntent` (`intent_id`, `agent_id`, `intent`, `status`, `created_at`,
+`updated_at`, `claim_ids[]`, `paths[]`) is stored in a new additive `intents[]`
+array on the coordination state (older state files normalize to `[]`). Each
+bulk-created claim also carries `{ intent_id, intent }` in its metadata, so the
+existing finalize/commit guard (which only read `claim.path`) work unchanged and
+bulk claims appear in the normal claims list. Intents belong to exactly one
+agent; intent text is required and trimmed when creating a new intent.
+
+### Extending an existing intent (Part D behavior)
+
+Pass `intent_id` to extend an intent you own with new explicit paths (validated
+to exist, belong to you, and that you are still a build agent; new paths are
+atomic and de-duplicated). If only `intent` text is supplied (no `intent_id`), a
+**new** intent is always created — extension requires the explicit `intent_id`
+(deterministic and documented).
+
+### Integration
+
+- `session_bootstrap` (MCP + CLI) adds a compact `active_work_intents` summary
+  (`intent_id`, `intent`, `claim_count`, `sample_paths`, bounded by `max_items`)
+  for build agents with active intents; build recommendations now point at
+  `claims plan` / `claims add-bulk` (with `claim_add` as the single-file fallback).
+- The `build_pre_edit` tool profile now prefers inspect → plan explicit claims →
+  add-bulk explicit claims → edit only claimed files; `build_post_edit` notes
+  that a finalize block on an unclaimed file should be claimed explicitly (or
+  reverted if accidental).
+
+### Known limitations
+
+- No automatic file selection, task-to-files inference, or LLM relevance scoring.
+- No glob/wildcard expansion, no directory claims, no scanner-based suggestions.
+- No automatic lockfile/test-file claims (the agent declares them explicitly).
+- No release-by-intent / auto-release / auto-merge / auto-resolve, no MCP commit,
+  no handoff, no orchestration, no full-diff exposure, no affected-tests inference.
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

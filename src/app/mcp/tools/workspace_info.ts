@@ -81,6 +81,8 @@ const COORDINATION_TOOL_NAMES = Object.freeze([
   'vibecode_claims_list',
   'vibecode_claim_status',
   'vibecode_claim_release',
+  'vibecode_claims_plan',
+  'vibecode_claims_add_bulk',
   'vibecode_finalize_check',
   'vibecode_evidence_list',
   'vibecode_evidence_scan',

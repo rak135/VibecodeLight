@@ -5,6 +5,7 @@ import { getWorkspacePaths } from '../workspace/paths.js';
 import {
   COORDINATION_STATE_VERSION,
   type AgentSession,
+  type ClaimIntent,
   type FileClaim,
   type WorkspaceCoordinationState,
 } from './types.js';
@@ -51,6 +52,7 @@ export function createEmptyCoordinationState(
     claims: [],
     conflicts: [],
     handoffs: [],
+    intents: [],
   };
 }
 
@@ -72,6 +74,9 @@ function normalize(
     claims: asArray(raw.claims) as readonly FileClaim[],
     conflicts: asArray(raw.conflicts),
     handoffs: asArray(raw.handoffs),
+    // Additive Phase 2A field: older state files have no `intents` key and
+    // normalize to an empty list, preserving backward compatibility.
+    intents: asArray(raw.intents) as readonly ClaimIntent[],
   };
 }
 

@@ -167,6 +167,12 @@ function printHuman(result: SessionBootstrapResult): void {
   console.log(
     `claims: own=${result.claims.counts.own} other_active=${result.claims.counts.other_active} stale=${result.claims.counts.stale}`,
   );
+  if (result.active_work_intents.length > 0) {
+    console.log('active_work_intents:');
+    for (const intent of result.active_work_intents) {
+      console.log(`  - ${intent.intent_id} "${intent.intent}" claims=${intent.claim_count} paths=${intent.sample_paths.join(', ')}${intent.sample_truncated ? ', …' : ''}`);
+    }
+  }
   console.log(`conflicts_unresolved: ${result.conflicts.unresolved_count}`);
   console.log(`current_run: ${result.current_run.run_id ?? '(none)'} scan_available=${result.scan.current_run_scan_available ? 'yes' : 'no'}`);
   console.log(`codegraph: available=${result.codegraph.available ? 'yes' : 'no'} initialized=${result.codegraph.initialized ? 'yes' : 'no'}`);

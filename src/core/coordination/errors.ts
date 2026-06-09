@@ -17,7 +17,12 @@ export type CoordinationErrorCode =
   | 'CLAIM_NOT_FOUND'
   | 'INVALID_AGENT_MODE'
   | 'READ_ONLY_AGENT'
-  | 'INVALID_AGENT_SESSION';
+  | 'INVALID_AGENT_SESSION'
+  // Phase 2A: agent-declared work scope / explicit bulk claims.
+  | 'NO_CLAIM_PATHS'
+  | 'INVALID_INTENT'
+  | 'INTENT_NOT_FOUND'
+  | 'INTENT_FORBIDDEN';
 
 /** A structured, code-carrying error raised by coordination core services. */
 export class CoordinationError extends Error {
