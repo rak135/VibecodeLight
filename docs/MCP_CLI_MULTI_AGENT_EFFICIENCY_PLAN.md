@@ -2847,7 +2847,7 @@ kept; the passed `intent` text is ignored). If only `intent` text is supplied (n
 
 ### Phase 2B — claim intent lifecycle and release-by-intent
 
-Status: **implemented and dogfooded via CLI fallback.**
+Status: **implemented (with hardening follow-up); dogfood pending.**
 
 Goal: once an agent can create and extend a work intent, it must be able to see
 its active intents, inspect which claims belong to each, and safely release all
@@ -2878,12 +2878,22 @@ CLI commands:
 
 #### Release semantics
 
-- Same-agent only: only the owning agent may release an intent.
+- Same-agent only: only the owning agent may release an intent. A defensive
+  ownership filter additionally guarantees that a (hand-edited/inconsistent)
+  intent referencing another agent's claim never releases that claim — it is
+  skipped and surfaced as a warning.
 - Dirty-file safety: if any currently-claimed path in the intent is dirty in the
   working tree, release is blocked (`release_allowed: false`,
   `blocked_reason: dirty_claimed_files`). Zero claims are released. The agent
   should commit through `vibecode commit guard` or revert changes, then retry.
-- Atomic: either all active claims in the intent are released, or none are.
+- Fail-closed without git: if git changed-file detection is unavailable (not a
+  git repository, git missing/failing), the dirty state of the claimed paths is
+  unknown and release is blocked (`release_allowed: false`,
+  `blocked_reason: git_unavailable`). Unknown dirty state never authorizes a
+  release.
+- Atomic: either all active claims in the intent are released, or none are. A
+  clean release updates the claims, the agent's claim list, and the intent
+  status in ONE coordination state write (no transient partial state).
 - Idempotent: releasing an already-released intent returns `already_released`.
 - The intent record is never deleted; it is marked `released` with
   `released_at` and `released_by_agent_id`.
@@ -2896,8 +2906,9 @@ CLI commands:
 
 #### Integration points
 
-- Bootstrap: recommends intent release when a build agent has active intents
-  with no dirty files.
+- Bootstrap: recommends intent release only when a build agent has active
+  intents AND the tree is clean for that agent — zero dirty claimed files and
+  zero unclaimed dirty files (i.e. only when release can actually succeed).
 - Tool profiles: `build_post_edit` and `safe_commit` include intent release
   guidance.
 - Existing single-claim release and reap behavior still works alongside intent

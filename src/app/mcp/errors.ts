@@ -61,10 +61,11 @@ export type McpErrorCode =
   | 'INVALID_INTENT'
   | 'INTENT_NOT_FOUND'
   | 'INTENT_FORBIDDEN'
-  // Phase 2B: claim intent lifecycle / release-by-intent.
+  // Phase 2B: claim intent lifecycle / release-by-intent. Blocked releases
+  // (dirty files, git unavailable) are ok-envelope results, not error codes —
+  // consistent with the Phase 2A blocked bulk-claim semantics.
   | 'CLAIM_INTENTS_LIST_FAILED'
   | 'CLAIM_INTENT_RELEASE_FAILED'
-  | 'INTENT_RELEASE_BLOCKED'
   // Phase Coordination-4A: read-only finalize check.
   | 'FINALIZE_CHECK_FAILED'
   // Phase Coordination-4C: watcher evidence tools.
@@ -284,11 +285,6 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'Verify agent_id and intent_id exist. If blocked by dirty files, commit or revert them first, then retry.',
-  },
-  INTENT_RELEASE_BLOCKED: {
-    retryable: false,
-    suggestion:
-      'Release is blocked because claimed files are dirty. Commit through vibecode commit guard or revert the changes, then retry.',
   },
   FINALIZE_CHECK_FAILED: {
     retryable: true,

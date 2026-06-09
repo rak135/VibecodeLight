@@ -718,7 +718,15 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
   }
 
   const operatingMode = currentAgent ? getAgentOperatingMode(currentAgent) : null;
-  const hasReleasableIntents = activeWorkIntents.length > 0 && changes.ok && changes.summary.claimed_by_agent > 0 && changes.summary.unclaimed === 0;
+  // Phase 2B: an intent is releasable only when the tree is clean for this
+  // agent — zero dirty claimed files (release would block on them) and zero
+  // unclaimed dirty files (work in flight that should be claimed/committed
+  // first). Summary counts cover ALL changed files, not the capped sample.
+  const hasReleasableIntents =
+    activeWorkIntents.length > 0 &&
+    changes.ok &&
+    changes.summary.claimed_by_agent === 0 &&
+    changes.summary.unclaimed === 0;
   const rec = recommendations({
     registered: Boolean(currentAgent),
     hasAgentId: Boolean(input.agent_id),

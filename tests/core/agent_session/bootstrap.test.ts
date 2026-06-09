@@ -11,6 +11,8 @@ import {
 } from '../../../src/core/agent_session/bootstrap.js';
 import { registerAgent, markAgentTerminated, listAgents } from '../../../src/core/coordination/agents.js';
 import { addFileClaim } from '../../../src/core/coordination/claims.js';
+import { addBulkClaims } from '../../../src/core/coordination/bulk_claims.js';
+import { releaseClaimIntent } from '../../../src/core/coordination/intent_lifecycle.js';
 
 /**
  * Phase 1A — session bootstrap aggregator. Exercised against REAL git working
@@ -349,5 +351,74 @@ describe('getSessionBootstrap — stale active claim warnings for clean files', 
     expect(result.recommended_cli_commands.some((c) => c.includes('claims reap'))).toBe(true);
     expect(result.recommended_next_tools).toContain('vibecode_claims_list');
     expect(result.recommended_next_tools).toContain('vibecode_claims_reap');
+  });
+});
+
+describe('getSessionBootstrap — releasable intent recommendations (Phase 2B)', () => {
+  /** Write, stage, and commit a file so the claimed path starts CLEAN. */
+  function commitFile(repo: string, rel: string): void {
+    write(repo, rel);
+    git(['add', rel], repo);
+    git(['commit', '-q', '-m', `add ${rel}`], repo);
+  }
+
+  function buildWithIntent(repo: string): string {
+    const a = registerAgent(repo, {
+      agent_name: 'A',
+      agent_type: 'codex',
+      metadata: { operating_mode: 'build', task: 'alpha work' },
+    });
+    addBulkClaims({ repoRoot: repo, agent_id: a.agent_id, intent: 'alpha work', paths: ['src/alpha.ts'] });
+    return a.agent_id;
+  }
+
+  test('active intent + clean tree → recommends intent release (dry-run first)', async () => {
+    const repo = makeRepo('vibecode-bs-releasable-clean-');
+    commitFile(repo, 'src/alpha.ts');
+    const agentId = buildWithIntent(repo);
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
+    expect(result.active_work_intents).toHaveLength(1);
+    expect(result.recommended_next_tools).toContain('vibecode_claim_intents_list');
+    expect(result.recommended_next_tools).toContain('vibecode_claim_intent_release');
+    expect(result.recommended_cli_commands.some((c) => c.includes('intent-release') && c.includes('--dry-run'))).toBe(true);
+  });
+
+  test('active intent + dirty CLAIMED file → does NOT recommend release', async () => {
+    const repo = makeRepo('vibecode-bs-releasable-dirty-');
+    commitFile(repo, 'src/alpha.ts');
+    const agentId = buildWithIntent(repo);
+    // Modify the claimed file — release would block on it.
+    write(repo, 'src/alpha.ts', 'changed\n');
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
+    expect(result.active_work_intents).toHaveLength(1);
+    expect(result.recommended_next_tools).not.toContain('vibecode_claim_intent_release');
+    expect(result.recommended_cli_commands.some((c) => c.includes('intent-release'))).toBe(false);
+  });
+
+  test('active intent + UNCLAIMED dirty file → does NOT recommend release', async () => {
+    const repo = makeRepo('vibecode-bs-releasable-unclaimed-');
+    commitFile(repo, 'src/alpha.ts');
+    const agentId = buildWithIntent(repo);
+    // Unclaimed work in flight — claim/commit it first, not release.
+    write(repo, 'src/stray.ts');
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
+    expect(result.active_work_intents).toHaveLength(1);
+    expect(result.recommended_next_tools).not.toContain('vibecode_claim_intent_release');
+  });
+
+  test('released intent → no active intent and no release recommendation', async () => {
+    const repo = makeRepo('vibecode-bs-releasable-released-');
+    commitFile(repo, 'src/alpha.ts');
+    const agentId = buildWithIntent(repo);
+    const intentId = (await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts }))
+      .active_work_intents[0].intent_id;
+    releaseClaimIntent({ repoRoot: repo, agent_id: agentId, intent_id: intentId });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
+    expect(result.active_work_intents).toHaveLength(0);
+    expect(result.recommended_next_tools).not.toContain('vibecode_claim_intent_release');
   });
 });

@@ -1266,7 +1266,11 @@ intents only. `vibecode_claim_intent_release` releases all active claims belongi
 to a work intent. Same-agent only. If any claimed path in the intent is dirty in
 the working tree, release is **blocked** (`release_allowed: false`,
 `blocked_reason: dirty_claimed_files`) and zero claims are released — commit
-through `vibecode commit guard` or revert the changes, then retry. Pass
+through `vibecode commit guard` or revert the changes, then retry. If git
+changed-file detection is unavailable (not a git repository, git missing),
+release is blocked fail-closed (`blocked_reason: git_unavailable`) — an
+unverifiable dirty state never authorizes a release. A clean release updates all
+of the intent's claims and the intent status in a single state write. Pass
 `dry_run: true` to preview what would happen without releasing. Already-released
 intents return an idempotent `already_released` response. The intent record is
 never deleted. The equivalent CLI commands are

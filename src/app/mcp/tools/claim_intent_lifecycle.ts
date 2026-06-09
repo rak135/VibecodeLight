@@ -44,8 +44,6 @@ function mcpErrorForCoordination(error: CoordinationError, fallback: McpErrorCod
       return 'INTENT_NOT_FOUND';
     case 'INTENT_FORBIDDEN':
       return 'INTENT_FORBIDDEN';
-    case 'INTENT_RELEASE_BLOCKED':
-      return 'INTENT_RELEASE_BLOCKED';
     default:
       return fallback;
   }

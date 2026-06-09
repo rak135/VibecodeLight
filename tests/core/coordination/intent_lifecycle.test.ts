@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { registerAgent } from '../../../src/core/coordination/agents.js';
 import { addFileClaim, listFileClaims, releaseFileClaim } from '../../../src/core/coordination/claims.js';
@@ -27,13 +27,19 @@ function build(repoRoot: string, agentId: string, now?: string): void {
   );
 }
 
-/** Fake git runner that reports specific paths as dirty. */
+/**
+ * Fake git runner that reports specific paths as dirty.
+ *
+ * Emits real `--porcelain=v1 -z` output: each entry is `XY PATH` terminated by
+ * a NUL — NOT newline-separated — so multi-path and space-containing paths
+ * parse exactly like real git.
+ */
 function fakeGitRunner(dirtyPaths: string[]): GitReadOnlyRunner {
   return (args: string[], _repoRoot: string) => {
     if (args[0] === 'rev-parse') return { ok: true, stdout: 'abc123', stderr: '', exitCode: 0 };
     if (args[0] === 'status') {
-      const lines = dirtyPaths.map((p) => ` M ${p}`);
-      return { ok: true, stdout: lines.join('\n'), stderr: '', exitCode: 0 };
+      const out = dirtyPaths.map((p) => ` M ${p}\u0000`).join('');
+      return { ok: true, stdout: out, stderr: '', exitCode: 0 };
     }
     return { ok: true, stdout: '', stderr: '', exitCode: 0 };
   };
@@ -45,6 +51,16 @@ function cleanGitRunner(): GitReadOnlyRunner {
     if (args[0] === 'rev-parse') return { ok: true, stdout: 'abc123', stderr: '', exitCode: 0 };
     return { ok: true, stdout: '', stderr: '', exitCode: 0 };
   };
+}
+
+/** Fake git runner where git itself is unavailable (not a repo / no binary). */
+function failingGitRunner(): GitReadOnlyRunner {
+  return (_args: string[], _repoRoot: string) => ({
+    ok: false,
+    stdout: '',
+    stderr: 'fatal: not a git repository (or any of the parent directories): .git',
+    exitCode: 128,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +461,34 @@ describe('Phase 2B — releaseClaimIntent mutation', () => {
     expect(active).toHaveLength(0);
   });
 
+  test('clean release performs exactly ONE coordination state write', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'work on alpha',
+      paths: ['src/alpha.ts', 'tests/alpha.test.ts', 'src/utils.ts'],
+    });
+
+    const spy = vi.spyOn(fs, 'writeFileSync');
+    try {
+      releaseClaimIntent({
+        repoRoot: repo.repoRoot,
+        agent_id: 'agent-a',
+        intent_id: bulk.intent_id!,
+        gitRunner: cleanGitRunner(),
+      });
+      const stateWrites = spy.mock.calls.filter((call) => String(call[0]).endsWith('state.json'));
+      expect(stateWrites).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The single write released all claims AND the intent together.
+    expect(listFileClaims(repo.repoRoot)).toHaveLength(0);
+    expect(listClaimIntents(repo.repoRoot)[0].status).toBe('released');
+  });
+
   test('empty intent with no active claims still marks released', () => {
     build(repo.repoRoot, 'agent-a');
     const bulk = addBulkClaims({
@@ -470,5 +514,253 @@ describe('Phase 2B — releaseClaimIntent mutation', () => {
     expect(result.released_claims).toHaveLength(0);
     expect(result.warnings[0]).toContain('already-released');
     expect(result.intent_status).toBe('released');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2B follow-up — fail-closed when git is unavailable
+// ---------------------------------------------------------------------------
+
+describe('Phase 2B — releaseClaimIntent fail-closed without git', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => (repo = makeRepo('vibecode-intent-nogit-')));
+  afterEach(() => repo.cleanup());
+
+  test('dry-run blocks with git_unavailable and mutates nothing', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'work on alpha',
+      paths: ['src/alpha.ts'],
+    });
+
+    const result = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: bulk.intent_id!,
+      dry_run: true,
+      gitRunner: failingGitRunner(),
+    });
+
+    expect(result.release_allowed).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.blocked_reason).toBe('git_unavailable');
+    expect(result.released_claims).toHaveLength(0);
+    expect(result.dirty_claimed_paths).toEqual([]);
+    expect(result.warnings.some((w) => w.includes('git'))).toBe(true);
+    // Nothing mutated.
+    expect(listClaimIntents(repo.repoRoot)[0].status).toBe('active');
+    expect(listFileClaims(repo.repoRoot)).toHaveLength(1);
+  });
+
+  test('actual release blocks with git_unavailable and releases zero claims', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'work on alpha',
+      paths: ['src/alpha.ts', 'tests/alpha.test.ts'],
+    });
+
+    const result = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: bulk.intent_id!,
+      gitRunner: failingGitRunner(),
+    });
+
+    expect(result.release_allowed).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.blocked_reason).toBe('git_unavailable');
+    expect(result.released_claims).toHaveLength(0);
+    expect(result.recommended_cli_commands.some((c) => c.includes('git changes'))).toBe(true);
+
+    // Intent stays active, all claims stay active.
+    expect(listClaimIntents(repo.repoRoot)[0].status).toBe('active');
+    expect(listFileClaims(repo.repoRoot).filter((c) => c.status === 'active')).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2B follow-up — dirty detection parses real NUL-separated porcelain
+// ---------------------------------------------------------------------------
+
+describe('Phase 2B — dirty detection porcelain parsing', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => (repo = makeRepo('vibecode-intent-porcelain-')));
+  afterEach(() => repo.cleanup());
+
+  test('multiple dirty entries are all detected (NUL-separated)', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'work on alpha',
+      paths: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+    });
+
+    const result = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: bulk.intent_id!,
+      dry_run: true,
+      gitRunner: fakeGitRunner(['src/a.ts', 'src/c.ts']),
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.blocked_reason).toBe('dirty_claimed_files');
+    expect(result.dirty_claimed_paths).toEqual(['src/a.ts', 'src/c.ts']);
+  });
+
+  test('dirty path containing spaces is detected', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'work with spaces',
+      paths: ['src/a file.ts'],
+    });
+
+    const result = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: bulk.intent_id!,
+      dry_run: true,
+      gitRunner: fakeGitRunner(['src/a file.ts']),
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.dirty_claimed_paths).toEqual(['src/a file.ts']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2B follow-up — ownership and intent scoping
+// ---------------------------------------------------------------------------
+
+describe('Phase 2B — release ownership and intent scoping', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => (repo = makeRepo('vibecode-intent-scope-')));
+  afterEach(() => repo.cleanup());
+
+  test('intent referencing another agent claim does not release that claim', () => {
+    build(repo.repoRoot, 'agent-a');
+    build(repo.repoRoot, 'agent-b');
+    const bulkA = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'a-work',
+      paths: ['src/a.ts'],
+    });
+    addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-b',
+      intent: 'b-work',
+      paths: ['src/b.ts'],
+    });
+
+    // Hand-edit state: inject agent-b's claim into agent-a's intent. Normal
+    // bulk_claims can never produce this; release must still not cross owners.
+    const stateFile = path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json');
+    const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
+      claims: Array<{ claim_id: string; agent_id: string }>;
+      intents: Array<{ intent_id: string; claim_ids: string[] }>;
+    };
+    const bClaim = raw.claims.find((c) => c.agent_id === 'agent-b')!;
+    const aIntent = raw.intents.find((i) => i.intent_id === bulkA.intent_id)!;
+    aIntent.claim_ids.push(bClaim.claim_id);
+    fs.writeFileSync(stateFile, JSON.stringify(raw, null, 2), 'utf8');
+
+    const result = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: bulkA.intent_id!,
+      gitRunner: cleanGitRunner(),
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.released_claims).toHaveLength(1);
+    expect(result.released_claims[0].path).toBe('src/a.ts');
+    expect(result.warnings.some((w) => w.includes('another agent'))).toBe(true);
+
+    // agent-b's claim is untouched.
+    const active = listFileClaims(repo.repoRoot);
+    expect(active).toHaveLength(1);
+    expect(active[0].agent_id).toBe('agent-b');
+    expect(active[0].path).toBe('src/b.ts');
+  });
+
+  test('releasing one intent does not release another intent claims', () => {
+    build(repo.repoRoot, 'agent-a');
+    const first = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'first',
+      paths: ['src/a.ts'],
+    });
+    const second = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'second',
+      paths: ['src/b.ts'],
+    });
+
+    releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: first.intent_id!,
+      gitRunner: cleanGitRunner(),
+    });
+
+    const active = listFileClaims(repo.repoRoot);
+    expect(active).toHaveLength(1);
+    expect(active[0].path).toBe('src/b.ts');
+    const intents = listClaimIntents(repo.repoRoot);
+    expect(intents.find((i) => i.intent_id === first.intent_id)?.status).toBe('released');
+    expect(intents.find((i) => i.intent_id === second.intent_id)?.status).toBe('active');
+  });
+
+  test('same-agent path overlap: only the claim-owning intent releases coverage', () => {
+    build(repo.repoRoot, 'agent-a');
+    const first = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'first',
+      paths: ['src/shared.ts'],
+    });
+    // Second intent declares the same path: idempotent already-owned — the
+    // claim stays attached to the FIRST intent only.
+    const second = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'second',
+      paths: ['src/shared.ts', 'src/other.ts'],
+    });
+    expect(second.already_owned_paths).toContain('src/shared.ts');
+
+    // Releasing the first intent releases the shared claim coverage, even
+    // though the second intent also lists the path (it never owned the claim).
+    const releaseFirst = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: first.intent_id!,
+      gitRunner: cleanGitRunner(),
+    });
+    expect(releaseFirst.status).toBe('ok');
+    expect(releaseFirst.released_claims.map((c) => c.path)).toEqual(['src/shared.ts']);
+
+    // The second intent still works and releases only its own claim — it does
+    // NOT own (or re-release) the shared path's claim. Fails safe: the shared
+    // path is simply unclaimed now.
+    const releaseSecond = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: second.intent_id!,
+      gitRunner: cleanGitRunner(),
+    });
+    expect(releaseSecond.status).toBe('ok');
+    expect(releaseSecond.released_claims.map((c) => c.path)).toEqual(['src/other.ts']);
+    expect(listFileClaims(repo.repoRoot)).toHaveLength(0);
   });
 });

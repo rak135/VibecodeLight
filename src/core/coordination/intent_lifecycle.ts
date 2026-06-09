@@ -1,8 +1,7 @@
 import { findIntent } from './claim_intents.js';
-import { releaseFileClaim } from './claims.js';
 import { CoordinationError } from './errors.js';
 import { loadCoordinationState, writeCoordinationState } from './state.js';
-import type { ClaimIntent, FileClaim } from './types.js';
+import type { FileClaim } from './types.js';
 import {
   getGitChangedFiles,
 } from '../workspace/git_changed_files.js';
@@ -181,6 +180,15 @@ export interface IntentReleaseResult {
   checked_at: string;
 }
 
+/** Outcome of the dirty-claimed-paths check. Fails CLOSED: when git changed
+ * files cannot be determined (`ok: false`), release must block — an unknown
+ * dirty state never authorizes a release. */
+interface DirtyClaimedPathsOutcome {
+  ok: boolean;
+  dirty_paths: string[];
+  warnings: string[];
+}
+
 /**
  * Find dirty files that overlap with the given paths.
  *
@@ -191,9 +199,11 @@ function getDirtyClaimedPaths(
   repoRoot: string,
   claimedPaths: string[],
   gitRunner: GitReadOnlyRunner,
-): string[] {
+): DirtyClaimedPathsOutcome {
   const changed = getGitChangedFiles(repoRoot, gitRunner);
-  if (!changed.ok) return [];
+  if (!changed.ok) {
+    return { ok: false, dirty_paths: [], warnings: changed.warnings };
+  }
 
   const dirtyPaths = new Set(changed.files.map((f) => f.path));
   const result: string[] = [];
@@ -206,15 +216,18 @@ function getDirtyClaimedPaths(
       }
     }
   }
-  return [...new Set(result)];
+  return { ok: true, dirty_paths: [...new Set(result)], warnings: [] };
 }
 
 /**
  * Dry-run or execute release of all active claims belonging to a work intent.
  *
  * Same-agent only. Blocked when any currently-claimed path in the intent is
- * dirty in the working tree. Releases all active claims belonging to the intent
- * and marks the intent as released. Does not delete the intent record.
+ * dirty in the working tree, and blocked (fail-closed) when git changed-file
+ * detection is unavailable — an unverifiable dirty state never authorizes a
+ * release. On a clean release, all of the intent's own active claims and the
+ * intent status are updated in ONE state write. Does not delete the intent
+ * record.
  */
 export function releaseClaimIntent(input: IntentReleaseInput): IntentReleaseResult {
   const now = input.now ?? new Date().toISOString();
@@ -267,19 +280,56 @@ export function releaseClaimIntent(input: IntentReleaseInput): IntentReleaseResu
     };
   }
 
-  // Find active claims for this intent.
+  // Find active claims for this intent. Defensive ownership filter: an intent
+  // can only ever reference its owning agent's claims through bulk_claims, but
+  // hand-edited/inconsistent state must never let an intent release a claim
+  // owned by another agent — such claims are skipped and surfaced as warnings.
   const claimIds = new Set(intent.claim_ids);
   const intentClaims = (state.claims as FileClaim[]).filter((c) => claimIds.has(c.claim_id));
-  const activeClaims = intentClaims.filter((c) => c.status === 'active');
+  const activeClaims = intentClaims.filter(
+    (c) => c.status === 'active' && c.agent_id === input.agent_id,
+  );
   const alreadyReleased = intentClaims.filter((c) => c.status === 'released');
+  const foreignClaims = intentClaims.filter((c) => c.agent_id !== input.agent_id);
+  const foreignWarnings = foreignClaims.length > 0
+    ? [
+        `Intent references ${foreignClaims.length} claim(s) owned by another agent; they were not released.`,
+      ]
+    : [];
 
-  // Check for dirty files among the intent's claimed paths.
-  const dirtyPaths = getDirtyClaimedPaths(
+  // Check for dirty files among the intent's claimed paths. Fails CLOSED: when
+  // git changed files cannot be determined, the dirty state of the claimed
+  // paths is unknown and release must block (zero mutation).
+  const dirtyCheck = getDirtyClaimedPaths(
     input.repoRoot,
     intent.paths,
     gitRunner,
   );
 
+  if (!dirtyCheck.ok) {
+    return {
+      agent_id: input.agent_id,
+      intent_id: input.intent_id,
+      dry_run: isDryRun,
+      release_allowed: false,
+      status: 'blocked',
+      intent_status: 'active',
+      released_claims: [],
+      already_released_claims: alreadyReleased.map((c) => ({ claim_id: c.claim_id, path: c.path })),
+      dirty_claimed_paths: [],
+      blocked_reason: 'git_unavailable',
+      warnings: [
+        'Release blocked: git changed-file detection is unavailable, so the dirty state of the claimed paths cannot be verified.',
+        ...dirtyCheck.warnings,
+      ],
+      recommended_cli_commands: [
+        `vibecode git changes --agent ${input.agent_id} --json`,
+      ],
+      checked_at: now,
+    };
+  }
+
+  const dirtyPaths = dirtyCheck.dirty_paths;
   if (dirtyPaths.length > 0) {
     return {
       agent_id: input.agent_id,
@@ -317,7 +367,7 @@ export function releaseClaimIntent(input: IntentReleaseInput): IntentReleaseResu
       already_released_claims: alreadyReleased.map((c) => ({ claim_id: c.claim_id, path: c.path })),
       dirty_claimed_paths: [],
       blocked_reason: null,
-      warnings: [],
+      warnings: [...foreignWarnings],
       recommended_cli_commands: [
         `vibecode claims intent-release --agent ${input.agent_id} --intent-id ${input.intent_id} --json`,
       ],
@@ -325,17 +375,22 @@ export function releaseClaimIntent(input: IntentReleaseInput): IntentReleaseResu
     };
   }
 
-  // --- mutation: release all active claims and mark intent as released ---
-
-  // Release each active claim individually using the existing releaseFileClaim.
-  for (const claim of activeClaims) {
-    releaseFileClaim(input.repoRoot, claim.claim_id, { now });
-  }
-
-  // Mark the intent as released.
-  const nextState = loadCoordinationState(input.repoRoot, { now });
-  const updatedIntents = (nextState.intents as ClaimIntent[]).map((i) =>
-    i.intent_id === input.intent_id
+  // --- mutation: release the intent's own active claims and mark the intent
+  // released in a SINGLE state write (mirrors the Phase 2A bulk-claim
+  // guarantee — no transient partial state if the process dies mid-release) ---
+  const releaseIds = new Set(activeClaims.map((c) => c.claim_id));
+  const claims = state.claims.map((c) =>
+    releaseIds.has(c.claim_id)
+      ? { ...c, status: 'released' as const, released_at: c.released_at ?? now }
+      : c,
+  );
+  const agents = state.agents.map((agent) =>
+    agent.agent_id === input.agent_id
+      ? { ...agent, claims: agent.claims.filter((id) => !releaseIds.has(id)) }
+      : agent,
+  );
+  const intents = state.intents.map((i) =>
+    i.intent_id === intent.intent_id
       ? {
           ...i,
           status: 'released' as const,
@@ -347,9 +402,11 @@ export function releaseClaimIntent(input: IntentReleaseInput): IntentReleaseResu
   );
 
   writeCoordinationState(input.repoRoot, {
-    ...nextState,
+    ...state,
     last_updated: now,
-    intents: updatedIntents,
+    agents,
+    claims,
+    intents,
   });
 
   return {
@@ -363,9 +420,12 @@ export function releaseClaimIntent(input: IntentReleaseInput): IntentReleaseResu
     already_released_claims: alreadyReleased.map((c) => ({ claim_id: c.claim_id, path: c.path })),
     dirty_claimed_paths: [],
     blocked_reason: null,
-    warnings: activeClaims.length === 0
-      ? ['No active claims to release; intent had only already-released claims.']
-      : [],
+    warnings: [
+      ...(activeClaims.length === 0
+        ? ['No active claims to release; intent had only already-released claims.']
+        : []),
+      ...foreignWarnings,
+    ],
     recommended_cli_commands: [
       `vibecode session bootstrap --agent ${input.agent_id} --json`,
     ],

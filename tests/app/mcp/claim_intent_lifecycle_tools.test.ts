@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { spawnSync } from 'child_process';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
@@ -17,9 +18,27 @@ function ctx(repoRoot: string): McpServerContext {
   return { repoRoot };
 }
 
+/**
+ * MCP handlers cannot inject a git runner, so clean/dirty release behavior is
+ * exercised against a REAL `git init` working tree. A plain (non-git) temp dir
+ * is used only for the fail-closed git-unavailable test.
+ */
 function makeRepo(prefix: string): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const init = spawnSync('git', ['init', '-q'], { cwd: repoRoot, encoding: 'utf8', timeout: 30000 });
+  if (init.status !== 0) throw new Error(`git init failed: ${init.stderr}`);
   return { repoRoot, cleanup: () => fs.rmSync(repoRoot, { recursive: true, force: true }) };
+}
+
+function makeNonGitDir(prefix: string): { repoRoot: string; cleanup: () => void } {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return { repoRoot, cleanup: () => fs.rmSync(repoRoot, { recursive: true, force: true }) };
+}
+
+function writeFile(repoRoot: string, rel: string, content = 'x\n'): void {
+  const p = path.join(repoRoot, rel);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, content, 'utf8');
 }
 
 function build(repoRoot: string, agentId: string): void {
@@ -172,8 +191,10 @@ describe('VibecodeMCP Phase 2B claim intent release tool', () => {
     expect(intents[0].status).toBe('released');
   });
 
-  test('blocks release when claimed files are dirty', async () => {
+  test('blocks release when claimed files are dirty (real git tree)', async () => {
     build(repo.repoRoot, 'agent-a');
+    // The claimed file exists and is untracked → dirty in the working tree.
+    writeFile(repo.repoRoot, 'src/alpha.ts');
     const bulk = addBulkClaims({
       repoRoot: repo.repoRoot,
       agent_id: 'agent-a',
@@ -187,9 +208,54 @@ describe('VibecodeMCP Phase 2B claim intent release tool', () => {
       requestId: null,
     });
 
-    // Since we can't inject a git runner via MCP, this will succeed (clean tree).
-    // The dirty-file blocking is tested in core tests with a fake git runner.
+    // Blocked is an ok-envelope result with release_allowed: false.
     expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      status: string; release_allowed: boolean; blocked_reason: string | null;
+      released_claims: unknown[]; dirty_claimed_paths: string[];
+    };
+    expect(data.status).toBe('blocked');
+    expect(data.release_allowed).toBe(false);
+    expect(data.blocked_reason).toBe('dirty_claimed_files');
+    expect(data.dirty_claimed_paths).toEqual(['src/alpha.ts']);
+    expect(data.released_claims).toHaveLength(0);
+
+    // Intent stays active.
+    const intents = loadCoordinationState(repo.repoRoot).intents as unknown as Array<{ status: string }>;
+    expect(intents[0].status).toBe('active');
+  });
+
+  test('blocks release fail-closed when git is unavailable (non-git workspace)', async () => {
+    const nonGit = makeNonGitDir('vibecode-intent-rel-nogit-');
+    try {
+      build(nonGit.repoRoot, 'agent-a');
+      const bulk = addBulkClaims({
+        repoRoot: nonGit.repoRoot,
+        agent_id: 'agent-a',
+        intent: 'work without git',
+        paths: ['src/alpha.ts'],
+      });
+
+      const result = await buildClaimIntentReleaseTool().handler({
+        context: ctx(nonGit.repoRoot),
+        arguments: { agent_id: 'agent-a', intent_id: bulk.intent_id! },
+        requestId: null,
+      });
+
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as {
+        status: string; release_allowed: boolean; blocked_reason: string | null; released_claims: unknown[];
+      };
+      expect(data.status).toBe('blocked');
+      expect(data.release_allowed).toBe(false);
+      expect(data.blocked_reason).toBe('git_unavailable');
+      expect(data.released_claims).toHaveLength(0);
+
+      const intents = loadCoordinationState(nonGit.repoRoot).intents as unknown as Array<{ status: string }>;
+      expect(intents[0].status).toBe('active');
+    } finally {
+      nonGit.cleanup();
+    }
   });
 
   test('blocks release for another agent intent', async () => {

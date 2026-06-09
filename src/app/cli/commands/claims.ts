@@ -303,12 +303,43 @@ export function registerClaimsCommands(
     .option('--json', 'Output canonical JSON envelope')
     .action((options: { repo: string; agent?: string; status?: string; intentId?: string; maxItems?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
+      // Strict option validation, mirroring the MCP schema: status is a fixed
+      // enum, max-items a positive integer. Invalid values must error, never
+      // silently return an empty list.
+      const status = options.status ?? 'active';
+      if (status !== 'active' && status !== 'released' && status !== 'all') {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            'INVALID_ARGUMENT',
+            `--status must be one of: active | released | all (got ${JSON.stringify(options.status)}).`,
+            repoRoot,
+          ),
+          { json: options.json, prefix: 'claims intents list failed' },
+        );
+        return;
+      }
+      let maxItems: number | undefined;
+      if (options.maxItems !== undefined) {
+        const parsed = Number(options.maxItems);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_ARGUMENT',
+              `--max-items must be a positive integer (got ${JSON.stringify(options.maxItems)}).`,
+              repoRoot,
+            ),
+            { json: options.json, prefix: 'claims intents list failed' },
+          );
+          return;
+        }
+        maxItems = parsed;
+      }
       try {
         const result = listClaimIntentsDetail(repoRoot, {
           agent_id: options.agent,
-          status: (options.status ?? 'active') as 'active' | 'released' | 'all',
+          status,
           intent_id: options.intentId,
-          max_items: options.maxItems ? Number(options.maxItems) : undefined,
+          max_items: maxItems,
         });
         if (options.json) {
           console.log(JSON.stringify({ ok: true, data: result, artifacts: [], warnings: result.warnings }));

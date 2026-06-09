@@ -34,14 +34,22 @@ function cleanGitRunner(): GitReadOnlyRunner {
   };
 }
 
+// Real `--porcelain=v1 -z` output is NUL-separated (one NUL after each entry).
+const NUL = String.fromCharCode(0);
+
 function dirtyGitRunner(dirtyPaths: string[]): GitReadOnlyRunner {
   return (args: string[]) => {
     if (args[0] === 'rev-parse') return { ok: true, stdout: 'abc123', stderr: '', exitCode: 0 };
     if (args[0] === 'status') {
-      return { ok: true, stdout: dirtyPaths.map((p) => ` M ${p}`).join('\n'), stderr: '', exitCode: 0 };
+      const out = dirtyPaths.map((p) => ` M ${p}${NUL}`).join('');
+      return { ok: true, stdout: out, stderr: '', exitCode: 0 };
     }
     return { ok: true, stdout: '', stderr: '', exitCode: 0 };
   };
+}
+
+function unavailableGitRunner(): GitReadOnlyRunner {
+  return () => ({ ok: false, stdout: '', stderr: 'fatal: not a git repository', exitCode: 128 });
 }
 
 describe('Phase 2B — full lifecycle integration', () => {
@@ -152,6 +160,39 @@ describe('Phase 2B — full lifecycle integration', () => {
     });
     expect(cleanRelease.status).toBe('ok');
     expect(cleanRelease.released_claims).toHaveLength(1);
+  });
+
+  test('fail-closed lifecycle: git unavailable blocks release until git works again', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent: 'work without git',
+      paths: ['src/gamma.ts'],
+    });
+
+    // Git unavailable: dirty state unknown → release blocked, zero mutation.
+    const blocked = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: bulk.intent_id!,
+      gitRunner: unavailableGitRunner(),
+    });
+    expect(blocked.release_allowed).toBe(false);
+    expect(blocked.blocked_reason).toBe('git_unavailable');
+    expect(blocked.released_claims).toHaveLength(0);
+    expect(listClaimIntents(repo.repoRoot)[0].status).toBe('active');
+    expect(listFileClaims(repo.repoRoot)).toHaveLength(1);
+
+    // Git available again with a clean tree → release succeeds.
+    const released = releaseClaimIntent({
+      repoRoot: repo.repoRoot,
+      agent_id: 'agent-a',
+      intent_id: bulk.intent_id!,
+      gitRunner: cleanGitRunner(),
+    });
+    expect(released.status).toBe('ok');
+    expect(released.released_claims).toHaveLength(1);
   });
 
   test('two-agent safety: Agent A owns intent, Agent B cannot release it', () => {
