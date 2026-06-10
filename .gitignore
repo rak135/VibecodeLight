@@ -52,6 +52,7 @@ Thumbs.db
 Desktop.ini
 .vscode/
 .idea/
+opencode.json
 
 # Temporary files
 tmp/
