@@ -4,7 +4,8 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { registerAgent } from '../../../src/core/coordination/agents.js';
+import { registerAgent, markAgentTerminated } from '../../../src/core/coordination/agents.js';
+import { HEARTBEAT_TTL_MS } from '../../../src/core/coordination/heartbeat.js';
 import { addFileClaim, listFileClaims, releaseFileClaim } from '../../../src/core/coordination/claims.js';
 import { addBulkClaims, listClaimIntents } from '../../../src/core/coordination/bulk_claims.js';
 import {
@@ -194,6 +195,95 @@ describe('Phase 2B — listClaimIntentsDetail', () => {
     const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
     expect(result.intents).toHaveLength(1);
     expect(result.intents[0].agent_id).toBe('agent-a');
+  });
+
+  // Phase 2C — owner/claim lifecycle visibility.
+
+  test('intent owned by an active agent reports owning_agent_status=active and no warning codes', () => {
+    build(repo.repoRoot, 'agent-a');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
+    expect(result.intents[0].owning_agent_status).toBe('active');
+    expect(result.intents[0].warning_codes).toEqual([]);
+    expect(result.intents[0].missing_claim_count).toBe(0);
+  });
+
+  test('intent owned by a stale agent reports stale owner with INTENT_OWNER_STALE', () => {
+    const t0 = '2026-06-10T00:00:00.000Z';
+    build(repo.repoRoot, 'agent-a', t0);
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'], now: t0 });
+
+    const later = new Date(Date.parse(t0) + HEARTBEAT_TTL_MS + 60_000).toISOString();
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a', now: later });
+    expect(result.intents[0].owning_agent_status).toBe('stale');
+    expect(result.intents[0].warning_codes).toContain('INTENT_OWNER_STALE');
+  });
+
+  test('intent owned by a terminated agent reports terminated owner with INTENT_OWNER_TERMINATED', () => {
+    build(repo.repoRoot, 'agent-a');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+    markAgentTerminated(repo.repoRoot, 'agent-a');
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
+    expect(result.intents[0].owning_agent_status).toBe('terminated');
+    expect(result.intents[0].warning_codes).toContain('INTENT_OWNER_TERMINATED');
+  });
+
+  test('intent whose owner is not in state reports missing owner with INTENT_OWNER_MISSING', () => {
+    build(repo.repoRoot, 'agent-a');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+
+    // Hand-edit state: remove the owning agent (inconsistent generated state).
+    const stateFile = path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json');
+    const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as { agents: unknown[] };
+    raw.agents = [];
+    fs.writeFileSync(stateFile, JSON.stringify(raw, null, 2), 'utf8');
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
+    expect(result.intents[0].owning_agent_status).toBe('missing');
+    expect(result.intents[0].warning_codes).toContain('INTENT_OWNER_MISSING');
+  });
+
+  test('active intent with zero active claims warns INTENT_HAS_NO_ACTIVE_CLAIMS', () => {
+    build(repo.repoRoot, 'agent-a');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+    // Release the claim directly (not by intent), leaving the intent active.
+    const claim = listFileClaims(repo.repoRoot)[0];
+    releaseFileClaim(repo.repoRoot, claim.claim_id);
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
+    expect(result.intents[0].status).toBe('active');
+    expect(result.intents[0].active_claim_count).toBe(0);
+    expect(result.intents[0].warning_codes).toContain('INTENT_HAS_NO_ACTIVE_CLAIMS');
+  });
+
+  test('released intent does not warn INTENT_HAS_NO_ACTIVE_CLAIMS', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+    releaseClaimIntent({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent_id: bulk.intent_id!, gitRunner: cleanGitRunner() });
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a', status: 'released' });
+    expect(result.intents[0].warning_codes).not.toContain('INTENT_HAS_NO_ACTIVE_CLAIMS');
+  });
+
+  test('intent referencing missing claim ids reports missing_claim_count and INTENT_REFERENCES_MISSING_CLAIMS', () => {
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+
+    // Hand-edit state: reference a claim id that does not exist.
+    const stateFile = path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json');
+    const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
+      intents: Array<{ intent_id: string; claim_ids: string[] }>;
+    };
+    raw.intents.find((i) => i.intent_id === bulk.intent_id)!.claim_ids.push('claim-ghost');
+    fs.writeFileSync(stateFile, JSON.stringify(raw, null, 2), 'utf8');
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
+    expect(result.intents[0].missing_claim_count).toBe(1);
+    expect(result.intents[0].warning_codes).toContain('INTENT_REFERENCES_MISSING_CLAIMS');
+    // The intent still has its real active claim.
+    expect(result.intents[0].active_claim_count).toBe(1);
   });
 
   test('old state without intents returns empty', () => {

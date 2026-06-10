@@ -10,7 +10,7 @@ import {
   buildAgentsListTool,
   buildAgentStatusTool,
 } from '../../../src/app/mcp/tools/agents.js';
-import { registerAgent } from '../../../src/core/coordination/agents.js';
+import { registerAgent, markAgentTerminated } from '../../../src/core/coordination/agents.js';
 import type { McpServerContext } from '../../../src/app/mcp/index.js';
 
 function ctx(repoRoot: string): McpServerContext {
@@ -72,6 +72,57 @@ describe('VibecodeMCP agent tools', () => {
     const agent = (result.structuredContent.data as { agent: { agent_id: string; status: string } }).agent;
     expect(agent.agent_id).toBe(session.agent_id);
     expect(agent.status).toBe('active');
+  });
+
+  test('vibecode_agent_heartbeat includes was_stale and heartbeat_at (Phase 2C)', async () => {
+    const session = registerAgent(repo.repoRoot, {
+      agent_name: 'A',
+      agent_type: 'codex',
+      metadata: { operating_mode: 'build', task: 'feature work' },
+    });
+    const tool = buildAgentHeartbeatTool();
+    const result = await tool.handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: session.agent_id },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      agent: { last_heartbeat_at: string; metadata: Record<string, unknown> };
+      was_stale: boolean;
+      heartbeat_at: string;
+    };
+    expect(data.was_stale).toBe(false);
+    expect(data.heartbeat_at).toBe(data.agent.last_heartbeat_at);
+    // Heartbeat never changes mode/task.
+    expect(data.agent.metadata).toEqual({ operating_mode: 'build', task: 'feature work' });
+  });
+
+  test('vibecode_agent_heartbeat blocks a terminated agent with AGENT_TERMINATED (Phase 2C)', async () => {
+    const session = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
+    markAgentTerminated(repo.repoRoot, session.agent_id);
+    const tool = buildAgentHeartbeatTool();
+    const result = await tool.handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: session.agent_id },
+      requestId: null,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent.error?.code).toBe('AGENT_TERMINATED');
+  });
+
+  test('vibecode_agent_heartbeat rejects unknown fields — no mode/task changes through heartbeat (Phase 2C)', async () => {
+    const session = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'codex' });
+    const tool = buildAgentHeartbeatTool();
+    for (const extra of [{ task: 'new task' }, { agent_mode: 'build' }, { mode: 'read_only' }]) {
+      const result = await tool.handler({
+        context: ctx(repo.repoRoot),
+        arguments: { agent_id: session.agent_id, ...extra },
+        requestId: null,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+    }
   });
 
   test('vibecode_agent_status returns exactly one agent', async () => {

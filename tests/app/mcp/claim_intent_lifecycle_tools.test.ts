@@ -9,7 +9,7 @@ import {
   buildClaimIntentsListTool,
   buildClaimIntentReleaseTool,
 } from '../../../src/app/mcp/tools/claim_intent_lifecycle.js';
-import { registerAgent } from '../../../src/core/coordination/agents.js';
+import { registerAgent, markAgentTerminated } from '../../../src/core/coordination/agents.js';
 import { addBulkClaims } from '../../../src/core/coordination/bulk_claims.js';
 import { loadCoordinationState } from '../../../src/core/coordination/state.js';
 import type { McpServerContext } from '../../../src/app/mcp/index.js';
@@ -107,6 +107,42 @@ describe('VibecodeMCP Phase 2B claim intents list tool', () => {
     });
     expect(result.isError).toBe(true);
     expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+  });
+
+  test('includes owner lifecycle fields (Phase 2C)', async () => {
+    build(repo.repoRoot, 'agent-a');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+
+    const result = await buildClaimIntentsListTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-a' },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      intents: Array<{ owning_agent_status: string; warning_codes: string[]; missing_claim_count: number }>;
+    };
+    expect(data.intents[0].owning_agent_status).toBe('active');
+    expect(data.intents[0].warning_codes).toEqual([]);
+    expect(data.intents[0].missing_claim_count).toBe(0);
+  });
+
+  test('surfaces a terminated owner with INTENT_OWNER_TERMINATED (Phase 2C)', async () => {
+    build(repo.repoRoot, 'agent-a');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+    markAgentTerminated(repo.repoRoot, 'agent-a');
+
+    const result = await buildClaimIntentsListTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-a' },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      intents: Array<{ owning_agent_status: string; warning_codes: string[] }>;
+    };
+    expect(data.intents[0].owning_agent_status).toBe('terminated');
+    expect(data.intents[0].warning_codes).toContain('INTENT_OWNER_TERMINATED');
   });
 
   test('filters by status', async () => {

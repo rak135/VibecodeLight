@@ -1,7 +1,12 @@
 import { findIntent } from './claim_intents.js';
 import { CoordinationError } from './errors.js';
+import { computeAgentStatus, HEARTBEAT_TTL_MS } from './heartbeat.js';
 import { loadCoordinationState, writeCoordinationState } from './state.js';
-import type { FileClaim } from './types.js';
+import {
+  computeIntentOwnerStatus,
+  type IntentOwnerStatus,
+} from './stale_coordination.js';
+import type { AgentSession, FileClaim } from './types.js';
 import {
   getGitChangedFiles,
 } from '../workspace/git_changed_files.js';
@@ -32,7 +37,20 @@ export interface IntentListFilter {
   intent_id?: string;
   /** Cap on number of intents returned. */
   max_items?: number;
+  /** Clock seam (ISO-8601) for owner stale computation. */
+  now?: string;
 }
+
+/**
+ * Phase 2C warning codes for odd-but-safe intent states. Visibility only:
+ * none of these triggers any automatic cleanup.
+ */
+export type IntentWarningCode =
+  | 'INTENT_OWNER_STALE'
+  | 'INTENT_OWNER_TERMINATED'
+  | 'INTENT_OWNER_MISSING'
+  | 'INTENT_HAS_NO_ACTIVE_CLAIMS'
+  | 'INTENT_REFERENCES_MISSING_CLAIMS';
 
 export interface IntentDetailClaim {
   claim_id: string;
@@ -45,9 +63,15 @@ export interface IntentDetail {
   agent_id: string;
   intent: string;
   status: string;
+  /** Computed (stale-aware) lifecycle status of the owning agent (Phase 2C). */
+  owning_agent_status: IntentOwnerStatus;
   claim_count: number;
   active_claim_count: number;
   released_claim_count: number;
+  /** Referenced claim ids that do not exist in state (inconsistent state; Phase 2C). */
+  missing_claim_count: number;
+  /** Phase 2C visibility warning codes for odd-but-safe states. */
+  warning_codes: IntentWarningCode[];
   paths: string[];
   /** Bounded preview of `paths`, capped at DEFAULT_INTENT_SAMPLE_PATHS entries. */
   sample_paths: string[];
@@ -80,12 +104,22 @@ export function listClaimIntentsDetail(
   repoRoot: string,
   filter: IntentListFilter = {},
 ): ListIntentsResult {
-  const state = loadCoordinationState(repoRoot);
+  const now = filter.now ?? new Date().toISOString();
+  const state = loadCoordinationState(repoRoot, { now });
   const maxItems = filter.max_items ?? Number.POSITIVE_INFINITY;
   const statusFilter = filter.status ?? 'active';
   const warnings: string[] = [];
 
   const allClaims = state.claims as FileClaim[];
+
+  // Phase 2C: computed (stale-aware) owner statuses for visibility.
+  const nowMs = Date.parse(now);
+  const agentsById = new Map<string, AgentSession>(
+    state.agents.map((a) => [
+      a.agent_id,
+      { ...a, status: computeAgentStatus(a, nowMs, HEARTBEAT_TTL_MS) },
+    ]),
+  );
 
   let intents = [...state.intents];
 
@@ -113,16 +147,32 @@ export function listClaimIntentsDetail(
     const intentClaims = allClaims.filter((c) => claimIds.has(c.claim_id));
     const activeCount = intentClaims.filter((c) => c.status === 'active').length;
     const releasedCount = intentClaims.filter((c) => c.status === 'released').length;
+    const missingClaimCount = intent.claim_ids.length - intentClaims.length;
     const samplePaths = intent.paths.slice(0, DEFAULT_INTENT_SAMPLE_PATHS);
+
+    // Phase 2C: owner/claim lifecycle visibility (warning codes are advisory —
+    // nothing here releases, reaps, or transfers anything).
+    const ownerStatus = computeIntentOwnerStatus(agentsById, intent.agent_id);
+    const warningCodes: IntentWarningCode[] = [];
+    if (ownerStatus === 'stale') warningCodes.push('INTENT_OWNER_STALE');
+    else if (ownerStatus === 'terminated') warningCodes.push('INTENT_OWNER_TERMINATED');
+    else if (ownerStatus === 'missing') warningCodes.push('INTENT_OWNER_MISSING');
+    if (intent.status === 'active' && activeCount === 0) {
+      warningCodes.push('INTENT_HAS_NO_ACTIVE_CLAIMS');
+    }
+    if (missingClaimCount > 0) warningCodes.push('INTENT_REFERENCES_MISSING_CLAIMS');
 
     return {
       intent_id: intent.intent_id,
       agent_id: intent.agent_id,
       intent: intent.intent,
       status: intent.status,
+      owning_agent_status: ownerStatus,
       claim_count: intentClaims.length,
       active_claim_count: activeCount,
       released_claim_count: releasedCount,
+      missing_claim_count: missingClaimCount,
+      warning_codes: warningCodes,
       paths: [...intent.paths],
       sample_paths: samplePaths,
       sample_truncated: samplePaths.length < intent.paths.length,

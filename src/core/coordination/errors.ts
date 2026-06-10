@@ -8,6 +8,8 @@
 
 export type CoordinationErrorCode =
   | 'AGENT_NOT_FOUND'
+  // Phase 2C: explicit heartbeat — terminated sessions are blocked, never revived.
+  | 'AGENT_TERMINATED'
   | 'INVALID_AGENT_TYPE'
   | 'INVALID_AGENT_NAME'
   | 'AGENT_NOT_ACTIVE'

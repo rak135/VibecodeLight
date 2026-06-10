@@ -69,7 +69,14 @@ function renderIntentsListText(result: ListIntentsResult): string {
   lines.push('');
   for (const intent of result.intents) {
     lines.push(`  - ${intent.intent_id} [${intent.status}] "${intent.intent}"`);
+    lines.push(`    owner: ${intent.agent_id} (${intent.owning_agent_status})`);
     lines.push(`    claims: ${intent.active_claim_count} active / ${intent.released_claim_count} released (${intent.claim_count} total)`);
+    if (intent.missing_claim_count > 0) {
+      lines.push(`    missing_claims: ${intent.missing_claim_count}`);
+    }
+    if (intent.warning_codes.length > 0) {
+      lines.push(`    warnings: ${intent.warning_codes.join(', ')}`);
+    }
     if (intent.sample_paths.length > 0) {
       lines.push(`    paths: ${intent.sample_paths.join(', ')}${intent.sample_truncated ? ' ...' : ''}`);
     }

@@ -1175,7 +1175,11 @@ vibecode_agent_status
 
 These manage a persistent agent session registry for the bound repo.
 `vibecode_agent_register` creates an `active` session; `vibecode_agent_heartbeat`
-refreshes a session's heartbeat (reviving a stale/idle session to active);
+refreshes a session's heartbeat (reviving a stale/idle session to active; a
+`terminated` session is blocked with `AGENT_TERMINATED` and the agent must
+register a new session). Heartbeat changes only the heartbeat timestamp/status
+— never mode, task, claims, or intents — and reports `was_stale` so a
+long-running agent can see it had gone stale (Phase 2C);
 `vibecode_agents_list` and `vibecode_agent_status` are read-only and report each
 session with its computed status. A session is marked `stale` (computed-only at
 read time) once its heartbeat is older than the 5-minute TTL. register and

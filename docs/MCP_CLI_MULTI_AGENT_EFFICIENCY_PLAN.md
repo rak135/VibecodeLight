@@ -2847,7 +2847,7 @@ kept; the passed `intent` text is ignored). If only `intent` text is supplied (n
 
 ### Phase 2B — claim intent lifecycle and release-by-intent
 
-Status: **implemented (with hardening follow-up); dogfood pending.**
+Status: **implemented, hardened, and dogfooded (MCP-first, 2026-06-10); closed.**
 
 Goal: once an agent can create and extend a work intent, it must be able to see
 its active intents, inspect which claims belong to each, and safely release all
@@ -2924,6 +2924,204 @@ After Phase 2B: **41 tools** (was 39 after Phase 2A).
 - No force release of dirty files.
 - No handoff between agents.
 - No orchestration or subagents.
+
+## 14G. Phase 2C — agent lifecycle heartbeat and stale coordination housekeeping (Implemented)
+
+This section records what was built to improve the lifecycle around active
+agents, stale agents, stale claims, and active work intents. It is **still
+coordination and guidance — not orchestration**: Vibecode surfaces stale
+coordination state and provides explicit safe commands; it never cleans up
+another agent's work, never auto-releases, never auto-reaps, and never
+transfers ownership.
+
+### Motivation (from the Phase 2A/2B dogfoods)
+
+- Long sessions suffered heartbeat staleness: an agent had no small explicit
+  way to stay fresh without re-bootstrapping.
+- Old stale claims from dead agents were visible in bootstrap but only as
+  noise — bootstrap did not explain them or recommend the right cleanup
+  commands.
+- Active intents could be owned by stale/terminated/missing agents (or have
+  zero active claims left) with no visibility into that state.
+
+### Part A — explicit agent heartbeat (existing tool reused + hardened)
+
+**No new MCP tool was added.** The existing `vibecode_agent_heartbeat` MCP tool
+and `vibecode agents heartbeat --agent <agent_id> --json` CLI command (Phase
+Coordination-2) are the explicit heartbeat path; Phase 2C hardened them:
+
+- Core `heartbeatAgentDetailed` (new, in `core/coordination/agents.ts`) is the
+  single source of truth; `heartbeatAgent` is a thin wrapper over it. Both the
+  MCP tool and the CLI command call it, so MCP/CLI stay in parity.
+- A **terminated agent is blocked** with `AGENT_TERMINATED` (new core
+  `CoordinationError` code, mapped to the existing MCP `AGENT_TERMINATED`
+  error and the CLI structured-error envelope). The message instructs
+  registering a new agent. Previously a terminated session would have been
+  silently revived.
+- A missing agent stays a structured `AGENT_NOT_FOUND` error (never an
+  implicit registration).
+- Heartbeat changes ONLY `last_heartbeat_at` and `status` — mode/task
+  metadata, claims, intents, conflicts, and identity fields are untouched
+  (tested). The MCP schema accepts only `agent_id`; mode/task fields are
+  rejected as unknown keys.
+- `read_only` and `build` agents can both heartbeat; legacy/no-mode sessions
+  follow the existing lifecycle semantics (heartbeat does not validate mode).
+- Output now includes `was_stale`, `previous_status`, and `heartbeat_at`; a
+  revived (`was_stale: true`) agent is recommended `vibecode_session_bootstrap`
+  to re-orient.
+- No background heartbeat daemon or worker was introduced — heartbeat remains
+  an explicit agent action.
+
+### Part B — bootstrap `stale_coordination` summary
+
+`session_bootstrap` (MCP + CLI) returns a new bounded, read-only
+`stale_coordination` section built by the new core module
+`core/coordination/stale_coordination.ts` (`summarizeStaleCoordination`):
+
+```json
+{
+  "has_stale_state": true,
+  "stale_agents_count": 1,
+  "stale_active_claims_count": 3,
+  "active_intents_owned_by_stale_agents_count": 1,
+  "active_intents_owned_by_terminated_agents_count": 0,
+  "active_intents_owned_by_missing_agents_count": 0,
+  "active_intents_with_no_active_claims_count": 0,
+  "samples": {
+    "stale_agents": [],
+    "stale_claims": [],
+    "stale_intents": [],
+    "intents_with_no_active_claims": []
+  },
+  "samples_truncated": false,
+  "recommended_cli_commands": [
+    "vibecode claims list --json",
+    "vibecode claims reap --dry-run --json",
+    "vibecode agents heartbeat --agent <agent_id> --json",
+    "vibecode claims intents list --agent <agent_id> --status active --json"
+  ]
+}
+```
+
+Guarantees:
+
+- Counts are computed over ALL agents/claims/intents; only the `samples` lists
+  are capped (by `max_items`), with `samples_truncated` set when capped. No
+  count is ever derived from a capped sample.
+- "Stale active claim" = claim with computed status `stale` (persisted active,
+  owner stale/terminated). Intent owner statuses distinguish
+  `active` / `stale` / `terminated` / `missing` (missing = inconsistent state;
+  `unknown` heartbeats are treated as stale).
+- When nothing is stale, the section is compact (zeros, empty samples, no
+  recommended commands) and bootstrap stays quiet.
+- When stale state exists, bootstrap adds ONE bounded
+  `STALE_COORDINATION_STATE` warning, appends the explicit housekeeping
+  commands to `recommended_cli_commands`, appends
+  `vibecode_claims_list` / `vibecode_claims_reap` (and
+  `vibecode_agent_heartbeat` for a registered agent) to
+  `recommended_next_tools`, and recommends the `coordination_housekeeping`
+  tool profile.
+- The summary is read-only: no reap, no release, no force release, no
+  ownership transfer, no git/scanner/source access. It never recommends an
+  `intent-release` for stale state (release is same-agent only) and never
+  implies one agent may release another agent's active intent.
+
+### Part C — intent list owner/claim lifecycle visibility
+
+`listClaimIntentsDetail` (→ MCP `vibecode_claim_intents_list`, CLI
+`vibecode claims intents list`) gained per-intent lifecycle fields:
+
+- `owning_agent_status`: `active` | `stale` | `terminated` | `missing`
+  (computed stale-aware; shared mapping with the bootstrap summary).
+- `missing_claim_count`: referenced claim ids that do not exist in state.
+- `warning_codes` (advisory only — nothing triggers automatic cleanup):
+  `INTENT_OWNER_STALE`, `INTENT_OWNER_TERMINATED`, `INTENT_OWNER_MISSING`,
+  `INTENT_HAS_NO_ACTIVE_CLAIMS` (active intents only — released intents
+  naturally have no active claims), `INTENT_REFERENCES_MISSING_CLAIMS`.
+- The existing `active_claim_count` / `released_claim_count`, bounded
+  `sample_paths`, default released-intent exclusion, and Phase 2B list
+  semantics are unchanged. **No `--owner-status` filter was added** —
+  per the plan, visibility beats over-filtering and the extra filter would
+  only add validation noise.
+
+### Part D — `coordination_housekeeping` tool profile
+
+A new static deterministic profile (Phase 1B-3 framework; profile count 7 → 8)
+guiding agents when bootstrap reports stale coordination state:
+
+- heartbeat your OWN agent during long work
+  (`vibecode agents heartbeat --agent <agent_id> --json`);
+- inspect intents/claims (`claims intents list`, `claims list`);
+- dry-run then explicitly apply stale-claim reap
+  (`vibecode claims reap --dry-run --json`, then `--json`);
+- release by intent ONLY for your own clean intents (dry-run first).
+
+Profile warnings: never release another agent's intent; no force/automatic
+cleanup exists; do not edit unclaimed files; never hand-edit
+`.vibecode/coordination/state.json`; use the CLI fallback when MCP is
+unavailable. The profile-vs-registry test cross-checks every referenced MCP
+tool name, and `workspace_info` / `vibecode tools profile` pick the new
+profile up automatically. `recommendBootstrapToolProfiles` gained a
+`hasStaleCoordination` context flag.
+
+### MCP tool count
+
+**Unchanged: 41.** Phase 2C reused the existing heartbeat tool, so no
+registry/schema/config/docs lockstep lists changed.
+
+### Example workflow
+
+```powershell
+# during a long agent session
+vibecode agents heartbeat --agent <agent_id> --json
+
+# when bootstrap reports stale coordination noise
+vibecode tools profile --profile coordination_housekeeping --json
+vibecode claims intents list --agent <agent_id> --status active --json
+vibecode claims list --json
+vibecode claims reap --dry-run --json
+```
+
+### Tests proving behavior
+
+- `tests/core/coordination/agents.test.ts` — terminated heartbeat blocked +
+  zero mutation, heartbeat-only field changes (metadata/claims untouched),
+  state arrays untouched, read_only + build both heartbeat,
+  `heartbeatAgentDetailed` was_stale/previous_status, missing agent.
+- `tests/app/mcp/agent_tools.test.ts` / `tests/app/cli/agents_commands.test.ts`
+  — was_stale/heartbeat_at in output, AGENT_TERMINATED mapping, missing agent,
+  unknown-field rejection (no mode/task change through heartbeat), no metadata
+  drift.
+- `tests/core/coordination/stale_coordination.test.ts` — owner-status mapping,
+  full-count vs capped-sample boundedness, terminated/missing separation,
+  claimless active intents, released intents ignored, no cross-agent release
+  recommendation, no heartbeat recommendation without a current agent.
+- `tests/core/agent_session/bootstrap_stale_coordination.test.ts` — compact
+  clean bootstrap, stale agent/claim/intent summary + STALE_COORDINATION_STATE
+  warning + housekeeping profile recommendation, terminated vs stale owners,
+  own claimless intent surfaced, bootstrap never releases another agent's
+  intent (and same-agent release stays enforced), long-session heartbeat
+  revival leaves claims/intents unchanged.
+- `tests/core/coordination/intent_lifecycle.test.ts` — owner status
+  active/stale/terminated/missing, claimless-active warning, released intents
+  not warned, missing claim refs counted + warned.
+- `tests/app/mcp/claim_intent_lifecycle_tools.test.ts` /
+  `tests/app/cli/claim_intent_lifecycle_commands.test.ts` — owner lifecycle
+  fields over MCP/CLI, terminated owner surfaced.
+- `tests/core/agent_guidance/tool_profiles.test.ts` — coordination_housekeeping
+  exists, references real tools/commands, warns against cross-agent release /
+  force cleanup / raw state edits, recommendation flag.
+- `tests/app/mcp/session_bootstrap_tool.test.ts` — stale_coordination over MCP.
+
+### Known limitations
+
+- No background heartbeat daemon or worker — heartbeat is an explicit call.
+- No orchestration, no handoff, no ownership transfer, no notice board.
+- No auto-release, no auto-reap, no force release — claim reap remains an
+  explicit, dry-run-first command.
+- Cross-process coordination state write races are unchanged (last write
+  wins on `state.json`).
+- Stale detection still derives purely from the 5-minute heartbeat TTL.
 
 ## 14. Appendix  Open Questions
 

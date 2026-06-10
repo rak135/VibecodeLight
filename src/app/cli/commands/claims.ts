@@ -494,7 +494,14 @@ function printIntentsListHuman(result: ListIntentsResult): void {
   console.log(`intents: ${result.intents.length}`);
   for (const intent of result.intents) {
     console.log(`  ${intent.intent_id} [${intent.status}] "${intent.intent}"`);
+    console.log(`    owner: ${intent.agent_id} (${intent.owning_agent_status})`);
     console.log(`    claims: ${intent.active_claim_count} active / ${intent.released_claim_count} released (${intent.claim_count} total)`);
+    if (intent.missing_claim_count > 0) {
+      console.log(`    missing_claims: ${intent.missing_claim_count}`);
+    }
+    if (intent.warning_codes.length > 0) {
+      console.log(`    warnings: ${intent.warning_codes.join(', ')}`);
+    }
     if (intent.sample_paths.length > 0) {
       console.log(`    paths: ${intent.sample_paths.join(', ')}${intent.sample_truncated ? ' ...' : ''}`);
     }

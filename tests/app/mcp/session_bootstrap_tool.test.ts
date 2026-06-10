@@ -74,6 +74,31 @@ describe('VibecodeMCP session_bootstrap tool', () => {
     expect(data.codegraph).toMatchObject({ available: false, initialized: false });
   });
 
+  test('includes a compact stale_coordination summary (Phase 2C)', async () => {
+    // Clean repo: compact, no stale state, no housekeeping recommendation.
+    const clean = await tool().handler({ context: ctx(repo.repoRoot), arguments: {}, requestId: null });
+    const cleanData = clean.structuredContent.data as SessionBootstrapResult;
+    expect(cleanData.stale_coordination.has_stale_state).toBe(false);
+    expect(cleanData.stale_coordination.recommended_cli_commands).toEqual([]);
+
+    // Seed an agent whose heartbeat is far in the past (stale by TTL).
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'Old', agent_type: 'opencode', metadata: { operating_mode: 'build', task: 'old work' } },
+      { agentId: 'agent-old', now: '2020-01-01T00:00:00.000Z' },
+    );
+
+    const result = await tool().handler({ context: ctx(repo.repoRoot), arguments: {}, requestId: null });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as SessionBootstrapResult;
+    expect(data.stale_coordination.has_stale_state).toBe(true);
+    expect(data.stale_coordination.stale_agents_count).toBe(1);
+    expect(data.stale_coordination.samples.stale_agents[0].agent_id).toBe('agent-old');
+    expect(data.stale_coordination.recommended_cli_commands).toContain('vibecode claims reap --dry-run --json');
+    expect(data.recommended_tool_profiles.map((p) => p.profile_id)).toContain('coordination_housekeeping');
+    expect(data.warnings.some((w) => w.code === 'STALE_COORDINATION_STATE')).toBe(true);
+  });
+
   test('register=true writes only generated coordination state and returns identity', async () => {
     const result = await tool().handler({
       context: ctx(repo.repoRoot),

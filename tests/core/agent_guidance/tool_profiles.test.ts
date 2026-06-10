@@ -29,6 +29,7 @@ const KEY_PROFILES = [
   'artifact_continuation',
   'safe_commit',
   'conflict_resolution',
+  'coordination_housekeeping',
 ];
 
 describe('tool profiles — structure', () => {
@@ -149,6 +150,43 @@ describe('tool profiles — dogfood polish guidance', () => {
   });
 });
 
+describe('tool profiles — coordination_housekeeping (Phase 2C)', () => {
+  test('coordination_housekeeping profile exists with heartbeat + housekeeping commands', () => {
+    const profile = getToolProfile('coordination_housekeeping');
+    expect(profile).not.toBeNull();
+    const toolNames = profile!.mcp_tools.map((t) => t.name);
+    expect(toolNames).toContain('vibecode_agent_heartbeat');
+    expect(toolNames).toContain('vibecode_claim_intents_list');
+    expect(toolNames).toContain('vibecode_claims_list');
+    expect(toolNames).toContain('vibecode_claims_reap');
+
+    const commands = profile!.cli_commands.map((c) => c.command);
+    expect(commands.some((c) => c.includes('agents heartbeat --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('claims intents list'))).toBe(true);
+    expect(commands.some((c) => c.includes('claims list'))).toBe(true);
+    expect(commands.some((c) => c.includes('claims reap --dry-run'))).toBe(true);
+  });
+
+  test('coordination_housekeeping warns against cross-agent release, force cleanup, and raw state edits', () => {
+    const profile = getToolProfile('coordination_housekeeping');
+    const warnings = (profile?.warnings ?? []).join(' ').toLowerCase();
+    expect(warnings).toContain('another agent');
+    expect(warnings).toMatch(/force|automatic/);
+    expect(warnings).toContain('.vibecode');
+    expect(warnings).toContain('unclaimed');
+  });
+
+  test('coordination_housekeeping only recommends release-by-intent for your own clean intents', () => {
+    const profile = getToolProfile('coordination_housekeeping');
+    const text = [
+      ...(profile?.next_steps ?? []),
+      ...(profile?.warnings ?? []),
+      ...(profile?.cli_commands.map((c) => c.reason) ?? []),
+    ].join(' ').toLowerCase();
+    expect(text).toContain('own');
+  });
+});
+
 describe('tool profiles — deterministic bootstrap recommendations', () => {
   const base: BootstrapProfileContext = {
     registered: true,
@@ -157,6 +195,7 @@ describe('tool profiles — deterministic bootstrap recommendations', () => {
     scanAvailable: false,
     artifactsAvailable: false,
     hasConflictsOrStaleClaims: false,
+    hasStaleCoordination: false,
   };
 
   function ids(ctx: BootstrapProfileContext): string[] {
@@ -192,6 +231,11 @@ describe('tool profiles — deterministic bootstrap recommendations', () => {
 
   test('conflicts/stale claims add conflict_resolution', () => {
     expect(ids({ ...base, hasConflictsOrStaleClaims: true })).toContain('conflict_resolution');
+  });
+
+  test('stale coordination state adds coordination_housekeeping (Phase 2C)', () => {
+    expect(ids({ ...base, hasStaleCoordination: true })).toContain('coordination_housekeeping');
+    expect(ids(base)).not.toContain('coordination_housekeeping');
   });
 
   test('recommendations are deduplicated and reference real profile ids', () => {

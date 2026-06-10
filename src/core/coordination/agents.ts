@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { CoordinationError } from './errors.js';
 import { HEARTBEAT_TTL_MS, computeAgentStatus } from './heartbeat.js';
 import { loadCoordinationState, writeCoordinationState } from './state.js';
-import { isAgentType, type AgentSession, type AgentType } from './types.js';
+import { isAgentType, type AgentSession, type AgentStatus, type AgentType } from './types.js';
 
 /**
  * Persistent agent session registry (Phase 2).
@@ -137,16 +137,30 @@ export function getAgentStatus(
   return agent;
 }
 
+/** Result of an explicit heartbeat, including the pre-heartbeat lifecycle status. */
+export interface AgentHeartbeatDetail {
+  /** The persisted session after the heartbeat (status `active`). */
+  agent: AgentSession;
+  /** True when the agent's computed status was `stale` before this heartbeat. */
+  was_stale: boolean;
+  /** Computed (stale-aware) status before this heartbeat. */
+  previous_status: AgentStatus;
+}
+
 /**
  * Record a heartbeat: update `last_heartbeat_at` and set status `active`
- * (reviving a stale/idle/unknown agent). Never creates an agent implicitly —
- * throws `AGENT_NOT_FOUND` for an unknown id.
+ * (reviving a stale/idle/unknown agent). Phase 2C hardening:
+ *   - a terminated agent is blocked with `AGENT_TERMINATED` (never revived);
+ *   - ONLY `last_heartbeat_at` and `status` change — mode/task metadata,
+ *     claims, intents, and identity fields are untouched.
+ * Never creates an agent implicitly — throws `AGENT_NOT_FOUND` for an
+ * unknown id.
  */
-export function heartbeatAgent(
+export function heartbeatAgentDetailed(
   repoRoot: string,
   agentId: string,
   options: AgentMutationOptions = {},
-): AgentSession {
+): AgentHeartbeatDetail {
   const now = nowIso(options.now);
   const state = loadCoordinationState(repoRoot, { now });
   const index = state.agents.findIndex((a) => a.agent_id === agentId);
@@ -154,8 +168,18 @@ export function heartbeatAgent(
     throw new CoordinationError('AGENT_NOT_FOUND', `Agent not found: ${agentId}`, { agent_id: agentId });
   }
 
+  const stored = state.agents[index];
+  const previousStatus = computeAgentStatus(stored, Date.parse(now), HEARTBEAT_TTL_MS);
+  if (previousStatus === 'terminated') {
+    throw new CoordinationError(
+      'AGENT_TERMINATED',
+      `Agent ${agentId} is terminated and cannot heartbeat. Register a new agent (session_bootstrap with register=true, agent_mode + task).`,
+      { agent_id: agentId },
+    );
+  }
+
   const updated: AgentSession = {
-    ...state.agents[index],
+    ...stored,
     last_heartbeat_at: now,
     status: 'active',
   };
@@ -163,7 +187,20 @@ export function heartbeatAgent(
   agents[index] = updated;
 
   writeCoordinationState(repoRoot, { ...state, last_updated: now, agents });
-  return updated;
+  return { agent: updated, was_stale: previousStatus === 'stale', previous_status: previousStatus };
+}
+
+/**
+ * Record a heartbeat and return the updated session. Thin wrapper over
+ * {@link heartbeatAgentDetailed} for callers that do not need the
+ * pre-heartbeat status.
+ */
+export function heartbeatAgent(
+  repoRoot: string,
+  agentId: string,
+  options: AgentMutationOptions = {},
+): AgentSession {
+  return heartbeatAgentDetailed(repoRoot, agentId, options).agent;
 }
 
 /**

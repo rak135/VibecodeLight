@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import {
   registerAgent,
   listAgents,
-  heartbeatAgent,
+  heartbeatAgentDetailed,
   getAgentStatus,
   markAgentTerminated,
 } from '../../../core/coordination/agents.js';
@@ -152,7 +152,7 @@ export function registerAgentsCommands(
 
   agents
     .command('heartbeat')
-    .description('Record a heartbeat for an agent (revives stale/idle to active)')
+    .description('Record a heartbeat for an agent (revives stale/idle to active; terminated agents are blocked)')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--agent <agent_id>', 'Agent id')
     .option('--json', 'Output canonical JSON envelope')
@@ -165,9 +165,15 @@ export function registerAgentsCommands(
         );
         return;
       }
-      handle(repoRoot, options.json, 'agents heartbeat failed', () => ({
-        agent: heartbeatAgent(repoRoot, options.agent!),
-      }));
+      handle(repoRoot, options.json, 'agents heartbeat failed', () => {
+        const detail = heartbeatAgentDetailed(repoRoot, options.agent!);
+        return {
+          agent: detail.agent,
+          was_stale: detail.was_stale,
+          previous_status: detail.previous_status,
+          heartbeat_at: detail.agent.last_heartbeat_at,
+        };
+      });
     });
 
   agents
@@ -227,5 +233,8 @@ function printHuman(data: Record<string, unknown>): void {
     console.log(`agent_type: ${agent.agent_type}`);
     console.log(`status: ${agent.status}`);
     console.log(`last_heartbeat_at: ${agent.last_heartbeat_at}`);
+    if (typeof data.was_stale === 'boolean') {
+      console.log(`was_stale: ${data.was_stale ? 'yes' : 'no'}`);
+    }
   }
 }

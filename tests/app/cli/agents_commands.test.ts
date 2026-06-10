@@ -101,6 +101,46 @@ describe('vibecode agents (CLI)', () => {
     expect(agent.status).toBe('active');
   });
 
+  test('heartbeat --agent --json includes was_stale and heartbeat_at (Phase 2C)', async () => {
+    const { agent_id } = await register();
+    const res = await runCli(['agents', 'heartbeat', '--repo', repo.repoRoot, '--agent', agent_id, '--json']);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    expect(env.data.was_stale).toBe(false);
+    expect(typeof env.data.heartbeat_at).toBe('string');
+    const agent = env.data.agent as { last_heartbeat_at: string };
+    expect(env.data.heartbeat_at).toBe(agent.last_heartbeat_at);
+  });
+
+  test('heartbeat for a terminated agent is blocked with AGENT_TERMINATED (Phase 2C)', async () => {
+    const { agent_id } = await register();
+    const term = await runCli(['agents', 'terminate', '--repo', repo.repoRoot, '--agent', agent_id, '--json']);
+    expect(term.exitCode).toBe(0);
+
+    const res = await runCli(['agents', 'heartbeat', '--repo', repo.repoRoot, '--agent', agent_id, '--json']);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error.code).toBe('AGENT_TERMINATED');
+  });
+
+  test('heartbeat for a missing agent returns AGENT_NOT_FOUND (Phase 2C)', async () => {
+    const res = await runCli(['agents', 'heartbeat', '--repo', repo.repoRoot, '--agent', 'nope', '--json']);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.error.code).toBe('AGENT_NOT_FOUND');
+  });
+
+  test('heartbeat does not change mode/task metadata (Phase 2C)', async () => {
+    const { agent_id } = await register();
+    const res = await runCli(['agents', 'heartbeat', '--repo', repo.repoRoot, '--agent', agent_id, '--json']);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    const agent = env.data.agent as { metadata?: { operating_mode?: string; task?: string } };
+    expect(agent.metadata?.operating_mode).toBe('build');
+    expect(agent.metadata?.task).toBe('test task');
+  });
+
   test('status --agent returns exactly one agent', async () => {
     const { agent_id } = await register();
     const res = await runCli(['agents', 'status', '--repo', repo.repoRoot, '--agent', agent_id, '--json']);

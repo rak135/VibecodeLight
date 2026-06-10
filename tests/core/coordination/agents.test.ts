@@ -8,6 +8,7 @@ import {
   registerAgent,
   listAgents,
   heartbeatAgent,
+  heartbeatAgentDetailed,
   getAgentStatus,
   markAgentTerminated,
 } from '../../../src/core/coordination/agents.js';
@@ -228,6 +229,156 @@ describe('heartbeatAgent', () => {
     }
     // No implicit registration: state stays empty.
     expect(listAgents(repo.repoRoot)).toEqual([]);
+  });
+
+  // Phase 2C: explicit heartbeat hardening.
+
+  test('blocks a terminated agent with AGENT_TERMINATED and mutates nothing', () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'A', agent_type: 'codex' },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-1' },
+    );
+    markAgentTerminated(repo.repoRoot, 'agent-1', { now: '2026-06-10T00:01:00.000Z' });
+
+    try {
+      heartbeatAgent(repo.repoRoot, 'agent-1', { now: '2026-06-10T00:02:00.000Z' });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(CoordinationError);
+      expect((err as CoordinationError).code).toBe('AGENT_TERMINATED');
+    }
+
+    // Terminated stays terminated; heartbeat timestamp is unchanged.
+    const persisted = loadCoordinationState(repo.repoRoot).agents[0];
+    expect(persisted.status).toBe('terminated');
+    expect(persisted.last_heartbeat_at).toBe('2026-06-10T00:00:00.000Z');
+  });
+
+  test('changes only last_heartbeat_at and status — mode/task metadata, claims, identity stay untouched', () => {
+    registerAgent(
+      repo.repoRoot,
+      {
+        agent_name: 'Builder',
+        agent_type: 'codex',
+        terminal_session_id: 'term-9',
+        metadata: { operating_mode: 'build', task: 'phase 2c' },
+      },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-1' },
+    );
+    // Simulate existing claims on the session.
+    const seeded = loadCoordinationState(repo.repoRoot);
+    writeCoordinationState(repo.repoRoot, {
+      ...seeded,
+      agents: seeded.agents.map((a) => ({ ...a, claims: ['claim-1', 'claim-2'] })),
+    });
+
+    const beat = heartbeatAgent(repo.repoRoot, 'agent-1', { now: '2026-06-10T00:05:00.000Z' });
+
+    expect(beat.last_heartbeat_at).toBe('2026-06-10T00:05:00.000Z');
+    expect(beat.status).toBe('active');
+    expect(beat.metadata).toEqual({ operating_mode: 'build', task: 'phase 2c' });
+    expect(beat.claims).toEqual(['claim-1', 'claim-2']);
+    expect(beat.agent_name).toBe('Builder');
+    expect(beat.agent_type).toBe('codex');
+    expect(beat.terminal_session_id).toBe('term-9');
+  });
+
+  test('does not touch claims/intents/conflicts arrays in state', () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'A', agent_type: 'codex' },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-1' },
+    );
+    const seeded = loadCoordinationState(repo.repoRoot);
+    writeCoordinationState(repo.repoRoot, {
+      ...seeded,
+      claims: [{ id: 'claim-1' }],
+      intents: [{ id: 'intent-1' }],
+      conflicts: [{ id: 'conflict-1' }],
+    } as never);
+
+    heartbeatAgent(repo.repoRoot, 'agent-1', { now: '2026-06-10T00:05:00.000Z' });
+
+    const onDisk = JSON.parse(fs.readFileSync(getCoordinationPaths(repo.repoRoot).stateFile, 'utf8'));
+    expect(onDisk.claims).toEqual([{ id: 'claim-1' }]);
+    expect(onDisk.intents).toEqual([{ id: 'intent-1' }]);
+    expect(onDisk.conflicts).toEqual([{ id: 'conflict-1' }]);
+  });
+
+  test('read_only and build agents can both heartbeat', () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'RO', agent_type: 'claude', metadata: { operating_mode: 'read_only', task: 'review' } },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-ro' },
+    );
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'feature' } },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-b' },
+    );
+    expect(heartbeatAgent(repo.repoRoot, 'agent-ro', { now: '2026-06-10T00:01:00.000Z' }).status).toBe('active');
+    expect(heartbeatAgent(repo.repoRoot, 'agent-b', { now: '2026-06-10T00:01:00.000Z' }).status).toBe('active');
+  });
+});
+
+describe('heartbeatAgentDetailed', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => {
+    repo = makeRepo('vibecode-agents-hbd-');
+  });
+  afterEach(() => repo.cleanup());
+
+  test('reports was_stale=false for a fresh agent', () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'A', agent_type: 'codex' },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-1' },
+    );
+    const detail = heartbeatAgentDetailed(repo.repoRoot, 'agent-1', { now: '2026-06-10T00:00:30.000Z' });
+    expect(detail.was_stale).toBe(false);
+    expect(detail.previous_status).toBe('active');
+    expect(detail.agent.status).toBe('active');
+    expect(detail.agent.last_heartbeat_at).toBe('2026-06-10T00:00:30.000Z');
+  });
+
+  test('reports was_stale=true when reviving a stale agent', () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'A', agent_type: 'codex' },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-1' },
+    );
+    const later = new Date(Date.parse('2026-06-10T00:00:00.000Z') + HEARTBEAT_TTL_MS + 60_000).toISOString();
+    const detail = heartbeatAgentDetailed(repo.repoRoot, 'agent-1', { now: later });
+    expect(detail.was_stale).toBe(true);
+    expect(detail.previous_status).toBe('stale');
+    expect(detail.agent.status).toBe('active');
+    // Revival is persisted.
+    expect(listAgents(repo.repoRoot, { now: later })[0].status).toBe('active');
+  });
+
+  test('blocks a terminated agent with AGENT_TERMINATED', () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'A', agent_type: 'codex' },
+      { now: '2026-06-10T00:00:00.000Z', agentId: 'agent-1' },
+    );
+    markAgentTerminated(repo.repoRoot, 'agent-1');
+    try {
+      heartbeatAgentDetailed(repo.repoRoot, 'agent-1');
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CoordinationError).code).toBe('AGENT_TERMINATED');
+    }
+  });
+
+  test('throws AGENT_NOT_FOUND for an unknown agent', () => {
+    try {
+      heartbeatAgentDetailed(repo.repoRoot, 'missing');
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CoordinationError).code).toBe('AGENT_NOT_FOUND');
+    }
   });
 });
 

@@ -83,6 +83,43 @@ describe('vibecode claims intents list (CLI)', () => {
     expect(data.intents[0].status).toBe('active');
   });
 
+  test('claims intents list --json includes owner lifecycle fields (Phase 2C)', async () => {
+    const agent = await register();
+    await runCli([
+      'claims', 'add-bulk', '--repo', repo.repoRoot, '--agent', agent, '--intent', 'work on alpha', '--path', 'src/alpha.ts', '--json',
+    ]);
+
+    const res = await runCli([
+      'claims', 'intents', 'list', '--repo', repo.repoRoot, '--agent', agent, '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    const data = env.data as {
+      intents: Array<{ owning_agent_status: string; warning_codes: string[]; missing_claim_count: number }>;
+    };
+    expect(data.intents[0].owning_agent_status).toBe('active');
+    expect(data.intents[0].warning_codes).toEqual([]);
+    expect(data.intents[0].missing_claim_count).toBe(0);
+  });
+
+  test('claims intents list surfaces a terminated owner (Phase 2C)', async () => {
+    const agent = await register();
+    await runCli([
+      'claims', 'add-bulk', '--repo', repo.repoRoot, '--agent', agent, '--intent', 'work on alpha', '--path', 'src/alpha.ts', '--json',
+    ]);
+    const term = await runCli(['agents', 'terminate', '--repo', repo.repoRoot, '--agent', agent, '--json']);
+    expect(term.exitCode).toBe(0);
+
+    const res = await runCli([
+      'claims', 'intents', 'list', '--repo', repo.repoRoot, '--agent', agent, '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    const data = env.data as { intents: Array<{ owning_agent_status: string; warning_codes: string[] }> };
+    expect(data.intents[0].owning_agent_status).toBe('terminated');
+    expect(data.intents[0].warning_codes).toContain('INTENT_OWNER_TERMINATED');
+  });
+
   test('claims intents list --status all includes released', async () => {
     const agent = await register();
     const bulkRes = await runCli([

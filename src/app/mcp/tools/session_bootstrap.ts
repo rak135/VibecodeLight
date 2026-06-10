@@ -86,6 +86,14 @@ function renderText(result: SessionBootstrapResult): string {
     }
   }
   lines.push(`conflicts_unresolved: ${result.conflicts.unresolved_count}`);
+  if (result.stale_coordination.has_stale_state) {
+    const stale = result.stale_coordination;
+    lines.push(
+      `stale_coordination: agents=${stale.stale_agents_count} claims=${stale.stale_active_claims_count}`
+        + ` stale_owned_intents=${stale.active_intents_owned_by_stale_agents_count + stale.active_intents_owned_by_terminated_agents_count + stale.active_intents_owned_by_missing_agents_count}`
+        + ` claimless_intents=${stale.active_intents_with_no_active_claims_count}`,
+    );
+  }
   lines.push(
     `current_run: ${result.current_run.run_id ?? '(none)'} scan_available=${result.scan.current_run_scan_available ? 'yes' : 'no'}`,
   );

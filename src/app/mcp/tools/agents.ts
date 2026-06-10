@@ -1,8 +1,9 @@
 import {
   registerAgent,
   listAgents,
-  heartbeatAgent,
+  heartbeatAgentDetailed,
   getAgentStatus,
+  type AgentHeartbeatDetail,
 } from '../../../core/coordination/agents.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import { isAgentType, type AgentSession } from '../../../core/coordination/types.js';
@@ -40,6 +41,8 @@ function mcpErrorForCoordination(
   switch (error.code) {
     case 'AGENT_NOT_FOUND':
       return 'AGENT_NOT_FOUND';
+    case 'AGENT_TERMINATED':
+      return 'AGENT_TERMINATED';
     case 'INVALID_AGENT_TYPE':
     case 'INVALID_AGENT_NAME':
       return 'INVALID_ARGUMENT';
@@ -133,7 +136,7 @@ export function buildAgentHeartbeatTool(): McpToolDefinition {
     name: TOOL_NAME,
     title: 'Heartbeat agent session',
     description:
-      'Record a heartbeat for a registered agent in the bound repo (advisory), reviving a stale/idle session to active. Writes only generated .vibecode/coordination/state.json.',
+      'Record a heartbeat for a registered agent in the bound repo (advisory), reviving a stale/idle session to active. Terminated agents are blocked (register a new agent). Changes only the heartbeat timestamp/status — never mode, task, claims, or intents. Writes only generated .vibecode/coordination/state.json.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();
@@ -151,9 +154,9 @@ export function buildAgentHeartbeatTool(): McpToolDefinition {
       const agentId = validateNonEmptyString((input.arguments ?? {}).agent_id, 'agent_id');
       if (!agentId.ok) return fail('INVALID_ARGUMENT', agentId.message);
 
-      let agent: AgentSession;
+      let detail: AgentHeartbeatDetail;
       try {
-        agent = heartbeatAgent(input.context.repoRoot, agentId.value);
+        detail = heartbeatAgentDetailed(input.context.repoRoot, agentId.value);
       } catch (err) {
         if (err instanceof CoordinationError) {
           return fail(mcpErrorForCoordination(err, 'AGENT_HEARTBEAT_FAILED'), err.message);
@@ -161,11 +164,26 @@ export function buildAgentHeartbeatTool(): McpToolDefinition {
         return fail('AGENT_HEARTBEAT_FAILED', err instanceof Error ? err.message : String(err));
       }
 
+      // Phase 2C: surface the pre-heartbeat lifecycle status so a long-running
+      // agent can see whether it had gone stale; a revived agent should
+      // re-orient before continuing.
+      const recommendedNextTools = detail.was_stale ? ['vibecode_session_bootstrap'] : [];
       return formatSimpleSuccess({
         tool: TOOL_NAME,
         repoRoot: input.context.repoRoot,
-        text: ['# Agent heartbeat', '', ...agentLines(agent)].join('\n'),
-        data: { agent },
+        text: [
+          '# Agent heartbeat',
+          '',
+          ...agentLines(detail.agent),
+          `was_stale: ${detail.was_stale}`,
+        ].join('\n'),
+        data: {
+          agent: detail.agent,
+          was_stale: detail.was_stale,
+          previous_status: detail.previous_status,
+          heartbeat_at: detail.agent.last_heartbeat_at,
+          recommended_next_tools: recommendedNextTools,
+        },
         durationMs: Date.now() - started,
       });
     },

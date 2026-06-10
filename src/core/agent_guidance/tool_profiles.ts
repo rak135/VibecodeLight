@@ -35,6 +35,7 @@ export const TOOL_PROFILE_IDS = [
   'artifact_continuation',
   'safe_commit',
   'conflict_resolution',
+  'coordination_housekeeping',
 ] as const;
 
 export type ToolProfileId = (typeof TOOL_PROFILE_IDS)[number];
@@ -301,6 +302,42 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       'Do not edit a file whose claim was denied; coordination is advisory but overlapping edits cause lost work.',
     ],
   },
+  coordination_housekeeping: {
+    profile_id: 'coordination_housekeeping',
+    title: 'Coordination housekeeping',
+    purpose: 'Keep your session fresh and inspect/clean up stale coordination state with explicit, bounded commands.',
+    when_to_use: [
+      'session_bootstrap reports stale agents, stale claims, or stale-owned intents.',
+      'You are in a long session and want to keep your agent from going stale.',
+    ],
+    mcp_tools: [
+      { name: 'vibecode_agent_heartbeat', reason: 'Heartbeat your own agent during long work so it does not go stale (no re-bootstrap needed).' },
+      { name: 'vibecode_session_bootstrap', reason: 'Re-orient: the stale_coordination summary shows what is stale and what to do.' },
+      { name: 'vibecode_claim_intents_list', reason: 'See work intents with owner lifecycle status (active/stale/terminated/missing).' },
+      { name: 'vibecode_claims_list', reason: 'Inspect all claims with stale-aware status before any cleanup.' },
+      { name: 'vibecode_claims_reap', reason: 'Explicitly release claims of stale/terminated agents — dry-run first; never automatic.' },
+      { name: 'vibecode_claim_intent_release', reason: 'Release YOUR OWN completed clean intents only (same-agent only).' },
+    ],
+    cli_commands: [
+      { command: 'vibecode agents heartbeat --agent <agent_id> --json', reason: 'CLI fallback to keep your own session alive during long work.' },
+      { command: 'vibecode claims intents list --agent <agent_id> --status active --json', reason: 'CLI fallback to inspect your active intents and their claim/owner status.' },
+      { command: 'vibecode claims list --json', reason: 'CLI fallback to inspect all claims before cleanup.' },
+      { command: 'vibecode claims reap --dry-run --json', reason: 'Preview which stale-agent claims an explicit reap would release.' },
+      { command: 'vibecode claims reap --json', reason: 'Explicitly release stale-agent claims after reviewing the dry-run.' },
+      { command: 'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --dry-run --json', reason: 'Preview releasing one of your OWN clean intents.' },
+    ],
+    next_steps: [
+      'Heartbeat your own agent, inspect claims/intents, dry-run a reap, and only then apply explicit cleanup.',
+      'Release by intent only for your own clean intents; leave other agents’ intents alone.',
+    ],
+    warnings: [
+      'Never release another agent’s intent — intent release is same-agent only.',
+      'No force or automatic cleanup exists: claims reap is explicit and dry-run-first.',
+      'Do not edit unclaimed files while housekeeping.',
+      'Never edit .vibecode/coordination/state.json by hand — use the commands above.',
+      'Use the CLI fallback commands when MCP is unavailable.',
+    ],
+  },
 });
 
 /** Narrow an arbitrary value to a known profile id. */
@@ -349,6 +386,11 @@ export interface BootstrapProfileContext {
   artifactsAvailable: boolean;
   /** Whether there are unresolved conflicts or possibly-stale active claims. */
   hasConflictsOrStaleClaims: boolean;
+  /**
+   * Phase 2C: whether stale coordination state exists (stale agents/claims or
+   * active intents with stale/terminated/missing owners or no active claims).
+   */
+  hasStaleCoordination: boolean;
 }
 
 /**
@@ -389,6 +431,9 @@ export function recommendBootstrapToolProfiles(
   }
   if (ctx.hasConflictsOrStaleClaims) {
     push('conflict_resolution', 'Unresolved conflicts or possibly-stale claims are present.');
+  }
+  if (ctx.hasStaleCoordination) {
+    push('coordination_housekeeping', 'Stale coordination state (stale agents/claims/intents) is present.');
   }
 
   return out;

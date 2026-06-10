@@ -28,6 +28,10 @@ import {
 } from '../coordination/claim_intents.js';
 import { listConflicts, type ConflictRecord } from '../coordination/conflicts.js';
 import {
+  summarizeStaleCoordination,
+  type StaleCoordinationSummary,
+} from '../coordination/stale_coordination.js';
+import {
   recommendBootstrapToolProfiles,
   type ToolProfileRecommendation,
 } from '../agent_guidance/tool_profiles.js';
@@ -195,6 +199,13 @@ export interface SessionBootstrapResult {
     unresolved_count: number;
     items: BootstrapConflictItem[];
   };
+  /**
+   * Phase 2C: compact, bounded stale-coordination summary (stale agents/claims,
+   * active intents with stale/terminated/missing owners or zero active claims)
+   * plus the explicit housekeeping commands. Read-only — bootstrap never
+   * reaps, releases, or transfers anything.
+   */
+  stale_coordination: StaleCoordinationSummary;
   evidence: {
     recent_count: number;
     warning_count: number;
@@ -623,18 +634,58 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
   };
 
   // --- active work intents (Phase 2A; build agents only, bounded) ---
+  const allIntents = listClaimIntents(repoRoot, { now: checkedAt });
   let activeWorkIntents: ActiveWorkIntentSummary[] = [];
   if (currentAgent && getAgentOperatingMode(currentAgent) === 'build') {
-    const intents = listClaimIntents(repoRoot, { now: checkedAt });
     const activeClaimIds = new Set(
       claims.filter((c) => c.status === 'active').map((c) => c.claim_id),
     );
     activeWorkIntents = summarizeActiveWorkIntents({
-      intents,
+      intents: allIntents,
       agentId: currentAgent.agent_id,
       activeClaimIds,
       options: { maxItems },
     });
+  }
+
+  // --- stale coordination summary (Phase 2C; read-only, bounded) ---
+  // Counts cover ALL agents/claims/intents; only the samples are capped. The
+  // summary recommends explicit list/reap/heartbeat commands — never an
+  // automatic cleanup and never the release of another agent's intent.
+  const staleCoordination = summarizeStaleCoordination({
+    agents,
+    claims,
+    intents: allIntents,
+    currentAgentId: currentAgent?.agent_id ?? null,
+    maxItems,
+  });
+  if (staleCoordination.has_stale_state) {
+    const parts: string[] = [];
+    if (staleCoordination.stale_agents_count > 0) {
+      parts.push(`${staleCoordination.stale_agents_count} stale agent(s)`);
+    }
+    if (staleCoordination.stale_active_claims_count > 0) {
+      parts.push(`${staleCoordination.stale_active_claims_count} stale claim(s)`);
+    }
+    const oddOwned =
+      staleCoordination.active_intents_owned_by_stale_agents_count +
+      staleCoordination.active_intents_owned_by_terminated_agents_count +
+      staleCoordination.active_intents_owned_by_missing_agents_count;
+    if (oddOwned > 0) {
+      parts.push(`${oddOwned} active intent(s) owned by stale/terminated/missing agents`);
+    }
+    if (staleCoordination.active_intents_with_no_active_claims_count > 0) {
+      parts.push(`${staleCoordination.active_intents_with_no_active_claims_count} active intent(s) with no active claims`);
+    }
+    warnings.push(
+      notice(
+        'STALE_COORDINATION_STATE',
+        'warning',
+        `Stale coordination state present: ${parts.join(', ')}.`
+          + ` Housekeeping is explicit: inspect with 'vibecode claims list', dry-run 'vibecode claims reap',`
+          + ` and heartbeat your own agent. Do not release another agent's intent (release is same-agent only).`,
+      ),
+    );
   }
 
   const conflictRecords = listConflicts(repoRoot, undefined, { now: checkedAt }).filter(
@@ -744,7 +795,21 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     artifactsAvailable: currentRun.available && currentRun.available_artifacts.length > 0,
     hasConflictsOrStaleClaims:
       unresolved.length > 0 || hasStaleCleanClaims || staleClaims.length > 0,
+    hasStaleCoordination: staleCoordination.has_stale_state,
   });
+
+  // Phase 2C: append the explicit housekeeping commands/tools (deduped) when
+  // stale coordination state exists.
+  const recommendedTools = [...rec.tools];
+  const recommendedCommands = [...rec.commands];
+  if (staleCoordination.has_stale_state) {
+    for (const tool of ['vibecode_claims_list', 'vibecode_claims_reap', ...(currentAgent ? ['vibecode_agent_heartbeat'] : [])]) {
+      if (!recommendedTools.includes(tool)) recommendedTools.push(tool);
+    }
+    for (const command of staleCoordination.recommended_cli_commands) {
+      if (!recommendedCommands.includes(command)) recommendedCommands.push(command);
+    }
+  }
 
   return {
     ok: blockers.length === 0,
@@ -757,6 +822,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     claims: claimsSection,
     active_work_intents: activeWorkIntents,
     conflicts: conflictsSection,
+    stale_coordination: staleCoordination,
     evidence: {
       recent_count: coordination.evidence.recent_count,
       warning_count: coordination.evidence.warning_count,
@@ -769,8 +835,8 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     agent_protocol: [...AGENT_OPERATING_PROTOCOL],
     warnings,
     blockers,
-    recommended_next_tools: rec.tools,
-    recommended_cli_commands: rec.commands,
+    recommended_next_tools: recommendedTools,
+    recommended_cli_commands: recommendedCommands,
     recommended_tool_profiles: recommendedToolProfiles,
     checked_at: checkedAt,
   };
