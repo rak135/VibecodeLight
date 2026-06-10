@@ -1632,7 +1632,8 @@ The desktop app should provide:
 - a prompt composer overlay (preview only in this checkpoint);
 - final prompt preview;
 - prompt send into the active terminal;
-- run artifact visibility.
+- run artifact visibility;
+- a VibecodeMCP panel (left nav) showing per-agent MCP status for Claude, Codex, and OpenCode, with read-only doctor/dry-run/install controls.
 
 ### Composer preview overlay
 

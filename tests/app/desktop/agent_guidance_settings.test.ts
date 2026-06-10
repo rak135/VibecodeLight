@@ -287,6 +287,7 @@ describe('agent guidance settings — controller', () => {
     expect(api.getAgentGuidanceTerminalPreflightConfig).toHaveBeenCalled();
     expect(api.getAgentGuidanceIntegrationStatus).toHaveBeenCalledWith('claude');
     expect(api.getAgentGuidanceIntegrationStatus).toHaveBeenCalledWith('codex');
+    expect(api.getAgentGuidanceIntegrationStatus).toHaveBeenCalledWith('opencode');
     expect(view.setConfig).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
     expect(view.setPath).toHaveBeenCalledWith(
       expect.objectContaining({ configPath: expect.stringMatching(/agent-guidance-config\.yaml$/) }),
@@ -394,7 +395,7 @@ describe('agent guidance settings — controller', () => {
   test('Claude integration row displays the detected project-scoped MCP config source', async () => {
     const view = makeView();
     const { api } = makeApi({
-      getAgentGuidanceIntegrationStatus: vi.fn(async (agent: 'claude' | 'codex') => ({
+    getAgentGuidanceIntegrationStatus: vi.fn(async (agent: 'claude' | 'codex' | 'opencode') => ({
         ok: true,
         agent,
         configured: true,

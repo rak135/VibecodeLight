@@ -241,7 +241,7 @@
 
       async function refreshIntegrations() {
         if (!api || typeof api.getAgentGuidanceIntegrationStatus !== 'function') return;
-        var agents = ['claude', 'codex'];
+        var agents = ['claude', 'codex', 'opencode'];
         for (var i = 0; i < agents.length; i += 1) {
           try {
             var resp = await api.getAgentGuidanceIntegrationStatus(agents[i]);

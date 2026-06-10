@@ -27,9 +27,9 @@
             <span class="nav-label">Terminals</span>
             <span class="nav-count" id="nav-terminals-count">1</span>
           </div>
-          <div class="nav-item" data-nav="runs" title="Runs">
-            <span class="nav-ico"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M5 3.5l6 4.5-6 4.5V3.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span>
-            <span class="nav-label">Runs</span>
+          <div class="nav-item" data-nav="vibecodemcp" title="VibecodeMCP">
+            <span class="nav-ico"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 8h11M8 2.5v11" stroke="currentColor" stroke-width="1.2"/></svg></span>
+            <span class="nav-label">VibecodeMCP</span>
           </div>
           <div class="nav-item" data-nav="settings" title="Settings">
             <span class="nav-ico"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg></span>
@@ -255,6 +255,41 @@
 
           <div class="toast" id="toast"><span class="dot"></span><span id="toast-msg"></span></div>
         </div>
+
+        <!-- VibecodeMCP dashboard panel — read-only on open; explicit actions only -->
+        <div class="vibecodemcp-panel" id="vibecodemcp-panel" style="display:none">
+          <div class="vibecodemcp-header" id="vibecodemcp-header">
+            <div class="vibecodemcp-title">
+              <span>VibecodeMCP</span>
+              <span class="vibecodemcp-repo" id="vibecodemcp-repo"></span>
+            </div>
+            <div class="vibecodemcp-actions">
+              <span class="vibecodemcp-meta" id="vibecodemcp-meta"></span>
+              <button id="vibecodemcp-refresh" class="btn" type="button">Refresh</button>
+              <button id="vibecodemcp-close" class="icon-btn" type="button" title="Close panel">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="vibecodemcp-body">
+            <div class="vibecodemcp-section" id="vibecodemcp-agents">
+              <h4>Agent Integrations</h4>
+              <div class="vibecodemcp-cards" id="vibecodemcp-cards"></div>
+            </div>
+            <div class="vibecodemcp-section" id="vibecodemcp-details" style="display:none">
+              <h4>Details</h4>
+              <div class="vibecodemcp-details-content" id="vibecodemcp-details-content"></div>
+            </div>
+            <div class="vibecodemcp-section" id="vibecodemcp-tools">
+              <h4>MCP Tools</h4>
+              <div class="vibecodemcp-tools-content" id="vibecodemcp-tools-content"></div>
+            </div>
+            <div class="vibecodemcp-section" id="vibecodemcp-result" style="display:none">
+              <h4>Operation Result</h4>
+              <div class="vibecodemcp-result-content" id="vibecodemcp-result-content"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ============ Right panel + rail: contextual inspector ============ -->
@@ -478,6 +513,7 @@
     <script src="terminal_keys.js"></script>
     <script src="scroll_rail.js"></script>
     <script src="coordination_panel.js"></script>
+    <script src="vibecodemcp_panel.js"></script>
     <script src="terminals.js"></script>
     <script>
       'use strict';
@@ -1006,7 +1042,10 @@
           const nav = item.getAttribute('data-nav');
           if (nav === 'settings') { openSettings(); return; }
           sidebar.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n === item));
-          if (nav === 'runs') openPanel('run');
+          if (nav === 'vibecodemcp') { if (window.VibecodeMcpPanel) window.VibecodeMcpPanel.open(); return; }
+          // Hide VibecodeMCP panel when switching to other nav items
+          if (nav !== 'vibecodemcp') { if (window.VibecodeMcpPanel) window.VibecodeMcpPanel.close(); }
+          if (nav === 'terminals') { /* workspace is already visible */ return; }
         });
       });
 

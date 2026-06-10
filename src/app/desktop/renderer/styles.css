@@ -1094,6 +1094,190 @@ input, textarea, select { font: inherit; color: inherit; }
   border: 1px solid var(--border);
 }
 
+/* ------------- VibecodeMCP dashboard panel ------------- */
+.vibecodemcp-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: none;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+.vibecodemcp-panel.open {
+  display: flex;
+}
+.vibecodemcp-header {
+  height: var(--top-h);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+}
+.vibecodemcp-title {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vibecodemcp-repo {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.vibecodemcp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vibecodemcp-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.vibecodemcp-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.vibecodemcp-section h4 {
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+}
+.vibecodemcp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.vibecodemcp-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vibecodemcp-card .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.vibecodemcp-card .card-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.vibecodemcp-card .card-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.vibecodemcp-card .card-status.up_to_date {
+  color: var(--success);
+  border-color: var(--success);
+}
+.vibecodemcp-card .card-status.stale {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.vibecodemcp-card .card-status.not_configured {
+  color: var(--muted);
+  border-color: var(--border);
+}
+.vibecodemcp-card .card-status.error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.vibecodemcp-card .card-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.vibecodemcp-card .card-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vibecodemcp-card .card-warning {
+  font-size: 11px;
+  color: var(--warn);
+  border-left: 2px solid var(--warn);
+  padding-left: 6px;
+}
+.vibecodemcp-card .card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.vibecodemcp-card .card-actions button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.vibecodemcp-card .card-actions button:hover {
+  background: var(--elevated);
+  color: var(--text);
+}
+.vibecodemcp-details-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.vibecodemcp-tools-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.vibecodemcp-result-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.vibecodemcp-result-content .ok {
+  color: var(--success);
+}
+.vibecodemcp-result-content .error {
+  color: var(--danger);
+}
+
 /* CodeGraph action buttons */
 .cg-action-btn {
   font-size: 11px;

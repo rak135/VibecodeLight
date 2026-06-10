@@ -7,6 +7,8 @@ type ExposedApi = {
   artifacts: Record<string, unknown>;
   codegraph: Record<string, unknown>;
   coordination: Record<string, unknown>;
+  mcp: Record<string, unknown>;
+  skills: Record<string, unknown>;
 };
 
 function collectKeys(value: unknown): string[] {
@@ -42,7 +44,7 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'coordination', 'runs', 'skills', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'coordination', 'mcp', 'runs', 'skills', 'terminal', 'workspace']);
     expect(Object.keys(api.coordination).sort()).toEqual(['getOverview']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'getPtyInfo', 'list', 'onData', 'onExit', 'onPreflight', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
@@ -361,6 +363,44 @@ describe('desktop preload bridge boundary', () => {
     await runs.show('2026-05-20_001');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('runs:show', '2026-05-20_001');
+  });
+
+  test('mcp namespace exposes read-only overview and safe install channels', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true, agents: [], tools: [] }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const mcp = api.mcp as {
+      getOverview: () => Promise<unknown>;
+      doctor: (agent: string) => Promise<unknown>;
+      installDryRun: (agent: string) => Promise<unknown>;
+      install: (agent: string) => Promise<unknown>;
+      getTools: () => Promise<unknown>;
+    };
+
+    expect(Object.keys(mcp).sort()).toEqual(['doctor', 'getOverview', 'getTools', 'install', 'installDryRun']);
+
+    await mcp.getOverview();
+    await mcp.doctor('claude');
+    await mcp.installDryRun('codex');
+    await mcp.install('opencode');
+    await mcp.getTools();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:getOverview');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:doctor', 'claude');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:installDryRun', 'codex');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:install', 'opencode');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:getTools');
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
   });
 
   test('coordination.getOverview invokes the read-only coordination:getOverview channel only', async () => {

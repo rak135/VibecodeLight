@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { McpDashboardOverview } from '../../core/mcp/mcp_dashboard';
 
 export interface ContextSummaryIpc {
   relevant_files: string[];
@@ -544,6 +545,31 @@ export interface VibecodePreloadApi {
     /** Read-only: fetch the compact coordination overview. No mutation channel exists. */
     getOverview(): Promise<CoordinationOverviewResultIpc>;
   };
+  mcp: {
+    getOverview(): Promise<{
+      ok: boolean;
+      repo_root: string;
+      server_name: string;
+      tools_count: number;
+      tools: string[];
+      agents: Array<{
+        agent: 'claude' | 'codex' | 'opencode';
+        status: string;
+        scope?: string;
+        config_path?: string;
+        warnings: string[];
+        suggestions: string[];
+        can_install: boolean;
+        can_update: boolean;
+      }>;
+      warnings: string[];
+      error?: { code: string; message: string; details?: string[] };
+    }>;
+    doctor(agent: 'claude' | 'codex' | 'opencode'): Promise<AgentGuidanceIntegrationStatusIpc>;
+    installDryRun(agent: 'claude' | 'codex' | 'opencode'): Promise<AgentGuidanceIntegrationApplyIpc>;
+    install(agent: 'claude' | 'codex' | 'opencode'): Promise<AgentGuidanceIntegrationApplyIpc>;
+    getTools(): Promise<AgentGuidanceMcpToolsIpc>;
+  };
 }
 
 export function createVibecodeApi(): VibecodePreloadApi {
@@ -768,6 +794,26 @@ export function createVibecodeApi(): VibecodePreloadApi {
     coordination: {
       getOverview() {
         return ipcRenderer.invoke('coordination:getOverview') as Promise<CoordinationOverviewResultIpc>;
+      },
+    },
+    mcp: {
+      getOverview() {
+        return ipcRenderer.invoke('mcp:getOverview') as Promise<McpDashboardOverview>;
+      },
+      doctor(agent: 'claude' | 'codex' | 'opencode') {
+        return ipcRenderer.invoke('mcp:doctor', agent) as Promise<AgentGuidanceIntegrationStatusIpc>;
+      },
+      installDryRun(agent: 'claude' | 'codex' | 'opencode') {
+        return ipcRenderer.invoke('mcp:installDryRun', agent) as Promise<AgentGuidanceIntegrationApplyIpc>;
+      },
+      install(agent: 'claude' | 'codex' | 'opencode', confirmed?: boolean) {
+        if (confirmed === true) {
+          return ipcRenderer.invoke('mcp:install', agent, true) as Promise<AgentGuidanceIntegrationApplyIpc>;
+        }
+        return ipcRenderer.invoke('mcp:install', agent) as Promise<AgentGuidanceIntegrationApplyIpc>;
+      },
+      getTools() {
+        return ipcRenderer.invoke('mcp:getTools') as Promise<AgentGuidanceMcpToolsIpc>;
       },
     },
   };

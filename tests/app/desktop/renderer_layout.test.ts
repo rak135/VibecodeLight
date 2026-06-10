@@ -73,11 +73,15 @@ describe('desktop renderer Elegant Dark shell', () => {
     expect(terminalsJs).toMatch(/api\.close\(\s*sessionId\s*\)/);
   });
 
-  test('wires the Runs browser to the real run-display bridge', () => {
+  test('left nav replaces Runs with VibecodeMCP and keeps right rail Runs', () => {
     const html = readHtml();
-    // Runs nav and the run rail panel are now truly backed; no design-only marker.
-    expect(html).not.toMatch(/class="[^"]*design-only[^"]*"\s+data-nav="runs"/);
-    expect(html).not.toMatch(/class="[^"]*design-only[^"]*"\s+data-panel="run"/);
+    // Left nav must NOT have a Runs entry anymore.
+    expect(html).not.toMatch(/data-nav="runs"/);
+    // Left nav must have VibecodeMCP entry.
+    expect(html).toMatch(/data-nav="vibecodemcp"/);
+    expect(html).toMatch(/VibecodeMCP/);
+    // Right rail must still have the run panel.
+    expect(html).toMatch(/data-panel="run"/);
     // Wired to the real preload runs bridge (no renderer-side run discovery logic).
     expect(html).toMatch(/vibecodeAPI\.runs\.list\(\)/);
     expect(html).toMatch(/vibecodeAPI\.runs\.show\(/);
