@@ -286,6 +286,37 @@ describe('Phase 2B — listClaimIntentsDetail', () => {
     expect(result.intents[0].active_claim_count).toBe(1);
   });
 
+  test('multiple simultaneous lifecycle warning codes are advisory and additive', () => {
+    // Terminated owner + no active claims + missing claim reference: all three
+    // warning codes must surface simultaneously without error or data suppression.
+    build(repo.repoRoot, 'agent-a');
+    const bulk = addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'alpha', paths: ['src/a.ts'] });
+    markAgentTerminated(repo.repoRoot, 'agent-a');
+
+    // Release claim directly — intent stays active with zero active claims.
+    releaseFileClaim(repo.repoRoot, listFileClaims(repo.repoRoot)[0].claim_id);
+
+    // Inject a phantom claim reference (inconsistent state).
+    const stateFile = path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json');
+    const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
+      intents: Array<{ intent_id: string; claim_ids: string[] }>;
+    };
+    raw.intents.find((i) => i.intent_id === bulk.intent_id)!.claim_ids.push('claim-ghost');
+    fs.writeFileSync(stateFile, JSON.stringify(raw, null, 2), 'utf8');
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
+    // Listing succeeds: warnings are advisory, never blockers.
+    expect(result.intents).toHaveLength(1);
+    expect(result.intents[0].status).toBe('active');
+    expect(result.intents[0].owning_agent_status).toBe('terminated');
+    expect(result.intents[0].active_claim_count).toBe(0);
+    expect(result.intents[0].missing_claim_count).toBe(1);
+    // All three warning codes present simultaneously (additive, not exclusive).
+    expect(result.intents[0].warning_codes.sort()).toEqual(
+      ['INTENT_HAS_NO_ACTIVE_CLAIMS', 'INTENT_OWNER_TERMINATED', 'INTENT_REFERENCES_MISSING_CLAIMS'].sort(),
+    );
+  });
+
   test('old state without intents returns empty', () => {
     build(repo.repoRoot, 'agent-a');
     // Manually clear intents from state to simulate old format.
