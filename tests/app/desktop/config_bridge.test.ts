@@ -522,7 +522,7 @@ describe('desktop config bridge', () => {
     expect(JSON.stringify(result)).not.toContain(SECRET);
   });
 
-  test('config:getAgentGuidanceIntegrationStatus is repo-bound and supports Claude/Codex only', async () => {
+  test('config:getAgentGuidanceIntegrationStatus is repo-bound and supports Claude/Codex/OpenCode', async () => {
     const ipc = register();
     const codex = (await ipc.invoke('config:getAgentGuidanceIntegrationStatus', 'codex')) as {
       ok: boolean;
@@ -534,7 +534,13 @@ describe('desktop config bridge', () => {
       ok: boolean;
       agent: string;
     };
-    const invalid = (await ipc.invoke('config:getAgentGuidanceIntegrationStatus', 'opencode')) as {
+    const opencode = (await ipc.invoke('config:getAgentGuidanceIntegrationStatus', 'opencode')) as {
+      ok: boolean;
+      agent: string;
+      guidance: { guidance_hash: string };
+      mcp: { expected_tool_count: number };
+    };
+    const invalid = (await ipc.invoke('config:getAgentGuidanceIntegrationStatus', 'cursor')) as {
       ok: boolean;
       error?: { code: string };
     };
@@ -544,6 +550,10 @@ describe('desktop config bridge', () => {
     expect(codex.mcp.expected_tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
     expect(claude.ok).toBe(true);
     expect(claude.agent).toBe('claude');
+    expect(opencode.ok).toBe(true);
+    expect(opencode.agent).toBe('opencode');
+    expect(opencode.guidance.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(opencode.mcp.expected_tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
     expect(invalid.ok).toBe(false);
     expect(invalid.error?.code).toBe('INVALID_AGENT');
   });
@@ -566,6 +576,18 @@ describe('desktop config bridge', () => {
     expect(refused.ok).toBe(false);
     expect(refused.error?.message).toMatch(/confirm|--yes|dry-run/i);
     expect(fs.existsSync(path.join(appData, 'vibecodelight', 'config.toml'))).toBe(false);
+  });
+
+  test('config:dryRunAgentGuidanceIntegration supports OpenCode', async () => {
+    const ipc = register();
+    const dryRun = (await ipc.invoke('config:dryRunAgentGuidanceIntegration', 'opencode')) as {
+      ok: boolean;
+      dry_run: boolean;
+      guidance_hash: string;
+    };
+    expect(dryRun.ok).toBe(true);
+    expect(dryRun.dry_run).toBe(true);
+    expect(dryRun.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   test('agent guidance integration bridge exposes no terminal write or arbitrary path input', async () => {

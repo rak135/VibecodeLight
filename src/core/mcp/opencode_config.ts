@@ -304,20 +304,33 @@ export function detectOpenCodeMcpConfig(options: OpenCodeMcpConfigOptions & { vi
 
   const commandStrings = command.map((c) => String(c));
   const expectedConfig = buildOpenCodeMcpConfig(options);
-  const upToDate = arraysEqual(commandStrings, expectedConfig.command);
+  const commandMatch = arraysEqual(commandStrings, expectedConfig.command);
+  const typeOk = type === 'local';
+  const enabledOk = enabled === true;
+
+  if (commandMatch && !typeOk) {
+    warnings.push(
+      `OPENCODE_MCP_TYPE_MISMATCH: mcp.vibecode.type is "${String(type ?? '')}" but expected "local".`,
+    );
+  }
+  if (commandMatch && !enabledOk) {
+    warnings.push(
+      'OPENCODE_MCP_DISABLED: mcp.vibecode.enabled is not true.',
+    );
+  }
 
   const effective: OpenCodeMcpDetectedEntry = {
     server_name: OPENCODE_MCP_SERVER_NAME,
     command: commandStrings,
     type: String(type ?? ''),
-    enabled: enabled !== false,
+    enabled: enabled === true,
     config_path: configPath,
     scope: pathInfo.scope,
   };
 
   return {
     configured: true,
-    status: upToDate ? 'up_to_date' : 'stale',
+    status: commandMatch && typeOk && enabledOk ? 'up_to_date' : 'stale',
     effective,
     warnings,
   };
@@ -357,6 +370,9 @@ function validateOpenCodeConfig(data: Record<string, unknown>): { ok: true } | {
   }
   if (vibecode.type !== 'local') {
     return { ok: false, error: 'patched mcp.vibecode.type is not "local"' };
+  }
+  if (vibecode.enabled !== true) {
+    return { ok: false, error: 'patched mcp.vibecode.enabled is not true' };
   }
   return { ok: true };
 }

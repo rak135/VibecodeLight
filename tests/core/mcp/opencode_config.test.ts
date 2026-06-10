@@ -279,6 +279,125 @@ describe('OpenCode MCP config detection', () => {
     expect(result.status).toBe('stale');
   });
 
+  test('reports stale when command matches but type is "remote"', () => {
+    const vibecodeBinPath = path.join(repoRoot, 'bin', 'vibecode.js');
+    const expected = buildOpenCodeMcpConfig({ repoRoot, scope: 'project', vibecodeBinPath });
+    writeJson(path.join(repoRoot, 'opencode.json'), {
+      mcp: {
+        vibecode: {
+          type: 'remote',
+          command: expected.command,
+          enabled: true,
+        },
+      },
+    });
+
+    const result = detectOpenCodeMcpConfig({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath,
+    });
+    expect(result.configured).toBe(true);
+    expect(result.status).toBe('stale');
+    expect(result.effective?.type).toBe('remote');
+    expect(result.warnings.join('\n')).toMatch(/OPENCODE_MCP_TYPE_MISMATCH/);
+  });
+
+  test('reports stale when command matches but enabled is false', () => {
+    const vibecodeBinPath = path.join(repoRoot, 'bin', 'vibecode.js');
+    const expected = buildOpenCodeMcpConfig({ repoRoot, scope: 'project', vibecodeBinPath });
+    writeJson(path.join(repoRoot, 'opencode.json'), {
+      mcp: {
+        vibecode: {
+          type: 'local',
+          command: expected.command,
+          enabled: false,
+        },
+      },
+    });
+
+    const result = detectOpenCodeMcpConfig({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath,
+    });
+    expect(result.configured).toBe(true);
+    expect(result.status).toBe('stale');
+    expect(result.effective?.enabled).toBe(false);
+    expect(result.warnings.join('\n')).toMatch(/OPENCODE_MCP_DISABLED/);
+  });
+
+  test('reports stale when command matches but type is missing', () => {
+    const vibecodeBinPath = path.join(repoRoot, 'bin', 'vibecode.js');
+    const expected = buildOpenCodeMcpConfig({ repoRoot, scope: 'project', vibecodeBinPath });
+    writeJson(path.join(repoRoot, 'opencode.json'), {
+      mcp: {
+        vibecode: {
+          command: expected.command,
+          enabled: true,
+        },
+      },
+    });
+
+    const result = detectOpenCodeMcpConfig({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath,
+    });
+    expect(result.configured).toBe(true);
+    expect(result.status).toBe('stale');
+    expect(result.effective?.type).toBe('');
+    expect(result.warnings.join('\n')).toMatch(/OPENCODE_MCP_TYPE_MISMATCH/);
+  });
+
+  test('reports stale when command matches but enabled is missing', () => {
+    const vibecodeBinPath = path.join(repoRoot, 'bin', 'vibecode.js');
+    const expected = buildOpenCodeMcpConfig({ repoRoot, scope: 'project', vibecodeBinPath });
+    writeJson(path.join(repoRoot, 'opencode.json'), {
+      mcp: {
+        vibecode: {
+          type: 'local',
+          command: expected.command,
+        },
+      },
+    });
+
+    const result = detectOpenCodeMcpConfig({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath,
+    });
+    expect(result.configured).toBe(true);
+    expect(result.status).toBe('stale');
+    expect(result.effective?.enabled).toBe(false);
+    expect(result.warnings.join('\n')).toMatch(/OPENCODE_MCP_DISABLED/);
+  });
+
+  test('reports up_to_date only when type is local, enabled is true, and command matches', () => {
+    const vibecodeBinPath = path.join(repoRoot, 'bin', 'vibecode.js');
+    const expected = buildOpenCodeMcpConfig({ repoRoot, scope: 'project', vibecodeBinPath });
+    writeJson(path.join(repoRoot, 'opencode.json'), {
+      mcp: {
+        vibecode: {
+          type: 'local',
+          command: expected.command,
+          enabled: true,
+        },
+      },
+    });
+
+    const result = detectOpenCodeMcpConfig({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath,
+    });
+    expect(result.configured).toBe(true);
+    expect(result.status).toBe('up_to_date');
+    expect(result.effective?.type).toBe('local');
+    expect(result.effective?.enabled).toBe(true);
+    expect(result.warnings).toHaveLength(0);
+  });
+
   test('detection is read-only and does not write files', () => {
     writeJson(path.join(repoRoot, 'opencode.json'), {
       mcp: {
@@ -527,5 +646,126 @@ describe('OpenCode MCP install', () => {
 
     const written = fs.readFileSync(path.join(repoRoot, 'opencode.json'), 'utf8');
     expect(written).not.toMatch(/api[_-]?key|secret|token|password/i);
+  });
+
+  test('apply fixes wrong type (remote) while preserving unrelated config', () => {
+    const configPath = path.join(repoRoot, 'opencode.json');
+    writeJson(configPath, {
+      model: 'anthropic/claude-sonnet-4-5',
+      mcp: {
+        sentry: { type: 'remote', url: 'https://mcp.sentry.dev/mcp' },
+        vibecode: {
+          type: 'remote',
+          command: ['node', '/old/path'],
+          enabled: true,
+        },
+      },
+    });
+
+    const result = applyOpenCodeMcpInstall({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
+      yes: true,
+    });
+
+    expectOk(result);
+    expect(result.action).toBe('update');
+    expect(result.existing_server).toBe(true);
+
+    const written = readJson(configPath) as Record<string, unknown>;
+    expect(written.model).toBe('anthropic/claude-sonnet-4-5');
+    const mcp = written.mcp as Record<string, unknown>;
+    expect(mcp.sentry).toEqual({ type: 'remote', url: 'https://mcp.sentry.dev/mcp' });
+    const vibecode = mcp.vibecode as Record<string, unknown>;
+    expect(vibecode.type).toBe('local');
+    expect(vibecode.enabled).toBe(true);
+  });
+
+  test('apply fixes enabled false while preserving unrelated config', () => {
+    const configPath = path.join(repoRoot, 'opencode.json');
+    writeJson(configPath, {
+      small_model: 'anthropic/claude-haiku-4-5',
+      mcp: {
+        vibecode: {
+          type: 'local',
+          command: ['node', '/old/path'],
+          enabled: false,
+        },
+      },
+    });
+
+    const result = applyOpenCodeMcpInstall({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
+      yes: true,
+    });
+
+    expectOk(result);
+    expect(result.action).toBe('update');
+
+    const written = readJson(configPath) as Record<string, unknown>;
+    expect(written.small_model).toBe('anthropic/claude-haiku-4-5');
+    const vibecode = (written.mcp as Record<string, unknown>).vibecode as Record<string, unknown>;
+    expect(vibecode.type).toBe('local');
+    expect(vibecode.enabled).toBe(true);
+  });
+
+  test('apply fixes missing type while preserving unrelated config', () => {
+    const configPath = path.join(repoRoot, 'opencode.json');
+    writeJson(configPath, {
+      mcp: {
+        other_server: { type: 'local', command: ['echo', 'hello'] },
+        vibecode: {
+          command: ['node', '/old/path'],
+          enabled: true,
+        },
+      },
+    });
+
+    const result = applyOpenCodeMcpInstall({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
+      yes: true,
+    });
+
+    expectOk(result);
+    expect(result.action).toBe('update');
+
+    const written = readJson(configPath) as Record<string, unknown>;
+    const mcp = written.mcp as Record<string, unknown>;
+    expect(mcp.other_server).toEqual({ type: 'local', command: ['echo', 'hello'] });
+    const vibecode = mcp.vibecode as Record<string, unknown>;
+    expect(vibecode.type).toBe('local');
+    expect(vibecode.enabled).toBe(true);
+  });
+
+  test('apply fixes missing enabled while preserving unrelated config', () => {
+    const configPath = path.join(repoRoot, 'opencode.json');
+    writeJson(configPath, {
+      mcp: {
+        vibecode: {
+          type: 'local',
+          command: ['node', '/old/path'],
+        },
+      },
+    });
+
+    const result = applyOpenCodeMcpInstall({
+      repoRoot,
+      scope: 'project',
+      vibecodeBinPath: path.join(repoRoot, 'bin', 'vibecode.js'),
+      yes: true,
+    });
+
+    expectOk(result);
+    expect(result.action).toBe('update');
+
+    const written = readJson(configPath) as Record<string, unknown>;
+    const vibecode = (written.mcp as Record<string, unknown>).vibecode as Record<string, unknown>;
+    expect(vibecode.type).toBe('local');
+    expect(vibecode.enabled).toBe(true);
   });
 });

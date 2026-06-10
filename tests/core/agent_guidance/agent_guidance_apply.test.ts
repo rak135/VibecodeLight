@@ -8,6 +8,7 @@ import {
 } from '../../../src/core/agent_guidance/agent_guidance_apply.js';
 import { getAgentGuidanceConfigPath } from '../../../src/core/config/agent_guidance_config.js';
 import { buildClaudeMcpInstallCommand } from '../../../src/core/mcp/claude_config.js';
+import { buildOpenCodeMcpConfig } from '../../../src/core/mcp/opencode_config.js';
 import { VIBECODE_MCP_TOOL_NAMES } from '../../../src/app/mcp/index.js';
 
 function expectedClaudeServer(repoRoot: string, binPath: string): { type: string; command: string; args: string[]; env: Record<string, never> } {
@@ -384,6 +385,108 @@ describe('agent guidance integration status/apply', () => {
       expect(fs.existsSync(path.join(f.repoRoot, 'AGENTS.md'))).toBe(false);
       expect(fs.existsSync(path.join(f.repoRoot, 'CLAUDE.md'))).toBe(false);
       expect(fs.existsSync(path.join(f.repoRoot, 'config.yaml'))).toBe(false);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('OpenCode status reports stale when type is "remote" even if command matches', () => {
+    const f = makeFixture();
+    try {
+      const binPath = path.join(f.repoRoot, 'bin', 'vibecode.js');
+      const configPath = path.join(f.repoRoot, 'opencode.json');
+      const expected = buildOpenCodeMcpConfig({ repoRoot: f.repoRoot, opencodeConfigDir: f.opencodeHome, vibecodeBinPath: binPath });
+      fs.writeFileSync(configPath, JSON.stringify({
+        mcp: {
+          vibecode: {
+            type: 'remote',
+            command: expected.command,
+            enabled: true,
+          },
+        },
+      }, null, 2), 'utf8');
+
+      const status = getAgentGuidanceIntegrationStatus({
+        agent: 'opencode',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        opencodeConfigDir: f.opencodeHome,
+        vibecodeBinPath: binPath,
+      });
+      expect(status.ok).toBe(true);
+      expect(status.configured).toBe(true);
+      expect(status.up_to_date).toBe(false);
+      expect(status.mcp?.status).toBe('stale');
+      expect(status.mcp?.up_to_date).toBe(false);
+      expect(status.warnings.join('\n')).toMatch(/OPENCODE_MCP_TYPE_MISMATCH/);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('OpenCode status reports stale when enabled is false even if command matches', () => {
+    const f = makeFixture();
+    try {
+      const binPath = path.join(f.repoRoot, 'bin', 'vibecode.js');
+      const configPath = path.join(f.repoRoot, 'opencode.json');
+      const expected = buildOpenCodeMcpConfig({ repoRoot: f.repoRoot, opencodeConfigDir: f.opencodeHome, vibecodeBinPath: binPath });
+      fs.writeFileSync(configPath, JSON.stringify({
+        mcp: {
+          vibecode: {
+            type: 'local',
+            command: expected.command,
+            enabled: false,
+          },
+        },
+      }, null, 2), 'utf8');
+
+      const status = getAgentGuidanceIntegrationStatus({
+        agent: 'opencode',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        opencodeConfigDir: f.opencodeHome,
+        vibecodeBinPath: binPath,
+      });
+      expect(status.ok).toBe(true);
+      expect(status.configured).toBe(true);
+      expect(status.up_to_date).toBe(false);
+      expect(status.mcp?.status).toBe('stale');
+      expect(status.mcp?.up_to_date).toBe(false);
+      expect(status.warnings.join('\n')).toMatch(/OPENCODE_MCP_DISABLED/);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('OpenCode apply --yes fixes wrong type and preserves unrelated config', () => {
+    const f = makeFixture();
+    try {
+      const configPath = path.join(f.repoRoot, 'opencode.json');
+      fs.writeFileSync(configPath, JSON.stringify({
+        model: 'test/model',
+        mcp: {
+          sentry: { type: 'remote', url: 'https://mcp.sentry.dev/mcp' },
+          vibecode: {
+            type: 'remote',
+            command: ['node', '/old/path'],
+            enabled: true,
+          },
+        },
+      }, null, 2), 'utf8');
+
+      const result = applyAgentGuidanceIntegration({
+        agent: 'opencode',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        yes: true,
+        vibecodeBinPath: path.join(f.repoRoot, 'bin', 'vibecode.js'),
+      });
+      expect(result.ok).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      expect(written.model).toBe('test/model');
+      expect(written.mcp.sentry).toEqual({ type: 'remote', url: 'https://mcp.sentry.dev/mcp' });
+      expect(written.mcp.vibecode.type).toBe('local');
+      expect(written.mcp.vibecode.enabled).toBe(true);
     } finally {
       f.cleanup();
     }

@@ -364,11 +364,21 @@ export function registerMcpCommands(
             ? 'OpenCode config contains mcp.vibecode.'
             : 'OpenCode config does not contain mcp.vibecode.',
         };
+
+        let upToDateMessage: string;
+        if (detection.status === 'up_to_date') {
+          upToDateMessage = 'mcp.vibecode is correctly configured.';
+        } else if (detection.warnings.some((w) => w.startsWith('OPENCODE_MCP_TYPE_MISMATCH'))) {
+          upToDateMessage = `mcp.vibecode status: ${detection.status}. Type is "${detection.effective?.type ?? ''}" but expected "local".`;
+        } else if (detection.warnings.some((w) => w.startsWith('OPENCODE_MCP_DISABLED'))) {
+          upToDateMessage = `mcp.vibecode status: ${detection.status}. enabled is not true.`;
+        } else {
+          upToDateMessage = `mcp.vibecode status: ${detection.status}.`;
+        }
+
         checks.up_to_date = {
           ok: detection.status === 'up_to_date',
-          message: detection.status === 'up_to_date'
-            ? 'mcp.vibecode command matches expected VibecodeMCP args.'
-            : `mcp.vibecode status: ${detection.status}.`,
+          message: upToDateMessage,
         };
         const ok = detection.configured && detection.status === 'up_to_date';
         const result = {

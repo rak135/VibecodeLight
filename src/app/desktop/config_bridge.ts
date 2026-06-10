@@ -241,7 +241,7 @@ function agentGuidanceTerminalPreflightPayload(opts: {
 }
 
 function parseIntegrationAgent(raw: unknown): AgentGuidanceIntegrationAgent | null {
-  return raw === 'claude' || raw === 'codex' ? raw : null;
+  return raw === 'claude' || raw === 'codex' || raw === 'opencode' ? raw : null;
 }
 
 function invalidIntegrationAgentPayload(raw: unknown) {
@@ -251,7 +251,7 @@ function invalidIntegrationAgentPayload(raw: unknown) {
     error: {
       code: 'INVALID_AGENT',
       message: `Invalid agent: ${String(raw)}`,
-      details: ['Expected one of: claude, codex.'],
+      details: ['Expected one of: claude, codex, opencode.'],
     },
   };
 }
