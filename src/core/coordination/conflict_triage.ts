@@ -125,6 +125,27 @@ export interface ConflictTriageListResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Coerce a possibly-missing/malformed value into a string array. */
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string')
+    : [];
+}
+
+/**
+ * Normalize a conflict record so triage never crashes on legacy/malformed
+ * records: state.json normalization guarantees `conflicts` is an array but
+ * trusts element shape, so the involved_* arrays may be absent.
+ */
+function normalizeConflictRecord(conflict: ConflictRecord): ConflictRecord {
+  return {
+    ...conflict,
+    involved_claims: asStringArray(conflict.involved_claims),
+    involved_agents: asStringArray(conflict.involved_agents),
+    involved_files: asStringArray(conflict.involved_files),
+  };
+}
+
 /** Safe lookup: find an agent by id, returning undefined if missing. */
 function findAgent(
   agents: readonly AgentSession[],
@@ -329,7 +350,7 @@ function buildRecommendedCliCommands(args: {
   ];
 
   if (args.triageStatus === 'still_blocking' || args.triageStatus === 'unresolved') {
-    commands.push('vibecode conflicts detail --conflict-id <conflict_id> --json');
+    commands.push(`vibecode conflicts detail --conflict-id ${args.conflictId} --json`);
     if (args.blockingAgentStatus === 'stale' || args.blockingAgentStatus === 'terminated') {
       commands.push('vibecode claims reap --dry-run --json');
       commands.push('vibecode tools profile --profile coordination_housekeeping --json');
@@ -368,7 +389,7 @@ export function triageConflict(args: {
   const nowMs = Date.parse(now);
   const ttlMs = HEARTBEAT_TTL_MS;
 
-  const conflict = args.conflict;
+  const conflict = normalizeConflictRecord(args.conflict);
   const blockingAgentIds = deriveBlockingAgents(args.claims, conflict);
   const requestingAgentId = deriveRequestingAgent(conflict, blockingAgentIds);
 

@@ -719,12 +719,15 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
   );
   const unresolved = conflictRecords.filter((c) => c.status === 'detected');
 
-  // Phase 2D: enrich conflicts with triage context.
-  const allIntentsForTriage = allIntents;
+  // Phase 2D: enrich conflicts with triage context. Triage needs released
+  // claims too (the bounded claim sections above exclude them) so a conflict
+  // whose blocking claim was released triages as `cleared`, matching
+  // vibecode_conflict_detail.
+  const claimsForTriage = listFileClaims(repoRoot, { now: checkedAt, includeReleased: true });
   const triageResult = listConflictTriages({
     agents,
-    claims,
-    intents: allIntentsForTriage,
+    claims: claimsForTriage,
+    intents: allIntents,
     conflicts: unresolved,
     currentAgentId: currentAgent?.agent_id ?? null,
     now: checkedAt,

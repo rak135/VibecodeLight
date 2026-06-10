@@ -418,6 +418,54 @@ describe('Phase 2D — conflict triage', () => {
     expect(detail.requesting_agent_id).toBeNull();
   });
 
+  test('legacy conflict record with missing involved_* arrays does not crash triage', () => {
+    const t0 = '2026-06-10T00:00:00.000Z';
+    // Simulates a record written by an older version (or corrupted state):
+    // the involved_claims / involved_agents / involved_files arrays are absent.
+    const legacy = {
+      conflict_id: 'conflict-legacy',
+      conflict_type: 'claim_denied',
+      detected_at: t0,
+      status: 'detected',
+      severity: 'low',
+      description: 'legacy record without involved_* arrays',
+      evidence: { detector: 'claim_manager', details: {} },
+    } as unknown as Parameters<typeof triageConflict>[0]['conflict'];
+
+    const detail = triageConflict({ conflict: legacy, agents: [], claims: [], intents: [], now: t0 });
+
+    expect(detail.conflict_id).toBe('conflict-legacy');
+    expect(detail.involved_files).toEqual([]);
+    expect(detail.blocking_claims).toEqual([]);
+    expect(detail.blocking_agent_id).toBeNull();
+    expect(detail.requesting_agent_id).toBeNull();
+    expect(detail.still_actively_blocking).toBe(false);
+  });
+
+  test('listConflictTriages tolerates legacy records with missing arrays', () => {
+    const t0 = '2026-06-10T00:00:00.000Z';
+    const legacy = {
+      conflict_id: 'conflict-legacy',
+      conflict_type: 'claim_denied',
+      detected_at: t0,
+      status: 'detected',
+      severity: 'low',
+      description: 'legacy record without involved_* arrays',
+      evidence: { detector: 'claim_manager', details: {} },
+    } as unknown as Parameters<typeof triageConflict>[0]['conflict'];
+
+    const result = listConflictTriages({
+      agents: [],
+      claims: [],
+      intents: [],
+      conflicts: [legacy],
+      now: t0,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.conflicts[0].conflict_id).toBe('conflict-legacy');
+  });
+
   test('listConflictTriages returns enriched summaries', () => {
     const t0 = '2026-06-10T00:00:00.000Z';
     build(repo.repoRoot, 'agent-a', t0);

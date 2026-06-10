@@ -10,7 +10,8 @@ import {
   AGENT_OPERATING_PROTOCOL,
 } from '../../../src/core/agent_session/bootstrap.js';
 import { registerAgent, markAgentTerminated, listAgents } from '../../../src/core/coordination/agents.js';
-import { addFileClaim } from '../../../src/core/coordination/claims.js';
+import { addFileClaim, releaseFileClaim } from '../../../src/core/coordination/claims.js';
+import { recordConflict } from '../../../src/core/coordination/conflicts.js';
 import { addBulkClaims } from '../../../src/core/coordination/bulk_claims.js';
 import { releaseClaimIntent } from '../../../src/core/coordination/intent_lifecycle.js';
 
@@ -255,6 +256,103 @@ describe('getSessionBootstrap — coordination summaries', () => {
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, max_items: 2, ...baseOpts });
     expect(result.claims.counts.own).toBe(5);
     expect(result.claims.own).toHaveLength(2);
+  });
+});
+
+describe('getSessionBootstrap — Phase 2D conflict triage summary', () => {
+  function denyConflict(repo: string, args: { claimId: string; requester: string; blocker: string }): void {
+    recordConflict(repo, {
+      conflict_type: 'claim_denied',
+      detected_at: new Date().toISOString(),
+      involved_claims: [args.claimId],
+      involved_agents: [args.requester, args.blocker],
+      involved_files: ['src/contested.ts'],
+      severity: 'medium',
+      description: 'Claim denied for src/contested.ts.',
+      evidence: { detector: 'claim_manager', details: {} },
+    }, { conflictId: 'conflict-1' });
+  }
+
+  test('still-blocking conflict is counted, surfaced with triage fields, and safely recommended', async () => {
+    const repo = makeRepo('vibecode-bs-conflict-block-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/contested.ts', mode: 'exclusive' }, { claimId: 'claim-blk' });
+    denyConflict(repo, { claimId: 'claim-blk', requester: a.agent_id, blocker: b.agent_id });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    expect(result.conflicts.unresolved_count).toBe(1);
+    expect(result.conflicts.still_blocking_count).toBe(1);
+    expect(result.conflicts.stale_blocking_count).toBe(0);
+    expect(result.conflicts.cleared_count).toBe(0);
+    const item = result.conflicts.items[0];
+    expect(item.triage_status).toBe('still_blocking');
+    expect(item.blocking_agent_id).toBe(b.agent_id);
+    expect(item.blocking_agent_status).toBe('active');
+    expect(item.warning_codes).toContain('CONFLICT_STILL_BLOCKING');
+    expect(result.warnings.map((w) => w.code)).toContain('CONFLICTS_STILL_BLOCKING');
+    expect(result.recommended_next_tools).toContain('vibecode_conflict_detail');
+    expect(result.recommended_tool_profiles.map((p) => p.profile_id)).toContain('conflict_resolution');
+    // Safety boundary: no recommendation suggests force cleanup, cross-agent
+    // release, ownership transfer, or direct .vibecode editing.
+    const recs = [...result.recommended_next_tools, ...result.recommended_cli_commands].join(' ');
+    expect(recs).not.toMatch(/force|transfer|state\.json/i);
+  });
+
+  test('conflict whose blocking claim was released is cleared, not inconsistent', async () => {
+    const repo = makeRepo('vibecode-bs-conflict-cleared-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/contested.ts', mode: 'exclusive' }, { claimId: 'claim-blk' });
+    denyConflict(repo, { claimId: 'claim-blk', requester: a.agent_id, blocker: b.agent_id });
+    releaseFileClaim(repo, 'claim-blk');
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    expect(result.conflicts.unresolved_count).toBe(1);
+    expect(result.conflicts.still_blocking_count).toBe(0);
+    expect(result.conflicts.cleared_count).toBe(1);
+    const item = result.conflicts.items[0];
+    expect(item.triage_status).toBe('cleared');
+    expect(item.warning_codes).toContain('CONFLICT_BLOCKING_CLAIM_RELEASED');
+    expect(item.warning_codes).not.toContain('CONFLICT_REFERENCES_MISSING_CLAIM');
+    expect(item.warning_codes).not.toContain('CONFLICT_OWNER_MISSING');
+    expect(result.warnings.map((w) => w.code)).not.toContain('CONFLICTS_STILL_BLOCKING');
+  });
+
+  test('legacy conflict record with missing involved_* arrays does not crash bootstrap', async () => {
+    const repo = makeRepo('vibecode-bs-conflict-legacy-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const stateFile = path.join(repo, '.vibecode', 'coordination', 'state.json');
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    state.conflicts.push({
+      conflict_id: 'conflict-legacy',
+      conflict_type: 'claim_denied',
+      detected_at: new Date().toISOString(),
+      status: 'detected',
+      severity: 'low',
+      description: 'legacy record without involved_* arrays',
+      evidence: { detector: 'claim_manager', details: {} },
+    });
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8');
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    expect(result.ok).toBe(true);
+    expect(result.conflicts.unresolved_count).toBe(1);
+    expect(result.conflicts.items[0].conflict_id).toBe('conflict-legacy');
+    expect(result.conflicts.items[0].involved_files).toEqual([]);
+  });
+
+  test('clean state: conflict triage counts are zero and no conflict warning is emitted', async () => {
+    const repo = makeRepo('vibecode-bs-conflict-clean-');
+    const result = await getSessionBootstrap({ repoRoot: repo, ...baseOpts });
+    expect(result.conflicts).toMatchObject({
+      unresolved_count: 0,
+      still_blocking_count: 0,
+      stale_blocking_count: 0,
+      cleared_count: 0,
+      items: [],
+    });
+    expect(result.warnings.map((w) => w.code)).not.toContain('CONFLICTS_STILL_BLOCKING');
   });
 });
 
