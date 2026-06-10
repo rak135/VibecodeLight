@@ -51,13 +51,16 @@ export type WheelDirection = 'up' | 'down';
 export interface ScrollRailControllerOptions {
   /** Lines per wheel notch when driving real scrollback. Defaults to 3. */
   wheelStep?: number;
+  /** Wheel notches per synthetic wheel step in TUI mode. Defaults to 1. */
+  tuiWheelNotches?: number;
   /** Wheel notches synthesised per page action in TUI mode. Defaults to 8. */
   pageNotches?: number;
-  /**
-   * Wheel notches synthesised for the strong bottom-control burst in TUI mode.
-   * Best-effort downward jump (the exact bottom is unknowable). Defaults to 24.
-   */
-  tuiJumpNotches?: number;
+  /** Max batches for best-effort jump in TUI mode. Defaults to 30. */
+  tuiJumpMaxBatches?: number;
+  /** Consecutive stable batches before stopping a best-effort jump. Defaults to 3. */
+  tuiStableBatches?: number;
+  /** Milliseconds between batches for best-effort jump. Defaults to 80. */
+  tuiRepeatIntervalMs?: number;
   /**
    * Override the wheel sender (used in tests). In the browser this defaults to
    * dispatching a synthetic `wheel` event on the xterm root element.
@@ -82,6 +85,11 @@ export interface ScrollRailController {
    * mode (a true jump-to-bottom is impossible when the app owns its position).
    */
   jumpDown(): void;
+  /**
+   * Strong upward action for the top control: no-op in scrollback mode; a
+   * best-effort burst of wheel-up notches in TUI mode.
+   */
+  jumpUp(): void;
   /** Jump to an absolute position (no-op in TUI mode — position is unknowable). */
   scrollToRatio(ratio: number): void;
   onStateChange(cb: (state: ScrollState) => void): () => void;

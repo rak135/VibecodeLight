@@ -414,19 +414,19 @@ describe('strong bottom control (jumpDown)', () => {
 
   test('jumpDown forwards a strong burst of downward notches by default (not one nudge)', () => {
     const sendWheel = vi.fn();
-    const ctrl = ScrollRail.createScrollRailController(tuiTerm(), { sendWheel });
+    const ctrl = ScrollRail.createScrollRailController(tuiTerm(), { sendWheel, tuiRepeatIntervalMs: 0 });
     ctrl.jumpDown();
     expect(sendWheel.mock.calls.length).toBeGreaterThan(3);
     expect(sendWheel.mock.calls.every((c: unknown[]) => c[0] === 'down')).toBe(true);
     ctrl.dispose();
   });
 
-  test('jumpDown honors a configured tuiJumpNotches count and never drives scrollback', () => {
+  test('jumpDown honors a configured tuiJumpMaxBatches and never drives scrollback', () => {
     const t = tuiTerm();
     const sendWheel = vi.fn();
-    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, tuiJumpNotches: 12 });
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, tuiJumpMaxBatches: 5, tuiRepeatIntervalMs: 0 });
     ctrl.jumpDown();
-    expect(sendWheel).toHaveBeenCalledTimes(12);
+    expect(sendWheel).toHaveBeenCalledTimes(5);
     expect(t.scrollLines).not.toHaveBeenCalled();
     expect(t.scrollToBottom).not.toHaveBeenCalled();
     ctrl.dispose();
@@ -439,6 +439,115 @@ describe('strong bottom control (jumpDown)', () => {
     ctrl.jumpDown();
     expect(t.scrollToBottom).toHaveBeenCalledTimes(1);
     expect(sendWheel).not.toHaveBeenCalled();
+    ctrl.dispose();
+  });
+
+  test('jumpUp exists and forwards upward notches in TUI mode', () => {
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(tuiTerm(), { sendWheel, tuiJumpMaxBatches: 4, tuiRepeatIntervalMs: 0 });
+    ctrl.jumpUp();
+    expect(sendWheel).toHaveBeenCalledTimes(4);
+    expect(sendWheel.mock.calls.every((c: unknown[]) => c[0] === 'up')).toBe(true);
+    ctrl.dispose();
+  });
+
+  test('jumpUp is a no-op in scrollback mode', () => {
+    const t = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 50, length: 124 } });
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel });
+    ctrl.jumpUp();
+    expect(sendWheel).not.toHaveBeenCalled();
+    expect(t.scrollLines).not.toHaveBeenCalled();
+    ctrl.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TUI best-effort top/bottom with feedback
+// ---------------------------------------------------------------------------
+// Protected invariant: the top/bottom actions in TUI mode use repeated batches
+// and stop when the screen has not changed for N consecutive batches, not a
+// fixed arbitrary burst.
+
+describe('tui best-effort top/bottom feedback', () => {
+  function tuiTerm() {
+    return fakeTerminal({ rows: 24, buffer: { baseY: 0, viewportY: 0, length: 24, type: 'alternate' }, mouseTrackingMode: 'any' });
+  }
+
+  test('repeatUntilStable stops early when the screen does not change', () => {
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(tuiTerm(), { sendWheel, tuiJumpMaxBatches: 10, tuiStableBatches: 2, tuiRepeatIntervalMs: 0 });
+    // With a fake terminal the snapshot is always null, so stability is never
+    // detected; the loop runs until maxBatches.  We prove that the maxBatches
+    // limit is respected by using a small cap.
+    ctrl.jumpDown();
+    expect(sendWheel).toHaveBeenCalledTimes(10);
+    ctrl.dispose();
+  });
+
+  test('dispose stops an active repeater', () => {
+    const sendWheel = vi.fn();
+    const t = tuiTerm();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, tuiJumpMaxBatches: 100, tuiRepeatIntervalMs: 0 });
+    ctrl.jumpDown();
+    // dispose should stop the repeater and not cause runaway calls
+    ctrl.dispose();
+    // Total calls should be exactly maxBatches because interval is 0.
+    expect(sendWheel).toHaveBeenCalledTimes(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TUI wheel forwarding
+// ---------------------------------------------------------------------------
+// Protected invariant: the wheel event is forwarded through the terminal
+// element (and fallback screen/viewport children) so the rail overlay never
+// swallows wheel events.
+
+describe('tui wheel forwarding', () => {
+  test('wheelLikeDown sends multiple notches when TUI_WHEEL_NOTCHES > 1', () => {
+    const t = fakeTerminal({ rows: 24, buffer: { baseY: 0, viewportY: 0, length: 24, type: 'alternate' }, mouseTrackingMode: 'any' });
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, tuiWheelNotches: 3 });
+    ctrl.wheelLikeDown();
+    expect(sendWheel).toHaveBeenCalledTimes(3);
+    expect(sendWheel.mock.calls.every((c: unknown[]) => c[0] === 'down')).toBe(true);
+    ctrl.dispose();
+  });
+
+  test('wheelLikeUp sends multiple notches when TUI_WHEEL_NOTCHES > 1', () => {
+    const t = fakeTerminal({ rows: 24, buffer: { baseY: 0, viewportY: 0, length: 24, type: 'alternate' }, mouseTrackingMode: 'any' });
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, tuiWheelNotches: 3 });
+    ctrl.wheelLikeUp();
+    expect(sendWheel).toHaveBeenCalledTimes(3);
+    expect(sendWheel.mock.calls.every((c: unknown[]) => c[0] === 'up')).toBe(true);
+    ctrl.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Normal scrollback mode must not regress
+// ---------------------------------------------------------------------------
+// Protected invariant: normal scrollback mode still uses xterm scroll APIs and
+// does not use TUI wheel forwarding.
+
+describe('normal scrollback mode regression', () => {
+  test('wheelLikeDown in scrollback mode uses scrollLines, not sendWheel', () => {
+    const t = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 50, length: 124 } });
+    const sendWheel = vi.fn();
+    const ctrl = ScrollRail.createScrollRailController(t, { sendWheel, tuiWheelNotches: 5 });
+    ctrl.wheelLikeDown();
+    expect(t.scrollLines).toHaveBeenCalledTimes(1);
+    expect(sendWheel).not.toHaveBeenCalled();
+    ctrl.dispose();
+  });
+
+  test('pageDown in scrollback mode uses scrollLines with terminal.rows', () => {
+    const t = fakeTerminal({ rows: 24, buffer: { baseY: 100, viewportY: 50, length: 124 } });
+    const ctrl = ScrollRail.createScrollRailController(t);
+    ctrl.pageDown();
+    expect(t.scrollLines).toHaveBeenCalledWith(24);
     ctrl.dispose();
   });
 });

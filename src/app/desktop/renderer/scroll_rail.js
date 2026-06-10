@@ -71,36 +71,141 @@
   // Wheel forwarding — reproduce real mouse-wheel input for TUI mode
   // -----------------------------------------------------------------------
   //
-  // Builds the default browser wheel sender. It dispatches a synthetic `wheel`
-  // event on `terminal.element` (the `.xterm` root), which is the exact element
-  // xterm binds its wheel handler to. xterm then does whatever a real wheel
-  // would: forward a mouse escape to mouse-tracking apps, or send arrow keys to
-  // plain alt-screen pagers. xterm does not gate on `event.isTrusted`, so the
-  // synthetic event is honoured.
+  // Builds the default browser wheel sender. xterm.js v6 binds its wheel
+  // handler to terminal.element (the .xterm root) when mouse-tracking is
+  // enabled, and to the inner screen/viewport elements when the scrollable
+  // element handles the wheel itself. To cover both paths reliably we dispatch
+  // on the root element first, then try the screen and viewport children.
+  //
+  // We use MouseEvent (universally supported) and define deltaY / deltaMode as
+  // non-writable properties — xterm.js only reads those fields, it never checks
+  // instanceof WheelEvent.
   //
   // Returns a no-op-safe sender in non-browser/test environments; tests inject
   // their own `sendWheel` and assert on it instead.
   function makeDefaultWheelSender(terminal) {
     return function sendWheel(direction) {
-      if (typeof window === 'undefined' || typeof window.WheelEvent !== 'function') return;
+      if (typeof window === 'undefined') return;
       var el = terminal && terminal.element;
       if (!el || typeof el.dispatchEvent !== 'function') return;
       var rect = (el.getBoundingClientRect && el.getBoundingClientRect())
         || { left: 0, top: 0, width: 0, height: 0 };
-      var ev = new window.WheelEvent('wheel', {
-        // One line per notch (DOM_DELTA_LINE === 1). xterm forwards per notch,
-        // so each call scrolls the app by one wheel step.
-        deltaY: direction === 'up' ? -1 : 1,
-        deltaMode: 1,
-        // Aim at the centre of the terminal so mouse-tracking apps map the wheel
-        // event to a cell inside their viewport.
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-        bubbles: true,
-        cancelable: true,
-      });
-      el.dispatchEvent(ev);
+      var clientX = rect.left + rect.width / 2;
+      var clientY = rect.top + rect.height / 2;
+
+      var targets = [el];
+      var screen = el.querySelector('.xterm-screen');
+      if (screen && screen !== el) targets.push(screen);
+      var viewport = el.querySelector('.xterm-viewport');
+      if (viewport && viewport !== el && viewport !== screen) targets.push(viewport);
+
+      for (var i = 0; i < targets.length; i++) {
+        var ev = new window.MouseEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          clientX: clientX,
+          clientY: clientY,
+        });
+        try {
+          Object.defineProperty(ev, 'deltaY', {
+            value: direction === 'up' ? -1 : 1,
+            writable: false,
+            configurable: true,
+          });
+          Object.defineProperty(ev, 'deltaMode', {
+            value: 1,
+            writable: false,
+            configurable: true,
+          });
+        } catch (_e) {
+          ev.deltaY = direction === 'up' ? -1 : 1;
+          ev.deltaMode = 1;
+        }
+        try { targets[i].dispatchEvent(ev); } catch (_e) { /* ignore */ }
+      }
     };
+  }
+
+  // -----------------------------------------------------------------------
+  // TUI feedback helpers — least-invasive snapshot + repeat-until-stable
+  // -----------------------------------------------------------------------
+
+  // Build a coarse string snapshot of the currently visible terminal screen.
+  // In TUI/alternate-buffer mode the buffer IS the screen, so we read the
+  // first `terminal.rows` lines via the public translateBufferLineToString API.
+  // If the API is unavailable or throws, we return null so the caller falls back
+  // to a simple max-batch limit.
+  function getVisibleTerminalSnapshot(terminal) {
+    try {
+      var buffer = terminal.buffer.active;
+      var rows = terminal.rows;
+      var lines = [];
+      for (var i = 0; i < rows; i++) {
+        lines.push(buffer.translateBufferLineToString(i, true));
+      }
+      return lines.join('\n');
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  // Send repeated wheel input in `direction` until the visible screen stops
+  // changing or a safe limit is reached. This is best-effort, not exact.
+  // Returns a handle with a `stop()` method so callers can cancel early.
+  function repeatUntilStable(terminal, direction, sendWheel, options) {
+    options = options || {};
+    var maxBatches = options.maxBatches !== undefined ? options.maxBatches : 30;
+    var stableThreshold = options.stableThreshold !== undefined ? options.stableThreshold : 3;
+    var interval = options.interval !== undefined ? options.interval : 80;
+    var batchSize = options.batchSize !== undefined ? options.batchSize : 1;
+    var getSnapshot = options.getSnapshot || getVisibleTerminalSnapshot;
+
+    var batches = 0;
+    var stableCount = 0;
+    var lastSnapshot = null;
+    var timer = null;
+
+    function stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function tick() {
+      if (batches >= maxBatches) {
+        stop();
+        return;
+      }
+      var snapshot = getSnapshot(terminal);
+      if (snapshot !== null && snapshot === lastSnapshot && batches > 0) {
+        stableCount++;
+        if (stableCount >= stableThreshold) {
+          stop();
+          return;
+        }
+      } else {
+        stableCount = 0;
+      }
+      lastSnapshot = snapshot;
+      for (var i = 0; i < batchSize; i++) {
+        sendWheel(direction);
+      }
+      batches++;
+    }
+
+    if (interval <= 0) {
+      // Synchronous mode for tests: drain all batches immediately.
+      while (stableCount < stableThreshold && batches < maxBatches) {
+        tick();
+      }
+    } else {
+      tick();
+      if (stableCount < stableThreshold) {
+        timer = setInterval(tick, interval);
+      }
+    }
+    return { stop: stop };
   }
 
   // -----------------------------------------------------------------------
@@ -111,18 +216,17 @@
     options = options || {};
     // Lines per wheel notch when driving real scrollback (scrollback mode).
     var WHEEL_STEP = options.wheelStep || 3;
-    // Wheel notches synthesised per page action in TUI mode. TUIs typically
-    // scroll a fixed amount per notch regardless of delta magnitude, so a page
-    // is several discrete notches rather than one large delta. Sized so a single
-    // track click / step-button tap moves a meaningful chunk, not a tiny nudge.
-    var PAGE_NOTCHES = options.pageNotches || 8;
-    // Strong best-effort downward burst for the bottom control in TUI mode. A
-    // full-screen app owns its scroll position, so a true jump-to-bottom is
-    // impossible; instead we forward a large run of wheel-down notches, which
-    // moves substantially in practice (e.g. to the end of an OpenCode list).
-    // This is honest best-effort, NOT a guaranteed jump. Configurable.
-    var TUI_JUMP_NOTCHES = options.tuiJumpNotches || 24;
+
+    // TUI mode constants — these control the size of synthetic wheel batches.
+    var TUI_WHEEL_NOTCHES = options.tuiWheelNotches !== undefined ? options.tuiWheelNotches : 1;
+    var TUI_PAGE_NOTCHES = options.pageNotches !== undefined ? options.pageNotches : 8;
+    // Best-effort jump limits: max batches, stable batches to stop, and interval.
+    var TUI_JUMP_MAX_BATCHES = options.tuiJumpMaxBatches !== undefined ? options.tuiJumpMaxBatches : 30;
+    var TUI_STABLE_BATCHES = options.tuiStableBatches !== undefined ? options.tuiStableBatches : 3;
+    var TUI_REPEAT_INTERVAL_MS = options.tuiRepeatIntervalMs !== undefined ? options.tuiRepeatIntervalMs : 80;
+
     var sendWheel = options.sendWheel || makeDefaultWheelSender(terminal);
+    var activeRepeater = null;
 
     var listeners = [];
     var disposed = false;
@@ -190,18 +294,24 @@
     }
 
     function wheelLikeUp() {
-      if (isTui()) sendWheel('up');
-      else terminal.scrollLines(-WHEEL_STEP);
+      if (isTui()) {
+        for (var i = 0; i < TUI_WHEEL_NOTCHES; i++) sendWheel('up');
+      } else {
+        terminal.scrollLines(-WHEEL_STEP);
+      }
     }
 
     function wheelLikeDown() {
-      if (isTui()) sendWheel('down');
-      else terminal.scrollLines(WHEEL_STEP);
+      if (isTui()) {
+        for (var i = 0; i < TUI_WHEEL_NOTCHES; i++) sendWheel('down');
+      } else {
+        terminal.scrollLines(WHEEL_STEP);
+      }
     }
 
     function pageUp() {
       if (isTui()) {
-        for (var i = 0; i < PAGE_NOTCHES; i++) sendWheel('up');
+        for (var i = 0; i < TUI_PAGE_NOTCHES; i++) sendWheel('up');
       } else {
         terminal.scrollLines(-terminal.rows);
       }
@@ -209,20 +319,39 @@
 
     function pageDown() {
       if (isTui()) {
-        for (var i = 0; i < PAGE_NOTCHES; i++) sendWheel('down');
+        for (var i = 0; i < TUI_PAGE_NOTCHES; i++) sendWheel('down');
       } else {
         terminal.scrollLines(terminal.rows);
       }
     }
 
-    // Strong downward action for the bottom control. In scrollback mode this is a
-    // real scroll-to-bottom. In TUI mode the bottom is unknowable, so we forward
-    // a strong burst of wheel-down notches (best-effort, not a guaranteed jump).
+    // Best-effort jump down (bottom control). In scrollback mode this is a real
+    // scroll-to-bottom. In TUI mode we use repeatUntilStable with feedback so we
+    // get much closer to the real bottom than a fixed burst.
     function jumpDown() {
       if (isTui()) {
-        for (var i = 0; i < TUI_JUMP_NOTCHES; i++) sendWheel('down');
+        if (activeRepeater) activeRepeater.stop();
+        activeRepeater = repeatUntilStable(terminal, 'down', sendWheel, {
+          maxBatches: TUI_JUMP_MAX_BATCHES,
+          stableThreshold: TUI_STABLE_BATCHES,
+          interval: TUI_REPEAT_INTERVAL_MS,
+          batchSize: TUI_WHEEL_NOTCHES,
+        });
       } else {
         scrollToBottom();
+      }
+    }
+
+    // Best-effort jump up (top control). Only meaningful in TUI mode.
+    function jumpUp() {
+      if (isTui()) {
+        if (activeRepeater) activeRepeater.stop();
+        activeRepeater = repeatUntilStable(terminal, 'up', sendWheel, {
+          maxBatches: TUI_JUMP_MAX_BATCHES,
+          stableThreshold: TUI_STABLE_BATCHES,
+          interval: TUI_REPEAT_INTERVAL_MS,
+          batchSize: TUI_WHEEL_NOTCHES,
+        });
       }
     }
 
@@ -258,6 +387,10 @@
     function dispose() {
       disposed = true;
       listeners.length = 0;
+      if (activeRepeater) {
+        activeRepeater.stop();
+        activeRepeater = null;
+      }
       if (scrollDisposable && scrollDisposable.dispose) {
         scrollDisposable.dispose();
       }
@@ -272,6 +405,7 @@
       pageUp: pageUp,
       pageDown: pageDown,
       jumpDown: jumpDown,
+      jumpUp: jumpUp,
       scrollToRatio: scrollToRatio,
       onStateChange: onStateChange,
       dispose: dispose,
@@ -464,19 +598,38 @@
     var dragStartY = 0;
     var dragStartThumbTop = 0;
     var holdDisposers = [];
+    // TUI drag: continuous wheel input mapped to pointer movement.
+    var tuiDragInterval = null;
+    var tuiDragRepeater = null;
+    var TUI_DRAG_THRESHOLD = 10; // px per wheel notch
 
     function modeNow() {
       try { return controller.getState().mode; } catch (_e) { return 'scrollback'; }
     }
 
-    // Up button (TUI-only affordance): tap = one page up, hold = keep paging up.
+    function clearTuiDrag() {
+      if (tuiDragInterval) {
+        clearInterval(tuiDragInterval);
+        tuiDragInterval = null;
+      }
+      if (tuiDragRepeater) {
+        clearInterval(tuiDragRepeater);
+        tuiDragRepeater = null;
+      }
+      dragging = false;
+    }
+
+    // Up button (TUI-only affordance): tap = best-effort jump up, hold = keep paging up.
     if (upBtn) {
       holdDisposers.push(addHoldRepeat(upBtn, function () {
+        if (modeNow() === 'tui') {
+          return { first: controller.jumpUp, repeat: controller.pageUp };
+        }
         return { first: controller.pageUp, repeat: controller.pageUp };
       }));
     }
 
-    // Bottom button: in TUI mode a tap does a strong jump-down burst and holding
+    // Bottom button: in TUI mode a tap does best-effort jump-down and holding
     // keeps paging down; in scrollback mode it is a single real scroll-to-bottom.
     holdDisposers.push(addHoldRepeat(jumpBtn, function () {
       if (modeNow() === 'tui') {
@@ -487,12 +640,15 @@
 
     // Wheel over the rail strip forwards wheel-like input. The rail overlays the
     // terminal's right edge, so without this, wheel events here would be lost.
-    rail.addEventListener('wheel', function (e) {
+    // We listen on both rail and track so the event is never swallowed by the overlay.
+    function onWheel(e) {
       e.preventDefault();
       e.stopPropagation();
       if (e.deltaY < 0) controller.wheelLikeUp();
       else if (e.deltaY > 0) controller.wheelLikeDown();
-    }, { passive: false });
+    }
+    rail.addEventListener('wheel', onWheel, { passive: false });
+    track.addEventListener('wheel', onWheel, { passive: false });
 
     // Track click — page towards the click. In scrollback mode it pages past the
     // thumb like a native gutter; in TUI mode (no thumb) it pages by half.
@@ -511,12 +667,23 @@
       else controller.pageDown();
     });
 
-    // Thumb drag — scrollback mode only (the thumb is hidden in TUI mode, and
-    // scrollToRatio is a no-op there).
+    // Thumb drag — scrollback mode uses absolute position; TUI mode uses
+    // continuous wheel input proportional to vertical pointer movement.
     thumb.addEventListener('mousedown', function (e) {
-      if (modeNow() === 'tui') return;
+      if (e.button !== 0) return;
       e.stopPropagation();
       e.preventDefault();
+      if (modeNow() === 'tui') {
+        dragging = true;
+        dragStartY = e.clientY;
+        // Continuous wheel input while dragging.
+        tuiDragInterval = setInterval(function () {
+          // Notches are sent in the pointermove handler; this interval is just
+          // a safety timer to clear the drag state if the browser stops firing
+          // pointermove (e.g. the pointer leaves the window).
+        }, 500);
+        return;
+      }
       dragging = true;
       dragStartY = e.clientY;
       dragStartThumbTop = parseFloat(thumb.style.top) || 0;
@@ -527,6 +694,19 @@
 
     function onMouseMove(e) {
       if (!dragging) return;
+      if (modeNow() === 'tui') {
+        var deltaY = e.clientY - dragStartY;
+        if (Math.abs(deltaY) >= TUI_DRAG_THRESHOLD) {
+          var direction = deltaY < 0 ? 'up' : 'down';
+          var notches = Math.floor(Math.abs(deltaY) / TUI_DRAG_THRESHOLD);
+          for (var i = 0; i < notches; i++) {
+            if (direction === 'up') controller.wheelLikeUp();
+            else controller.wheelLikeDown();
+          }
+          dragStartY = e.clientY;
+        }
+        return;
+      }
       var trackRect = track.getBoundingClientRect();
       var trackHeight = trackRect.height;
       if (trackHeight <= 0) return;
@@ -541,7 +721,7 @@
 
     function onMouseUp() {
       if (!dragging) return;
-      dragging = false;
+      clearTuiDrag();
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
     }
@@ -549,9 +729,13 @@
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
 
+    // Clean up any TUI drag state when the window loses focus.
+    window.addEventListener('blur', clearTuiDrag);
+
     return function unbind() {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('blur', clearTuiDrag);
       holdDisposers.forEach(function (d) { d(); });
     };
   }
