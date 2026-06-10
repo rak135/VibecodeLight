@@ -150,6 +150,31 @@ describe('tool profiles — dogfood polish guidance', () => {
   });
 });
 
+describe('tool profiles — Phase 3A isolated commit guidance', () => {
+  test('safe_commit explains isolated commits, skipped unclaimed files, and staged-unclaimed blocks', () => {
+    const profile = getToolProfile('safe_commit');
+    expect(profile).not.toBeNull();
+    const text = [...(profile?.next_steps ?? []), ...(profile?.warnings ?? [])].join(' ').toLowerCase();
+    // Isolated commit semantics: only claimed files are staged; unrelated
+    // unclaimed dirty files are skipped with a warning and stay dirty.
+    expect(text).toContain('unclaimed');
+    expect(text).toContain('skipped');
+    expect(text).toMatch(/stay|remain/);
+    // Staged unclaimed/foreign files block: unstage/review them, never commit them.
+    expect(text).toMatch(/unstage/);
+    // Never bypass the guard without explicit human direction.
+    expect(text).toContain('bypass');
+  });
+
+  test('build_post_edit mentions that commit guard can skip unrelated unclaimed dirty files', () => {
+    const profile = getToolProfile('build_post_edit');
+    expect(profile).not.toBeNull();
+    const text = [...(profile?.next_steps ?? []), ...(profile?.warnings ?? [])].join(' ').toLowerCase();
+    expect(text).toContain('unclaimed');
+    expect(text).toMatch(/skip/);
+  });
+});
+
 describe('tool profiles — coordination_housekeeping (Phase 2C)', () => {
   test('coordination_housekeeping profile exists with heartbeat + housekeeping commands', () => {
     const profile = getToolProfile('coordination_housekeeping');

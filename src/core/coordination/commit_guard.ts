@@ -20,11 +20,23 @@ import { listAgents } from './agents.js';
  *
  * Core truth: in one shared working tree Vibecode cannot know who physically
  * edited a file. So the guard commits ONLY the files the Phase 4A finalize check
- * classified as `claimed_by_agent`. It runs finalize first and refuses to commit
- * when finalize is blocked. Staging is always by explicit pathspec (never
- * `git add -A`); the index must contain nothing unrelated at entry; and the
- * guard never resets/stashes/cleans. All mutation is reversible by normal git
- * history.
+ * classified as `claimed_by_agent`. It runs finalize first. Staging is always by
+ * explicit pathspec (never `git add -A`); the index must contain nothing
+ * unrelated at entry; and the guard never resets/stashes/cleans. All mutation is
+ * reversible by normal git history.
+ *
+ * Phase 3A — shared-tree commit isolation. The finalize check stays
+ * conservative: it reports EVERY unclaimed dirty file as a blocker for general
+ * readiness. The guard interprets that result through a narrower
+ * "isolated commit" policy: when finalize is blocked ONLY by unclaimed dirty
+ * files, none of those files is staged, and the agent has at least one
+ * committable claimed file, the guard may proceed — it stages an explicit
+ * allowlist of the agent's claimed files and SKIPS the unclaimed files with a
+ * high-visibility `UNCLAIMED_DIRTY_FILES_SKIPPED` warning. Skipped files are
+ * never staged, committed, cleaned, reverted, claimed, or modified; they stay
+ * dirty after the commit. If any unclaimed/other-agent file is already staged,
+ * the guard blocks (`STAGED_UNCLAIMED_FILES_BLOCKED` / `GIT_INDEX_NOT_CLEAN`).
+ * This is commit isolation, not cleanup and not ownership transfer.
  */
 
 export interface CommitGuardInput {
@@ -53,6 +65,8 @@ export interface CommitSkippedFile {
 export type CommitGuardIssueCode =
   | 'FINALIZE_CHECK_BLOCKED'
   | 'NO_COMMITTABLE_FILES'
+  | 'STAGED_UNCLAIMED_FILES_BLOCKED'
+  | 'UNCLAIMED_DIRTY_FILES_SKIPPED'
   | 'GIT_INDEX_NOT_CLEAN'
   | 'GIT_STAGED_FILES_FAILED'
   | 'GIT_STAGE_FAILED'
@@ -77,6 +91,11 @@ export interface CommitGuardResult {
   agent_id: string | null;
   run_id: string | null;
   commit_hash: string | null;
+  /**
+   * True when the guard proceeded despite unclaimed dirty files elsewhere in
+   * the shared tree (Phase 3A isolated commit). The skipped files stay dirty.
+   */
+  isolated_commit: boolean;
   staged_files: string[];
   committed_files: string[];
   skipped_files: CommitSkippedFile[];
@@ -136,6 +155,7 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
     agent_id: input.agent_id ?? null,
     run_id: input.run_id ?? null,
     commit_hash: null,
+    isolated_commit: false,
     staged_files: [],
     committed_files: [],
     skipped_files: [],
@@ -207,6 +227,7 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
     agent_id: agentId,
     run_id: runId,
     commit_hash: null,
+    isolated_commit: false,
     staged_files: [],
     committed_files: [],
     skipped_files: [],
@@ -238,25 +259,70 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
     });
   }
 
-  if (finalize.status === 'blocked') {
-    const result = base({
-      blocks: [{
-        code: 'FINALIZE_CHECK_BLOCKED',
-        severity: 'block',
-        message: 'Finalize check is blocked; resolve the reported files before committing.',
-        details: { finalize_blocks: finalize.blocks.map((b) => b.code) },
-      }],
-    });
-    if (runId) writeArtifact(input.repoRoot, runId, result);
-    return result;
-  }
-
   const committable = finalize.changed_files
     .filter((f) => f.classification === 'claimed_by_agent')
     .map((f) => f.path);
   const skipped: CommitSkippedFile[] = finalize.changed_files
     .filter((f) => f.classification !== 'claimed_by_agent')
     .map((f) => ({ path: f.path, reason: skippedReasonFor(f.classification) }));
+
+  // Phase 3A isolated-commit gate. Finalize stays conservative; the guard may
+  // proceed past a blocked finalize ONLY when every finalize blocker is an
+  // unclaimed dirty file (per-path UNCLAIMED_CHANGED_FILE), none of those files
+  // is staged, and the agent has at least one committable claimed file. Any
+  // other blocker (agent/run resolution, unreadable git status, read-only
+  // session, …) keeps the hard FINALIZE_CHECK_BLOCKED behavior — uncertainty
+  // never authorizes a commit.
+  let isolated = false;
+  const guardWarnings: CommitGuardIssue[] = [];
+  if (finalize.status === 'blocked') {
+    const blocksOnlyUnclaimedFiles =
+      finalize.blocks.length > 0 &&
+      finalize.blocks.every((b) => b.code === 'UNCLAIMED_CHANGED_FILE');
+    if (!blocksOnlyUnclaimedFiles || committable.length === 0) {
+      const result = base({
+        skipped_files: skipped,
+        blocks: [{
+          code: 'FINALIZE_CHECK_BLOCKED',
+          severity: 'block',
+          message: 'Finalize check is blocked; resolve the reported files before committing.',
+          details: { finalize_blocks: finalize.blocks.map((b) => b.code) },
+        }],
+      });
+      if (runId) writeArtifact(input.repoRoot, runId, result);
+      return result;
+    }
+
+    // Staged-file safety: an unclaimed file that is ALREADY staged would ride
+    // into the commit. Block — unstage/review it; the guard never unstages it.
+    const stagedUnclaimed = finalize.changed_files
+      .filter((f) => f.classification === 'unclaimed' && f.staged)
+      .map((f) => f.path);
+    if (stagedUnclaimed.length > 0) {
+      const result = base({
+        skipped_files: skipped,
+        blocks: [{
+          code: 'STAGED_UNCLAIMED_FILES_BLOCKED',
+          severity: 'block',
+          message: 'Unclaimed dirty files are already staged in the git index. Unstage and review them yourself — the guard will not commit, unstage, or modify them.',
+          details: { staged_unclaimed: stagedUnclaimed },
+        }],
+      });
+      if (runId) writeArtifact(input.repoRoot, runId, result);
+      return result;
+    }
+
+    isolated = true;
+    const skippedUnclaimed = finalize.changed_files
+      .filter((f) => f.classification === 'unclaimed')
+      .map((f) => f.path);
+    guardWarnings.push({
+      code: 'UNCLAIMED_DIRTY_FILES_SKIPPED',
+      severity: 'warning',
+      message: `${skippedUnclaimed.length} unclaimed dirty file(s) are present but will not be staged, committed, or modified. They remain dirty after the commit; their ownership is unknown — claim them only if you actually own the change.`,
+      details: { skipped_unclaimed: skippedUnclaimed },
+    });
+  }
 
   if (committable.length === 0) {
     const result = base({
@@ -267,13 +333,17 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
     return result;
   }
 
+  // Every result from here on carries the isolated-commit marker and warnings.
+  const proceedBase = (over: Partial<CommitGuardResult>): CommitGuardResult =>
+    base({ isolated_commit: isolated, warnings: guardWarnings, ...over });
+
   const committableSet = new Set(committable);
 
   // The index must not carry anything we did not stage this run. In a shared
   // working tree a pre-existing staged file may belong to another agent/user.
   const stagedAtEntry = listStagedFiles(input.repoRoot, runner);
   if (!stagedAtEntry.ok) {
-    const result = base({
+    const result = proceedBase({
       skipped_files: skipped,
       blocks: [{
         code: 'GIT_STAGED_FILES_FAILED',
@@ -286,7 +356,7 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   }
   const unrelated = stagedAtEntry.files.filter((f) => !committableSet.has(f));
   if (unrelated.length > 0) {
-    const result = base({
+    const result = proceedBase({
       skipped_files: skipped,
       blocks: [{
         code: 'GIT_INDEX_NOT_CLEAN',
@@ -300,14 +370,14 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   }
 
   if (input.dry_run === true) {
-    const result = base({ status: 'dry_run', staged_files: committable, skipped_files: skipped });
+    const result = proceedBase({ status: 'dry_run', staged_files: committable, skipped_files: skipped });
     return result;
   }
 
   // Stage exactly the committable paths (explicit pathspecs, never -A).
   const staged = stagePaths(input.repoRoot, committable, runner);
   if (!staged.ok) {
-    const result = base({
+    const result = proceedBase({
       skipped_files: skipped,
       blocks: [{ code: 'GIT_STAGE_FAILED', severity: 'block', message: `git add failed: ${staged.stderr.trim()}` }],
     });
@@ -318,7 +388,7 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   // Verify the index is exactly the intended set — no more, no less.
   const stagedNow = listStagedFiles(input.repoRoot, runner);
   if (!stagedNow.ok) {
-    const result = base({
+    const result = proceedBase({
       skipped_files: skipped,
       blocks: [{
         code: 'GIT_STAGED_FILES_FAILED',
@@ -333,7 +403,7 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   const unexpected = stagedNowFiles.filter((f) => !committableSet.has(f));
   const missing = committable.filter((f) => !stagedNowFiles.includes(f));
   if (unexpected.length > 0 || missing.length > 0) {
-    const result = base({
+    const result = proceedBase({
       staged_files: stagedNowFiles,
       skipped_files: skipped,
       blocks: [{
@@ -350,7 +420,7 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   const message = buildMessage(input, agentId, runId);
   const committed = commitWithMessage(input.repoRoot, message, runner);
   if (!committed.ok) {
-    const result = base({
+    const result = proceedBase({
       staged_files: stagedNowFiles,
       skipped_files: skipped,
       blocks: [{ code: 'GIT_COMMIT_FAILED', severity: 'block', message: `git commit failed: ${committed.stderr.trim()}` }],
@@ -360,7 +430,7 @@ export function runCommitGuard(input: CommitGuardInput): CommitGuardResult {
   }
 
   const commitHash = revParseHead(input.repoRoot, runner);
-  const result = base({
+  const result = proceedBase({
     status: 'committed',
     commit_hash: commitHash,
     staged_files: stagedNowFiles,

@@ -179,6 +179,7 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
     ],
     next_steps: [
       'If finalize blocks on an unclaimed file: claim it explicitly if you meant to change it, or revert it if it changed by accident.',
+      'If finalize blocks only on unrelated unclaimed dirty files you never touched, commit guard can still make an isolated commit that skips them — never stage or commit them yourself.',
       'When finalize is ok, use safe_commit (commit guard is CLI-only).',
       'After a successful commit and clean tree, release your completed work intent.',
     ],
@@ -263,12 +264,17 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       { command: 'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --json', reason: 'Release the completed work intent after commit.' },
     ],
     next_steps: [
+      'Run git changes and finalize check before committing, then dry-run the guard and inspect skipped files/warnings.',
+      'In a shared dirty tree the guard may make an isolated commit: it stages ONLY your claimed files and skips unrelated unclaimed dirty files with an UNCLAIMED_DIRTY_FILES_SKIPPED warning. Skipped files stay dirty after the commit.',
       'After a successful guarded commit, release your completed work intent.',
       'Dry-run intent release first to confirm the tree is clean.',
       'Do not release while claimed files are dirty.',
     ],
     warnings: [
       'Commit mutation is CLI-only by design; there is no MCP commit tool.',
+      'If the guard blocks with STAGED_UNCLAIMED_FILES_BLOCKED or GIT_INDEX_NOT_CLEAN, unstage and review those files yourself — never commit them and never manually stage unrelated files.',
+      'An isolated commit is not cleanup, not ownership transfer, and not permission to edit unclaimed files.',
+      'Do not bypass the commit guard with raw git add/commit unless a human explicitly directs it.',
       'The guard never stages broad paths and leaves other agents\u2019 files untouched.',
       'A lockfile (e.g. package-lock.json) changed by an install can block finalize. Claim it if the change is intentional, or revert it if it is accidental, before committing.',
       'Do not release another agent\u2019s intent — release is same-agent only.',

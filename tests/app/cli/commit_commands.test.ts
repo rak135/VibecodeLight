@@ -70,7 +70,10 @@ interface Envelope {
     commit_hash: string | null;
     staged_files: string[];
     committed_files: string[];
+    skipped_files: Array<{ path: string; reason: string }>;
+    isolated_commit: boolean;
     blocks: Array<{ code: string }>;
+    warnings: Array<{ code: string; message: string }>;
   };
   artifacts?: unknown[];
   warnings?: unknown[];
@@ -201,6 +204,82 @@ describe('vibecode commit guard (CLI)', () => {
     const env = JSON.parse(result.logs[0]) as Envelope;
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('INVALID_ARGUMENT');
+  });
+
+  test('Phase 3A: --dry-run allows an isolated commit with an UNCLAIMED_DIRTY_FILES_SKIPPED warning', async () => {
+    const repo = makeRepo('vibecode-cli-cg-iso-dry-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'claimed/file.ts', mode: 'exclusive' });
+    write(repo, 'claimed/file.ts');
+    write(repo, 'unclaimed/other-wip.ts');
+    const before = git(['rev-parse', 'HEAD'], repo).stdout.trim();
+
+    const result = await runCli(['commit', 'guard', '--agent', agent.agent_id, '--dry-run', '--repo', repo, '--json']);
+    expect(result.exitCode).toBe(0);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).toBe('dry_run');
+    expect(env.data?.isolated_commit).toBe(true);
+    expect(env.data?.staged_files).toEqual(['claimed/file.ts']);
+    expect(env.data?.skipped_files).toEqual([{ path: 'unclaimed/other-wip.ts', reason: 'unclaimed' }]);
+    expect(env.data?.warnings.map((w) => w.code)).toContain('UNCLAIMED_DIRTY_FILES_SKIPPED');
+    expect(git(['rev-parse', 'HEAD'], repo).stdout.trim()).toBe(before);
+    expect(git(['diff', '--cached', '--name-only'], repo).stdout.trim()).toBe('');
+  });
+
+  test('Phase 3A: real commit succeeds and leaves the skipped unclaimed file dirty', async () => {
+    const repo = makeRepo('vibecode-cli-cg-iso-commit-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'claimed/file.ts', mode: 'exclusive' });
+    write(repo, 'claimed/file.ts');
+    write(repo, 'unclaimed/other-wip.ts');
+
+    const result = await runCli(['commit', 'guard', '--agent', agent.agent_id, '--repo', repo, '--json']);
+    expect(result.exitCode).toBe(0);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).toBe('committed');
+    expect(env.data?.isolated_commit).toBe(true);
+    expect(env.data?.committed_files).toEqual(['claimed/file.ts']);
+    expect(env.data?.warnings.map((w) => w.code)).toContain('UNCLAIMED_DIRTY_FILES_SKIPPED');
+    const committed = git(['show', '--name-only', '--format=', 'HEAD'], repo).stdout
+      .split(/\r?\n/)
+      .filter((l) => l.trim().length > 0);
+    expect(committed).toEqual(['claimed/file.ts']);
+    expect(git(['status', '--porcelain=v1', '--untracked-files=all'], repo).stdout).toContain('unclaimed/other-wip.ts');
+  });
+
+  test('Phase 3A: a pre-staged unclaimed file blocks with STAGED_UNCLAIMED_FILES_BLOCKED', async () => {
+    const repo = makeRepo('vibecode-cli-cg-iso-staged-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'claimed/file.ts', mode: 'exclusive' });
+    write(repo, 'claimed/file.ts');
+    write(repo, 'unclaimed/staged-wip.ts');
+    git(['add', '--', 'unclaimed/staged-wip.ts'], repo);
+    const before = git(['rev-parse', 'HEAD'], repo).stdout.trim();
+
+    const result = await runCli(['commit', 'guard', '--agent', agent.agent_id, '--repo', repo, '--json']);
+    const env = JSON.parse(result.logs[0]) as Envelope;
+    expect(env.ok).toBe(true);
+    expect(env.data?.status).toBe('blocked');
+    expect(env.data?.blocks.map((b) => b.code)).toContain('STAGED_UNCLAIMED_FILES_BLOCKED');
+    expect(git(['rev-parse', 'HEAD'], repo).stdout.trim()).toBe(before);
+    // The guard never unstages the foreign file.
+    expect(git(['diff', '--cached', '--name-only'], repo).stdout.trim()).toBe('unclaimed/staged-wip.ts');
+  });
+
+  test('Phase 3A: non-JSON output prints the isolated-commit skip warning', async () => {
+    const repo = makeRepo('vibecode-cli-cg-iso-human-');
+    const agent = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: agent.agent_id, path: 'claimed/file.ts', mode: 'exclusive' });
+    write(repo, 'claimed/file.ts');
+    write(repo, 'unclaimed/other-wip.ts');
+
+    const result = await runCli(['commit', 'guard', '--agent', agent.agent_id, '--dry-run', '--repo', repo]);
+    expect(result.exitCode).toBe(0);
+    const output = result.logs.join('\n');
+    expect(output).toContain('UNCLAIMED_DIRTY_FILES_SKIPPED');
+    expect(output).toContain('unclaimed/other-wip.ts');
   });
 
   test('parallel non-overlapping: Agent A commits only its claimed file via CLI', async () => {

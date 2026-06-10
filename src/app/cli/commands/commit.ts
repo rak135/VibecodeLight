@@ -115,10 +115,19 @@ function printHuman(result: CommitGuardResult): void {
   } else {
     console.log(`committed: ${result.committed_files.join(', ') || '(none)'}`);
   }
+  if (result.isolated_commit) {
+    console.log('isolated_commit: true (unclaimed dirty files elsewhere in the tree were skipped, not staged or committed)');
+  }
   if (result.skipped_files.length > 0) {
     console.log('skipped:');
     for (const skipped of result.skipped_files) {
       console.log(`  ${skipped.path} (${skipped.reason})`);
+    }
+  }
+  if (result.warnings.length > 0) {
+    console.log('warnings:');
+    for (const warning of result.warnings) {
+      console.log(`  [${warning.code}] ${warning.message}`);
     }
   }
   if (result.blocks.length > 0) {

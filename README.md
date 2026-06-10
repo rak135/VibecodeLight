@@ -1333,6 +1333,22 @@ real commit or blocked non-dry-run guard) a `commit_guard.json` result is writte
 under the run's generated `coordination/` state. All git mutation is reversible
 by normal git history.
 
+Shared-tree commit isolation (Phase 3A): when the finalize check is blocked
+**only** by unclaimed dirty files that are unstaged and outside the agent's
+claim scope, and the agent has at least one committable claimed file, the guard
+proceeds with an **isolated commit** — it stages an explicit allowlist of the
+agent's claimed files only and reports the unclaimed files as skipped with a
+high-visibility `UNCLAIMED_DIRTY_FILES_SKIPPED` warning (`isolated_commit: true`
+in the JSON result). Skipped files are never staged, committed, cleaned,
+reverted, claimed, or modified — they stay dirty after the commit. If an
+unclaimed dirty file is already staged, the guard blocks with
+`STAGED_UNCLAIMED_FILES_BLOCKED` (any other unrelated staged file still blocks
+with `GIT_INDEX_NOT_CLEAN`); unstage and review such files yourself rather than
+committing them. `vibecode finalize check` stays conservative and still reports
+every unclaimed dirty file as a blocker for general readiness — isolated commit
+is a narrower commit-guard policy, not cleanup, not ownership transfer, and not
+permission to edit unclaimed files.
+
 The commit guard is **CLI-only** in Phase 4B — there is intentionally **no**
 `vibecode_commit_guard` MCP tool and no MCP git/source/commit mutation surface.
 MCP coordination tools may mutate only generated `.vibecode/coordination/` state

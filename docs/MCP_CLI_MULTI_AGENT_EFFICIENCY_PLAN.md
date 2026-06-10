@@ -3174,6 +3174,82 @@ requester recommendations, no-agent parity, unknown agent stays advisory),
 `bootstrap_tool_profiles.test.ts` (grace period quiet/fires, dirty-file and
 conflict paths unaffected).
 
+## 14I. Phase 3A — shared-tree commit isolation (Implemented)
+
+Trigger (dogfood finding): during the Phase 2D follow-up commit another agent
+had unrelated WIP in the same working tree. `vibecode commit guard` hard-blocked
+with `FINALIZE_CHECK_BLOCKED` because unclaimed dirty files existed — even
+though the agent had claimed every file it intended to commit and the guard
+would have staged only those claimed files. The agent had to bypass the guard
+with explicit-path `git add`, which is exactly what the guard exists to prevent.
+
+Phase 3A makes the commit guard support **safe isolated commits in a dirty
+shared tree**. Core principle: the guard only ever stages and commits files
+claimed by the current agent; it never stages, commits, cleans, reverts,
+claims, releases, reaps, or modifies unrelated dirty files. It may proceed when
+unrelated unclaimed dirty files exist only if they are safely skipped and
+clearly reported. This is commit isolation — not cleanup, not orchestration.
+
+Isolated-commit policy (implemented in
+`src/core/coordination/commit_guard.ts`; **no new files, no new MCP tool, tool
+count stays 42**):
+
+- `vibecode finalize check` is **unchanged and stays conservative**: every
+  unclaimed dirty file is still reported as an `UNCLAIMED_CHANGED_FILE` blocker
+  for general readiness, and `vibecode git changes` still classifies them as
+  `unclaimed`.
+- The guard proceeds past a blocked finalize ONLY when ALL of the following
+  hold:
+  1. every finalize blocker is a per-path `UNCLAIMED_CHANGED_FILE` (any other
+     blocker — agent/run resolution, `GIT_CHANGED_FILES_FAILED`, read-only or
+     invalid session — keeps the hard `FINALIZE_CHECK_BLOCKED` behavior;
+     uncertainty never authorizes a commit);
+  2. the agent has at least one committable `claimed_by_agent` changed file
+     (otherwise `FINALIZE_CHECK_BLOCKED` as before);
+  3. no unclaimed dirty file is already staged — otherwise the guard blocks
+     with the new `STAGED_UNCLAIMED_FILES_BLOCKED` code and never unstages or
+     touches the file.
+- When it proceeds, the result carries `isolated_commit: true`, the unclaimed
+  files appear in `skipped_files` (reason `unclaimed`), and a high-visibility
+  `UNCLAIMED_DIRTY_FILES_SKIPPED` warning lists the skipped paths. Dry-run and
+  real commit behave identically except for mutation.
+- Staged-file safety is unchanged underneath: the guard still verifies the
+  index at entry (`GIT_INDEX_NOT_CLEAN` for any staged file outside the
+  committable set, including other-agent claimed and generated paths), verifies
+  the staged set after staging, and stages only an explicit
+  `:(literal)` pathspec allowlist of the agent's claimed files. A pre-staged
+  current-agent claimed file in the commit set remains allowed.
+- The commit leaves skipped files dirty and byte-identical; the tree may remain
+  dirty after a successful guarded commit, but only due to skipped files.
+- Unclaimed files cannot overlap the agent's claim scope by construction: the
+  shared `classifyChangedPath` primitive classifies any path overlapping the
+  agent's active claims as `claimed_by_agent`, so `unclaimed` is always outside
+  the agent's claimed paths.
+
+Out of scope, confirmed not added: auto-claim, auto-reap, auto-release,
+auto-resolve, force cleanup, ownership transfer, handoff, branch management,
+background workers, UI, directory/glob claims, MCP commit mutation, and any
+git mutation beyond the existing explicit commit-guard staging/commit.
+
+Surface changes:
+
+- `CommitGuardResult` gains `isolated_commit: boolean`; new issue codes
+  `STAGED_UNCLAIMED_FILES_BLOCKED` (block) and `UNCLAIMED_DIRTY_FILES_SKIPPED`
+  (warning). CLI human output prints the isolated marker, skipped files, and
+  warnings; `--json` carries them in the existing envelope.
+- Tool profiles: `safe_commit` and `build_post_edit` now explain isolated
+  commits, skipped-file warnings, staged-unclaimed blocks (unstage/review,
+  never commit), and that bypassing the guard requires explicit human
+  direction.
+
+Tests: `tests/core/coordination/commit_guard.test.ts` (isolated dry-run/commit
+dogfood scenario, multi-file isolation, other-agent skip, staged-unclaimed and
+staged-other-agent blocks, pre-staged own file allowed, released claim no
+longer authorizes, non-git fail-closed, normal commit reports
+`isolated_commit: false`), `tests/app/cli/commit_commands.test.ts` (isolated
+dry-run/commit envelopes, `STAGED_UNCLAIMED_FILES_BLOCKED`, human output), and
+`tests/core/agent_guidance/tool_profiles.test.ts` (Phase 3A guidance).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?
