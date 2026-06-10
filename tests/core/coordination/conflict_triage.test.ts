@@ -576,6 +576,62 @@ describe('Phase 2D — conflict triage', () => {
     expect(detail.recommended_next_tools).toContain('vibecode_claims_list');
   });
 
+  test('recommended CLI commands embed the real conflict id and detail/summary agree after release', () => {
+    const t0 = '2026-06-10T00:00:00.000Z';
+    build(repo.repoRoot, 'agent-a', t0);
+    build(repo.repoRoot, 'agent-b', t0);
+    addFileClaim(repo.repoRoot, { agent_id: 'agent-a', path: 'src/app.ts', mode: 'exclusive' }, { now: t0, claimId: 'claim-1' });
+
+    const conflict = recordConflict(repo.repoRoot, {
+      conflict_type: 'claim_denied',
+      detected_at: t0,
+      involved_claims: ['claim-1'],
+      involved_agents: ['agent-b', 'agent-a'],
+      involved_files: ['src/app.ts'],
+      severity: 'medium',
+      description: 'denied',
+      evidence: { detector: 'claim_manager', details: {} },
+    }, { conflictId: 'conflict-dogfood-2d', now: t0 });
+
+    const blockedState = loadCoordinationState(repo.repoRoot, { now: t0 });
+    const blocked = triageConflict({
+      conflict,
+      agents: blockedState.agents,
+      claims: blockedState.claims,
+      intents: blockedState.intents,
+      now: t0,
+    });
+    const blockedCommands = blocked.recommended_cli_commands.join('\n');
+    expect(blockedCommands).toContain('conflict-dogfood-2d');
+    expect(blockedCommands).not.toContain('<conflict_id>');
+
+    releaseFileClaim(repo.repoRoot, 'claim-1', { now: t0 });
+
+    const releasedState = loadCoordinationState(repo.repoRoot, { now: t0 });
+    const detail = triageConflict({
+      conflict,
+      agents: releasedState.agents,
+      claims: releasedState.claims,
+      intents: releasedState.intents,
+      currentAgentId: 'agent-b',
+      now: t0,
+    });
+    const summary = summarizeConflictTriage({
+      conflict,
+      agents: releasedState.agents,
+      claims: releasedState.claims,
+      intents: releasedState.intents,
+      currentAgentId: 'agent-b',
+      now: t0,
+    });
+
+    expect(detail.triage_status).toBe('cleared');
+    expect(summary.triage_status).toBe(detail.triage_status);
+    expect(summary.warning_codes).toContain('CONFLICT_NO_LONGER_BLOCKING');
+    // Cleared conflicts steer the requester back to claims plan, not to release/cleanup.
+    expect(detail.recommended_cli_commands.join('\n')).toContain('vibecode claims plan --agent agent-b');
+  });
+
   test('no source or git mutation from triage', () => {
     const t0 = '2026-06-10T00:00:00.000Z';
     fs.mkdirSync(path.join(repo.repoRoot, 'src'), { recursive: true });
