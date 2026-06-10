@@ -277,29 +277,38 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
   conflict_resolution: {
     profile_id: 'conflict_resolution',
     title: 'Claim conflict resolution',
-    purpose: 'Inspect and resolve overlapping claims or recorded conflicts.',
+    purpose: 'Inspect and resolve overlapping claims or recorded conflicts with intent-aware triage.',
     when_to_use: [
       'A claim was denied, or there are unresolved conflicts / possibly-stale claims.',
       'Two agents are competing for the same file.',
+      'Bootstrap reports still-blocking or stale-blocking conflicts.',
     ],
     mcp_tools: [
+      { name: 'vibecode_conflicts_list', reason: 'List recorded coordination conflicts with triage status.' },
+      { name: 'vibecode_conflict_detail', reason: 'Get full triage detail: blocking claim/intent, owner lifecycle, warning codes, safe next steps.' },
       { name: 'vibecode_claims_list', reason: 'See all claims with stale-aware status to find the overlap.' },
-      { name: 'vibecode_conflicts_list', reason: 'List recorded coordination conflicts (claim_denied, stale_claim).' },
-      { name: 'vibecode_conflict_resolve', reason: 'Mark a coordination conflict resolved once handled.' },
       { name: 'vibecode_session_bootstrap', reason: 'Re-orient on active agents/claims/conflicts before acting.' },
       { name: 'vibecode_git_changes', reason: 'Check whether the contested files are actually dirty.' },
+      { name: 'vibecode_claim_intents_list', reason: 'See work intents with owner lifecycle status to understand the blocking scope.' },
     ],
     cli_commands: [
-      { command: 'vibecode claims list --json', reason: 'CLI fallback to inspect overlapping claims.' },
       { command: 'vibecode conflicts list --json', reason: 'CLI fallback to inspect recorded conflicts.' },
+      { command: 'vibecode conflicts detail --conflict-id <conflict_id> --json', reason: 'CLI fallback for full triage detail on one conflict.' },
+      { command: 'vibecode claims list --json', reason: 'CLI fallback to inspect overlapping claims.' },
+      { command: 'vibecode claims intents list --status active --json', reason: 'CLI fallback to see active intents and owner lifecycle.' },
       { command: 'vibecode session bootstrap --agent <agent_id> --json', reason: 'Re-orient (heartbeat) and see the current conflict state.' },
       { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback to check whether contested files are dirty.' },
     ],
     next_steps: [
-      'Wait for the owner to release, retry as a shared claim when compatible, or coordinate a handoff.',
+      'If the blocker is your own claim/intent: finish/commit/revert, then release your own clean intent.',
+      'If the blocker belongs to another active agent: do not edit the file, choose another task/path, or coordinate externally.',
+      'If the blocker owner is stale: use coordination_housekeeping and claims reap dry-run. Do not force release another agent\'s intent.',
+      'If the conflict is no longer blocking (claims released): re-run claims plan/add-bulk.',
     ],
     warnings: [
       'Do not edit a file whose claim was denied; coordination is advisory but overlapping edits cause lost work.',
+      'Do not release another agent\'s intent — release is same-agent only.',
+      'No force or automatic cleanup exists; claims reap is explicit and dry-run-first.',
     ],
   },
   coordination_housekeeping: {

@@ -160,6 +160,45 @@ describe('vibecode conflicts (CLI)', () => {
     expect(env.ok).toBe(false);
     expect(env.error.code).toBe('MISSING_REQUIRED_OPTION');
   });
+
+  test('conflicts detail --json returns triage for existing conflict', async () => {
+    const { recordConflict } = await import('../../../src/core/coordination/conflicts.js');
+    const agentId = await registerAgentCli();
+
+    recordConflict(repo.repoRoot, {
+      conflict_type: 'claim_denied',
+      detected_at: '2026-06-10T00:01:00.000Z',
+      involved_claims: ['claim-1'],
+      involved_agents: [agentId],
+      involved_files: ['src/app.ts'],
+      severity: 'medium',
+      description: 'denied',
+      evidence: { detector: 'claim_manager', details: {} },
+    }, { conflictId: 'conflict-1' });
+
+    const res = await runCli(['conflicts', 'detail', '--repo', repo.repoRoot, '--conflict-id', 'conflict-1', '--json']);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    expect(env.ok).toBe(true);
+    expect((env.data.conflict as { conflict_id: string }).conflict_id).toBe('conflict-1');
+    expect((env.data.conflict as { triage_status: string }).triage_status).toBeDefined();
+  });
+
+  test('conflicts detail --json without --conflict-id returns JSON envelope', async () => {
+    const res = await runCli(['conflicts', 'detail', '--repo', repo.repoRoot, '--json']);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error.code).toBe('MISSING_REQUIRED_OPTION');
+  });
+
+  test('conflicts detail --json with unknown conflict-id returns JSON envelope', async () => {
+    const res = await runCli(['conflicts', 'detail', '--repo', repo.repoRoot, '--conflict-id', 'nonexistent', '--json']);
+    expect(res.exitCode).toBe(1);
+    const env = JSON.parse(res.logs[0]) as ErrorEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error.code).toBe('CONFLICT_NOT_FOUND');
+  });
 });
 
 describe('Commander --json error-envelope hardening', () => {

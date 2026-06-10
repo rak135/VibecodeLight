@@ -57,6 +57,7 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_claims_reap',
     'vibecode_conflicts_list',
     'vibecode_conflict_resolve',
+    'vibecode_conflict_detail',
   ]),
 });
 
@@ -102,6 +103,7 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_claims_reap: 'Release claims owned by stale or terminated agents (writes only generated coordination state).',
   vibecode_conflicts_list: 'List recorded coordination conflicts (claim_denied, stale_claim). Read-only.',
   vibecode_conflict_resolve: 'Mark a coordination conflict as resolved (writes only generated coordination state).',
+  vibecode_conflict_detail: 'Get intent-aware triage detail for one conflict: blocking claim/intent, owner lifecycle status, warning codes, and safe next-step recommendations. Read-only.',
 });
 
 /**

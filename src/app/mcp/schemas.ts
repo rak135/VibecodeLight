@@ -466,6 +466,15 @@ export const CONFLICT_RESOLVE_INPUT_SCHEMA: JsonSchema = {
   required: ['conflict_id'],
 };
 
+export const CONFLICT_DETAIL_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    conflict_id: { type: 'string', description: 'Id of the conflict to inspect.' },
+  },
+  required: ['conflict_id'],
+};
+
 export const CLAIMS_REAP_INPUT_SCHEMA: JsonSchema = {
   type: 'object',
   additionalProperties: false,

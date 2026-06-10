@@ -1363,23 +1363,27 @@ status (`vibecode coordination status` / `vibecode_coordination_status`) now als
 reports a compact evidence summary (recent/warning/high counts and the last event
 timestamp) without dumping the full event log.
 
-Claims reap and conflict tools (Phase Coordination-4D-cleanup):
+Claims reap and conflict tools (Phase Coordination-4D-cleanup / Phase 2D):
 
 ```text
 vibecode_claims_reap
 vibecode_conflicts_list
 vibecode_conflict_resolve
+vibecode_conflict_detail
 ```
 
 `vibecode_claims_reap` releases claims owned by stale or terminated agents so
 future claim attempts are not blocked by dead agents. Pass `dry_run: true` to
 preview without mutating. `vibecode_conflicts_list` returns recorded conflict
 events (claim denials, stale claim reaps) with optional status/type filters.
-`vibecode_conflict_resolve` marks a conflict as resolved. All three write only
-generated `.vibecode/coordination/state.json`. The equivalent CLI commands are
-`vibecode claims reap --repo <path> --json`, `vibecode conflicts list --repo
-<path> --json`, and `vibecode conflicts resolve --repo <path> --conflict <id>
---json`.
+`vibecode_conflict_resolve` marks a conflict as resolved. `vibecode_conflict_detail`
+returns intent-aware triage detail for one conflict: blocking claim/intent, owner
+lifecycle status, warning codes, and safe next-step recommendations. All write only
+generated `.vibecode/coordination/state.json` (detail and list are read-only). The
+equivalent CLI commands are `vibecode claims reap --repo <path> --json`,
+`vibecode conflicts list --repo <path> --json`, `vibecode conflicts resolve --repo
+<path> --conflict <id> --json`, and `vibecode conflicts detail --repo <path>
+--conflict-id <id> --json`.
 
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does

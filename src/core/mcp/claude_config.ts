@@ -91,6 +91,8 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_claims_reap',
   'vibecode_conflicts_list',
   'vibecode_conflict_resolve',
+  // Phase 2D: intent-aware conflict triage detail (read-only).
+  'vibecode_conflict_detail',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

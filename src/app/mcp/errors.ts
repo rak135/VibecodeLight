@@ -75,6 +75,8 @@ export type McpErrorCode =
   | 'CLAIMS_REAP_FAILED'
   | 'CONFLICTS_LIST_FAILED'
   | 'CONFLICT_RESOLVE_FAILED'
+  // Phase 2D: conflict triage detail.
+  | 'CONFLICT_DETAIL_FAILED'
   // Phase 1A: session bootstrap + claim-aware git changes.
   | 'AGENT_TERMINATED'
   | 'SESSION_BOOTSTRAP_FAILED'
@@ -312,6 +314,11 @@ const ERROR_DEFAULTS: Record<
       'Listing conflicts is read-only and degrades to an empty list on a missing file. Retry only if transient.',
   },
   CONFLICT_RESOLVE_FAILED: {
+    retryable: true,
+    suggestion:
+      'Verify the conflict_id exists (vibecode_conflicts_list) and retry if the failure is transient.',
+  },
+  CONFLICT_DETAIL_FAILED: {
     retryable: true,
     suggestion:
       'Verify the conflict_id exists (vibecode_conflicts_list) and retry if the failure is transient.',

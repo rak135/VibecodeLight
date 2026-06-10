@@ -153,6 +153,8 @@ describe('Codex MCP config generation', () => {
       'vibecode_claims_reap',
       'vibecode_conflicts_list',
       'vibecode_conflict_resolve',
+      // Phase 2D (intent-aware conflict triage detail)
+      'vibecode_conflict_detail',
     ]);
     const joined = result.toml_snippet.toLowerCase();
     // Tool names referencing destructive verbs must not appear.

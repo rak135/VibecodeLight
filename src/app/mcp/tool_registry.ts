@@ -22,6 +22,7 @@ import {
 import {
   buildConflictsListTool,
   buildConflictResolveTool,
+  buildConflictDetailTool,
 } from './tools/conflicts.js';
 import { buildArtifactReadTool } from './tools/artifact_read.js';
 import { buildArtifactsListTool } from './tools/artifacts_list.js';
@@ -164,6 +165,8 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildClaimsReapTool(),
     buildConflictsListTool(),
     buildConflictResolveTool(),
+    // Phase 2D: intent-aware conflict triage detail.
+    buildConflictDetailTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -229,4 +232,6 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_claims_reap',
   'vibecode_conflicts_list',
   'vibecode_conflict_resolve',
+  // Phase 2D
+  'vibecode_conflict_detail',
 ]);

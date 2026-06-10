@@ -32,6 +32,9 @@ import {
   type StaleCoordinationSummary,
 } from '../coordination/stale_coordination.js';
 import {
+  listConflictTriages,
+} from '../coordination/conflict_triage.js';
+import {
   recommendBootstrapToolProfiles,
   type ToolProfileRecommendation,
 } from '../agent_guidance/tool_profiles.js';
@@ -141,6 +144,14 @@ export interface BootstrapConflictItem {
   status: string;
   involved_files: string[];
   detected_at: string;
+  /** Phase 2D: triage status (still_blocking, stale_blocking, cleared, etc.). */
+  triage_status: string;
+  /** Phase 2D: blocking agent id, when derivable. */
+  blocking_agent_id: string | null;
+  /** Phase 2D: blocking agent lifecycle status. */
+  blocking_agent_status: string;
+  /** Phase 2D: warning codes for the conflict. */
+  warning_codes: string[];
 }
 
 export interface SessionBootstrapResult {
@@ -197,6 +208,12 @@ export interface SessionBootstrapResult {
   active_work_intents: ActiveWorkIntentSummary[];
   conflicts: {
     unresolved_count: number;
+    /** Phase 2D: count of conflicts still actively blocking. */
+    still_blocking_count: number;
+    /** Phase 2D: count of conflicts with stale/terminated/missing blockers. */
+    stale_blocking_count: number;
+    /** Phase 2D: count of conflicts no longer blocking (claims released). */
+    cleared_count: number;
     items: BootstrapConflictItem[];
   };
   /**
@@ -445,6 +462,7 @@ function recommendations(args: {
   operatingMode: AgentOperatingMode | null;
   hasStaleCleanClaims: boolean;
   hasReleasableIntents: boolean;
+  hasStillBlockingConflicts: boolean;
 }): { tools: string[]; commands: string[] } {
   const tools: string[] = [];
   const commands: string[] = [];
@@ -494,6 +512,14 @@ function recommendations(args: {
     commands.push(
       'vibecode claims list --repo <repo> --json',
       'vibecode claims reap --repo <repo> --dry-run --json',
+    );
+  }
+  // Phase 2D: conflict triage recommendations.
+  if (args.hasStillBlockingConflicts) {
+    tools.push('vibecode_conflicts_list', 'vibecode_conflict_detail');
+    commands.push(
+      'vibecode conflicts list --json',
+      'vibecode conflicts detail --conflict-id <conflict_id> --json',
     );
   }
   return { tools, commands };
@@ -692,17 +718,55 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     (c): c is ConflictRecord => Boolean(c) && typeof c === 'object',
   );
   const unresolved = conflictRecords.filter((c) => c.status === 'detected');
+
+  // Phase 2D: enrich conflicts with triage context.
+  const allIntentsForTriage = allIntents;
+  const triageResult = listConflictTriages({
+    agents,
+    claims,
+    intents: allIntentsForTriage,
+    conflicts: unresolved,
+    currentAgentId: currentAgent?.agent_id ?? null,
+    now: checkedAt,
+  });
+  const triageByConflictId = new Map(triageResult.conflicts.map((t) => [t.conflict_id, t]));
+
+  const stillBlockingCount = triageResult.conflicts.filter((t) => t.triage_status === 'still_blocking').length;
+  const staleBlockingCount = triageResult.conflicts.filter((t) => t.triage_status === 'stale_blocking').length;
+  const clearedCount = triageResult.conflicts.filter((t) => t.triage_status === 'cleared').length;
+
   const conflictsSection: SessionBootstrapResult['conflicts'] = {
     unresolved_count: unresolved.length,
-    items: unresolved.slice(0, maxItems).map((c) => ({
-      conflict_id: c.conflict_id,
-      conflict_type: c.conflict_type,
-      severity: c.severity,
-      status: c.status,
-      involved_files: Array.isArray(c.involved_files) ? c.involved_files : [],
-      detected_at: c.detected_at,
-    })),
+    still_blocking_count: stillBlockingCount,
+    stale_blocking_count: staleBlockingCount,
+    cleared_count: clearedCount,
+    items: unresolved.slice(0, maxItems).map((c) => {
+      const triage = triageByConflictId.get(c.conflict_id);
+      return {
+        conflict_id: c.conflict_id,
+        conflict_type: c.conflict_type,
+        severity: c.severity,
+        status: c.status,
+        involved_files: Array.isArray(c.involved_files) ? c.involved_files : [],
+        detected_at: c.detected_at,
+        triage_status: triage?.triage_status ?? 'unresolved',
+        blocking_agent_id: triage?.blocking_agent_id ?? null,
+        blocking_agent_status: triage?.blocking_agent_status ?? 'missing',
+        warning_codes: triage?.warning_codes ?? [],
+      };
+    }),
   };
+
+  // Phase 2D: recommend conflict_resolution profile when still-blocking conflicts exist.
+  if (stillBlockingCount > 0) {
+    warnings.push(
+      notice(
+        'CONFLICTS_STILL_BLOCKING',
+        'warning',
+        `${stillBlockingCount} conflict(s) are still actively blocking. Use 'vibecode conflicts list' or 'vibecode conflicts detail --conflict-id <id>' to inspect them.`,
+      ),
+    );
+  }
 
   // --- stale active claim detection (other-agent claims on clean files) ---
   let hasStaleCleanClaims = false;
@@ -784,6 +848,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     operatingMode,
     hasStaleCleanClaims,
     hasReleasableIntents,
+    hasStillBlockingConflicts: stillBlockingCount > 0,
   });
 
   // Phase 1B-3: context-aware tool-profile recommendations (ids + reasons only).
