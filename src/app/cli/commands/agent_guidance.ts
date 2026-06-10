@@ -23,7 +23,7 @@ export interface AgentGuidanceCommandDependencies {
 
 function parseAgent(value: string | undefined): AgentGuidanceIntegrationAgent | null {
   const normalized = value?.trim().toLowerCase();
-  return normalized === 'claude' || normalized === 'codex' ? normalized : null;
+  return normalized === 'claude' || normalized === 'codex' || normalized === 'opencode' ? normalized : null;
 }
 
 function parseTerminalPreflightMode(value: string | undefined): AgentGuidanceTerminalPreflightMode | null | undefined {
@@ -43,14 +43,14 @@ export function registerAgentGuidanceCommands(
   cmd
     .command('status')
     .description('Inspect Agent Guidance config and whether an agent can receive it through VibecodeMCP')
-    .requiredOption('--agent <agent>', 'Agent to inspect: claude | codex')
+    .requiredOption('--agent <agent>', 'Agent to inspect: claude | codex | opencode')
     .requiredOption('--repo <path>', 'Repository path bound to VibecodeMCP')
     .option('--json', 'Output canonical JSON envelope')
     .action((options: { agent: string; repo: string; json?: boolean }) => {
       const agent = parseAgent(options.agent);
       if (!agent) {
         emitCliStructuredError(
-          makeCliStructuredError('INVALID_AGENT', `invalid --agent: ${options.agent}`, '', ['Expected one of: claude, codex.']),
+          makeCliStructuredError('INVALID_AGENT', `invalid --agent: ${options.agent}`, '', ['Expected one of: claude, codex, opencode.']),
           { json: options.json, prefix: 'agent-guidance status failed' },
         );
         return;
@@ -84,7 +84,7 @@ export function registerAgentGuidanceCommands(
   cmd
     .command('apply')
     .description('Ensure an agent is configured to use VibecodeMCP so Agent Guidance is available to new MCP sessions')
-    .requiredOption('--agent <agent>', 'Agent to configure: claude | codex')
+    .requiredOption('--agent <agent>', 'Agent to configure: claude | codex | opencode')
     .requiredOption('--repo <path>', 'Repository path bound to VibecodeMCP')
     .option('--dry-run', 'Preview the planned config change without writing')
     .option('--yes', 'Write/update the MCP config')
@@ -93,7 +93,7 @@ export function registerAgentGuidanceCommands(
       const agent = parseAgent(options.agent);
       if (!agent) {
         emitCliStructuredError(
-          makeCliStructuredError('INVALID_AGENT', `invalid --agent: ${options.agent}`, '', ['Expected one of: claude, codex.']),
+          makeCliStructuredError('INVALID_AGENT', `invalid --agent: ${options.agent}`, '', ['Expected one of: claude, codex, opencode.']),
           { json: options.json, prefix: 'agent-guidance apply failed' },
         );
         return;

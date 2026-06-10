@@ -16,10 +16,16 @@ import {
   type ClaudeMcpDetectedScope,
   type ClaudeMcpDetectedSource,
 } from '../mcp/claude_mcp_detect.js';
+import {
+  applyOpenCodeMcpInstall,
+  buildOpenCodeMcpConfig,
+  detectOpenCodeMcpConfig,
+  type OpenCodeInstallOptions,
+} from '../mcp/opencode_config.js';
 import { buildAgentGuidanceMcpTools } from '../config/agent_guidance_mcp_tools.js';
 import { buildAgentGuidanceRuntime } from './agent_guidance_runtime.js';
 
-export type AgentGuidanceIntegrationAgent = 'claude' | 'codex';
+export type AgentGuidanceIntegrationAgent = 'claude' | 'codex' | 'opencode';
 
 export interface AgentGuidanceIntegrationError {
   code: 'INVALID_AGENT' | 'AGENT_GUIDANCE_APPLY_FAILED' | 'CONFIRMATION_REQUIRED';
@@ -87,6 +93,8 @@ interface BaseOptions {
   claudeCommand?: string;
   /** Directory holding Claude's `.claude.json`; defaults to CLAUDE_CONFIG_DIR or the user home. */
   claudeConfigDir?: string;
+  /** Directory holding OpenCode's `opencode.json`; defaults to `~/.config/opencode`. */
+  opencodeConfigDir?: string;
 }
 
 export interface AgentGuidanceIntegrationStatusOptions extends BaseOptions {}
@@ -98,7 +106,7 @@ export interface AgentGuidanceIntegrationApplyOptions extends BaseOptions {
 }
 
 const APPROVAL_BOUNDARY =
-  'Vibecode does not manage Claude/Codex approvals or permission settings; the agent client owns those decisions.';
+  'Vibecode does not manage agent approvals or permission settings; the agent client owns those decisions.';
 const EXPECTED_TOOL_COUNT = buildAgentGuidanceMcpTools().length;
 
 function invalidAgent(agent: unknown): AgentGuidanceIntegrationStatus {
@@ -108,13 +116,13 @@ function invalidAgent(agent: unknown): AgentGuidanceIntegrationStatus {
     error: {
       code: 'INVALID_AGENT',
       message: `invalid --agent: ${String(agent)}`,
-      details: ['Expected one of: claude, codex.'],
+      details: ['Expected one of: claude, codex, opencode.'],
     },
   };
 }
 
 function isAgent(value: unknown): value is AgentGuidanceIntegrationAgent {
-  return value === 'claude' || value === 'codex';
+  return value === 'claude' || value === 'codex' || value === 'opencode';
 }
 
 function guidanceSummary(opts: { env?: Record<string, string | undefined> }) {
@@ -171,6 +179,39 @@ export function getAgentGuidanceIntegrationStatus(
         status,
         command: config.command,
         args: config.args,
+      },
+      approval_boundary: APPROVAL_BOUNDARY,
+      restart_required: true,
+      warnings,
+    };
+  }
+
+  if (options.agent === 'opencode') {
+    const detection = detectOpenCodeMcpConfig({
+      repoRoot: options.repoRoot,
+      opencodeConfigDir: options.opencodeConfigDir,
+      vibecodeBinPath: options.vibecodeBinPath,
+    });
+    warnings.push(...detection.warnings);
+    const config = buildOpenCodeMcpConfig({
+      repoRoot: options.repoRoot,
+      opencodeConfigDir: options.opencodeConfigDir,
+      vibecodeBinPath: options.vibecodeBinPath,
+    });
+    return {
+      ok: true,
+      agent: 'opencode',
+      repo_root: options.repoRoot,
+      configured: detection.configured,
+      up_to_date: detection.status === 'up_to_date',
+      guidance,
+      mcp: {
+        expected_tool_count: EXPECTED_TOOL_COUNT,
+        configured: detection.configured,
+        up_to_date: detection.status === 'up_to_date',
+        status: detection.status,
+        command: config.command[0],
+        args: config.command.slice(1),
       },
       approval_boundary: APPROVAL_BOUNDARY,
       restart_required: true,
@@ -271,6 +312,37 @@ export function applyAgentGuidanceIntegration(
       ok: true,
       ...base,
       planned_action: `${result.dry_run ? 'Dry-run update' : 'Update'} Codex VibecodeMCP server config so new MCP sessions expose guidance through vibecode_mcp_guidance.`,
+      installer_result: result,
+      warnings: [...base.warnings, ...result.warnings],
+    };
+  }
+
+  if (options.agent === 'opencode') {
+    const installOptions: OpenCodeInstallOptions = {
+      repoRoot: options.repoRoot,
+      opencodeConfigDir: options.opencodeConfigDir,
+      vibecodeBinPath: options.vibecodeBinPath,
+      dryRun: options.dryRun,
+      yes: options.yes,
+    };
+    const result = applyOpenCodeMcpInstall(installOptions);
+    if (!result.ok) {
+      return {
+        ok: false,
+        ...base,
+        warnings: [...base.warnings, ...result.warnings],
+        error: {
+          code: 'AGENT_GUIDANCE_APPLY_FAILED',
+          message: result.error.message,
+          path: result.error.path,
+          details: result.error.details,
+        },
+      };
+    }
+    return {
+      ok: true,
+      ...base,
+      planned_action: `${result.dry_run ? 'Dry-run update' : 'Update'} OpenCode VibecodeMCP server config so new MCP sessions expose guidance through vibecode_mcp_guidance.`,
       installer_result: result,
       warnings: [...base.warnings, ...result.warnings],
     };

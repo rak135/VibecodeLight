@@ -64,7 +64,7 @@ export interface RunTerminalAgentPreflightOptions {
   log?: boolean;
 }
 
-const SUPPORTED_AGENTS: TerminalAgentPreflightAgent[] = ['codex', 'claude'];
+const SUPPORTED_AGENTS: TerminalAgentPreflightAgent[] = ['codex', 'claude', 'opencode'];
 
 function statusToAgentResult(status: AgentGuidanceIntegrationStatus): TerminalAgentPreflightAgentResult {
   const configured = status.configured === true;

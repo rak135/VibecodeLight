@@ -1438,6 +1438,24 @@ approval/permission settings, and the installer does not edit
 `.claude/settings.json`, allowedTools/deniedTools, hooks, or Claude permission
 profiles.
 
+Install VibecodeMCP for OpenCode:
+
+```powershell
+pnpm vibecode mcp config --agent opencode --repo C:\DATA\PROJECTS\YourRepo --print
+pnpm vibecode mcp config --agent opencode --repo C:\DATA\PROJECTS\YourRepo --json
+pnpm vibecode mcp install --agent opencode --repo C:\DATA\PROJECTS\YourRepo --dry-run --json
+pnpm vibecode mcp install --agent opencode --repo C:\DATA\PROJECTS\YourRepo --yes --json
+pnpm vibecode mcp doctor --agent opencode --repo C:\DATA\PROJECTS\YourRepo --json
+```
+
+OpenCode support patches `opencode.json` directly (JSON). The default scope is
+`project` (writes `<repo>/opencode.json`); `--scope user` writes to
+`~/.config/opencode/opencode.json`. OpenCode merges project config with global
+config; project keys override conflicting global keys. The installer preserves
+unrelated OpenCode config keys, creates timestamped backups of existing files,
+and rejects JSONC (comments) with a clear diagnostic. Vibecode does not manage
+OpenCode approvals or permissions.
+
 Anti-scope for MCP-1 (intentionally **not** exposed):
 
 - HTTP transport, multi-repo workspace registry;
@@ -1660,9 +1678,9 @@ Boundaries enforced by this slice:
 - This slice does NOT inject hidden text into the PTY. The exact contents of `output/final_prompt.md` are still what Vibecode sends into the terminal — no hidden suffix is appended after the composer preview.
 - This slice does NOT modify `final_prompt.md` after preview.
 - This slice does NOT mutate Claude/Codex/OpenCode/Hermes approvals or permissions, does NOT edit `allowedTools`/`deniedTools`, and does NOT add hooks or permission profiles.
-- `vibecode agent-guidance status --agent claude --repo <path> --json` and `vibecode agent-guidance status --agent codex --repo <path> --json` report config validity, source, `guidance_hash`, expected MCP tool count, and whether the agent-side VibecodeMCP config appears current.
+- `vibecode agent-guidance status --agent claude --repo <path> --json` and `vibecode agent-guidance status --agent codex --repo <path> --json` and `vibecode agent-guidance status --agent opencode --repo <path> --json` report config validity, source, `guidance_hash`, expected MCP tool count, and whether the agent-side VibecodeMCP config appears current.
 - Claude MCP config may be detected from more than one safe config source. The Claude status detector reads (read-only) `<repo>/.mcp.json` (project scope), the per-project `mcpServers` map in `~/.claude.json` (local scope, what `claude mcp add-json --scope local` writes), and the top-level `mcpServers` map in `~/.claude.json` (user scope). When the server is found it reports `configured: true` with `mcp.status` (`up_to_date` when the detected command/repo binding match this repo's `bin/vibecode.js mcp serve --repo <path>`, otherwise `stale`), plus `mcp.source` (the effective scope) and `mcp.source_path`. `unknown` is reported only when no recognized config source exists. If multiple sources exist, local takes precedence over project over user, and every recognized source is listed under `mcp.sources`. Detection never mutates Claude config and never reads or changes approvals/permissions.
-- `vibecode agent-guidance apply --agent claude --repo <path> --dry-run --json` and `vibecode agent-guidance apply --agent codex --repo <path> --dry-run --json` preview the safe MCP config action. `--yes` is required to write/update the existing VibecodeMCP server config. Apply means new MCP sessions can read the dedicated guidance config through VibecodeMCP; it does not write prompt text to terminal, root repo files, `AGENTS.md`, `CLAUDE.md`, or approval/permission settings.
+- `vibecode agent-guidance apply --agent claude --repo <path> --dry-run --json` and `vibecode agent-guidance apply --agent codex --repo <path> --dry-run --json` and `vibecode agent-guidance apply --agent opencode --repo <path> --dry-run --json` preview the safe MCP config action. `--yes` is required to write/update the existing VibecodeMCP server config. Apply means new MCP sessions can read the dedicated guidance config through VibecodeMCP; it does not write prompt text to terminal, root repo files, `AGENTS.md`, `CLAUDE.md`, or approval/permission settings.
 - Terminal Agent Preflight runs when opening new Vibecode terminals. It ensures supported agents have VibecodeMCP configured according to Settings policy, defaults to `check_only`, and can use `auto_repair` only for the same safe MCP config surface as `agent-guidance apply --yes`.
 - The user still starts codex/claude manually. There is no Start Codex button and no Start Claude button, no hidden PTY/stdin injection, no Composer final_prompt.md mutation, and no approval/permission mutation.
 - `vibecode agent-guidance preflight --repo <path> --terminal --json` runs the same check without opening a terminal; add `--mode check_only` or `--mode auto_repair` to override the configured mode for smoke testing.

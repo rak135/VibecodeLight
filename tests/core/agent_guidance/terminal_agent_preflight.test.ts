@@ -35,7 +35,7 @@ function writeGuidance(env: Record<string, string>, body: string): string {
   return configPath;
 }
 
-function yaml(mode = 'check_only', claude = true, codex = true): string {
+function yaml(mode = 'check_only', claude = true, codex = true, opencode = true): string {
   return [
     'schema_version: 1',
     'enabled: true',
@@ -49,6 +49,7 @@ function yaml(mode = 'check_only', claude = true, codex = true): string {
     '  supported_agents:',
     `    claude: ${claude}`,
     `    codex: ${codex}`,
+    `    opencode: ${opencode}`,
     '  repair:',
     '    create_backup: true',
     '    require_valid_guidance_config: true',
@@ -95,6 +96,7 @@ describe('Terminal Agent Preflight core service', () => {
       const status = statusProvider({
         claude: { configured: false, up_to_date: false },
         codex: { configured: true, up_to_date: false },
+        opencode: { configured: false, up_to_date: false },
       });
       const apply = vi.fn<TerminalAgentPreflightApplyProvider>();
 
@@ -109,7 +111,7 @@ describe('Terminal Agent Preflight core service', () => {
       expect(result.mode).toBe('check_only');
       expect(result.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
       expect(result.no_pty_injection).toBe(true);
-      expect(result.agents.map((a) => a.agent).sort()).toEqual(['claude', 'codex']);
+      expect(result.agents.map((a) => a.agent).sort()).toEqual(['claude', 'codex', 'opencode']);
       expect(result.agents.find((a) => a.agent === 'codex')).toMatchObject({
         configured: true,
         stale: true,
@@ -130,6 +132,7 @@ describe('Terminal Agent Preflight core service', () => {
       const status = statusProvider({
         claude: { configured: false, up_to_date: false },
         codex: { configured: false, up_to_date: false },
+        opencode: { configured: false, up_to_date: false },
       });
       const apply = vi.fn<TerminalAgentPreflightApplyProvider>(() => ({
         ok: true,
@@ -152,11 +155,13 @@ describe('Terminal Agent Preflight core service', () => {
 
       expect(result.ok).toBe(true);
       expect(result.mode).toBe('auto_repair');
-      expect(status).toHaveBeenCalledTimes(1);
-      expect(apply).toHaveBeenCalledTimes(1);
+      expect(status).toHaveBeenCalledTimes(2);
+      expect(apply).toHaveBeenCalledTimes(2);
       expect(apply.mock.calls[0][0]).toMatchObject({ agent: 'codex', repoRoot: f.repoRoot, yes: true });
+      expect(apply.mock.calls[1][0]).toMatchObject({ agent: 'opencode', repoRoot: f.repoRoot, yes: true });
       expect(result.agents).toEqual([
         expect.objectContaining({ agent: 'codex', repaired: true }),
+        expect.objectContaining({ agent: 'opencode', repaired: true }),
       ]);
     } finally {
       f.cleanup();

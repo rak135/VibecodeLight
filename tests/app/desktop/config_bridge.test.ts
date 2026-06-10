@@ -408,7 +408,7 @@ describe('desktop config bridge', () => {
 
     expect(written.ok).toBe(true);
     expect(written.terminal_preflight.mode).toBe('auto_repair');
-    expect(written.terminal_preflight.supported_agents).toEqual({ codex: true, claude: false });
+    expect(written.terminal_preflight.supported_agents).toEqual({ codex: true, claude: false, opencode: true });
     expect(written.terminal_preflight.repair.create_backup).toBe(false);
     expect(written.configPath).toBe(path.join(appData, 'vibecodelight', 'agent-guidance-config.yaml'));
     expect(fs.readFileSync(path.join(appData, 'vibecodelight', 'config.yaml'), 'utf8')).toBe(beforeGlobal);

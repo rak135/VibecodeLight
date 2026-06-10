@@ -188,7 +188,7 @@ describe('vibecode agent-guidance CLI commands', () => {
     expect(payload.mode).toBe('check_only');
     expect(payload.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(payload.no_pty_injection).toBe(true);
-    expect(payload.agents.map((a: { agent: string }) => a.agent).sort()).toEqual(['claude', 'codex']);
+    expect(payload.agents.map((a: { agent: string }) => a.agent).sort()).toEqual(['claude', 'codex', 'opencode']);
     expect(fs.existsSync(path.join(codexHome, 'config.toml'))).toBe(false);
   });
 
@@ -221,6 +221,7 @@ describe('vibecode agent-guidance CLI commands', () => {
       '  supported_agents:',
       '    claude: false',
       '    codex: true',
+      '    opencode: false',
       '',
     ].join('\n'), 'utf8');
 

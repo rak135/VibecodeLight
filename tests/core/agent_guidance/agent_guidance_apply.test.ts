@@ -28,21 +28,25 @@ function makeFixture(): {
   repoRoot: string;
   appData: string;
   codexHome: string;
+  opencodeHome: string;
   env: Record<string, string>;
   cleanup: () => void;
 } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-ag-apply-repo-'));
   const appData = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-ag-apply-app-'));
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-ag-apply-codex-'));
+  const opencodeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-ag-apply-opencode-'));
   return {
     repoRoot,
     appData,
     codexHome,
+    opencodeHome,
     env: { LOCALAPPDATA: appData, CODEX_HOME: codexHome },
     cleanup: () => {
       fs.rmSync(repoRoot, { recursive: true, force: true });
       fs.rmSync(appData, { recursive: true, force: true });
       fs.rmSync(codexHome, { recursive: true, force: true });
+      fs.rmSync(opencodeHome, { recursive: true, force: true });
     },
   };
 }
@@ -290,6 +294,96 @@ describe('agent guidance integration status/apply', () => {
       });
       expect(result.ok).toBe(false);
       expect(result.error?.code).toBe('INVALID_AGENT');
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('OpenCode status reports valid config, hash, expected tools, and approval boundary', () => {
+    const f = makeFixture();
+    try {
+      writeGuidance(f.env);
+      const status = getAgentGuidanceIntegrationStatus({
+        agent: 'opencode',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        opencodeConfigDir: f.opencodeHome,
+        vibecodeBinPath: path.join(f.repoRoot, 'bin', 'vibecode.js'),
+      });
+      expect(status.ok).toBe(true);
+      expect(status.agent).toBe('opencode');
+      expect(status.guidance?.config_valid).toBe(true);
+      expect(status.guidance?.source).toBe('file');
+      expect(status.guidance?.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
+      expect(status.mcp?.expected_tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
+      expect(status.approval_boundary).toMatch(/does not manage.*approval/i);
+      expect(JSON.stringify(status)).not.toMatch(/allowedTools|deniedTools|hooks|permission profile/i);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('OpenCode dry-run apply returns planned action and writes no files', () => {
+    const f = makeFixture();
+    try {
+      const result = applyAgentGuidanceIntegration({
+        agent: 'opencode',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        opencodeConfigDir: f.opencodeHome,
+        dryRun: true,
+        vibecodeBinPath: path.join(f.repoRoot, 'bin', 'vibecode.js'),
+      });
+      expect(result.ok).toBe(true);
+      expect(result.dry_run).toBe(true);
+      expect(result.planned_action).toMatch(/VibecodeMCP/i);
+      expect(result.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
+      expect(fs.existsSync(path.join(f.opencodeHome, 'opencode.json'))).toBe(false);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('OpenCode apply requires explicit yes when not dry-run', () => {
+    const f = makeFixture();
+    try {
+      const result = applyAgentGuidanceIntegration({
+        agent: 'opencode',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        opencodeConfigDir: f.opencodeHome,
+        dryRun: false,
+        yes: false,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.error?.message).toMatch(/--yes|--dry-run/);
+      expect(fs.existsSync(path.join(f.opencodeHome, 'opencode.json'))).toBe(false);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('OpenCode apply --yes writes config and preserves unrelated keys', () => {
+    const f = makeFixture();
+    try {
+      const configPath = path.join(f.repoRoot, 'opencode.json');
+      fs.writeFileSync(configPath, JSON.stringify({ model: 'test/model' }, null, 2), 'utf8');
+
+      const result = applyAgentGuidanceIntegration({
+        agent: 'opencode',
+        repoRoot: f.repoRoot,
+        env: f.env,
+        yes: true,
+        vibecodeBinPath: path.join(f.repoRoot, 'bin', 'vibecode.js'),
+      });
+      expect(result.ok).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      expect(written.model).toBe('test/model');
+      expect(written.mcp.vibecode).toBeDefined();
+      expect(written.mcp.vibecode.type).toBe('local');
+      expect(fs.existsSync(path.join(f.repoRoot, 'AGENTS.md'))).toBe(false);
+      expect(fs.existsSync(path.join(f.repoRoot, 'CLAUDE.md'))).toBe(false);
+      expect(fs.existsSync(path.join(f.repoRoot, 'config.yaml'))).toBe(false);
     } finally {
       f.cleanup();
     }

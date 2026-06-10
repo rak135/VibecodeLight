@@ -29,6 +29,7 @@ export interface AgentGuidanceTerminalPreflightConfig {
   supported_agents: {
     codex: boolean;
     claude: boolean;
+    opencode: boolean;
   };
   repair: {
     create_backup: boolean;
@@ -103,6 +104,7 @@ export function defaultAgentGuidanceTerminalPreflightConfig(): AgentGuidanceTerm
     supported_agents: {
       codex: true,
       claude: true,
+      opencode: true,
     },
     repair: {
       create_backup: true,
@@ -182,14 +184,19 @@ function parseTerminalPreflight(
     if (isRecord(supportedRaw)) {
       const codex = coerceBoolean(supportedRaw.codex);
       const claude = coerceBoolean(supportedRaw.claude);
+      const opencode = coerceBoolean(supportedRaw.opencode);
       if (supportedRaw.codex !== undefined && codex === null) {
         warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.supported_agents.codex must be boolean; using default.');
       }
       if (supportedRaw.claude !== undefined && claude === null) {
         warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.supported_agents.claude must be boolean; using default.');
       }
+      if (supportedRaw.opencode !== undefined && opencode === null) {
+        warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.supported_agents.opencode must be boolean; using default.');
+      }
       supported.codex = codex ?? supported.codex;
       supported.claude = claude ?? supported.claude;
+      supported.opencode = opencode ?? supported.opencode;
     } else {
       warnings.push('AGENT_GUIDANCE_CONFIG_WARNING: terminal_preflight.supported_agents must be a mapping; using defaults.');
     }
@@ -377,6 +384,9 @@ export function normalizeTerminalPreflightForWrite(
       claude: isRecord(supportedRaw) && typeof supportedRaw.claude === 'boolean'
         ? supportedRaw.claude
         : defaults.supported_agents.claude,
+      opencode: isRecord(supportedRaw) && typeof supportedRaw.opencode === 'boolean'
+        ? supportedRaw.opencode
+        : defaults.supported_agents.opencode,
     },
     repair: {
       create_backup: isRecord(repairRaw) && typeof repairRaw.create_backup === 'boolean'

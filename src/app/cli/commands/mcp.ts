@@ -19,6 +19,13 @@ import {
   runClaudeMcpDoctor,
   type ClaudeMcpScope,
 } from '../../../core/mcp/claude_config.js';
+import {
+  applyOpenCodeMcpInstall,
+  buildOpenCodeMcpConfig,
+  detectOpenCodeMcpConfig,
+  parseOpenCodeScope,
+  type OpenCodeConfigScope,
+} from '../../../core/mcp/opencode_config.js';
 import { resolveRepoRoot } from '../../../core/workspace/repo_root.js';
 import {
   createVibecodeMcpServer,
@@ -62,35 +69,66 @@ function parseLogLevel(value: string | undefined): McpLogLevel | undefined {
 function parseAgentAndScope(options: { agent?: string; scope?: string }):
   | { ok: true; agent: 'codex'; scope: McpConfigScope }
   | { ok: true; agent: 'claude'; scope: ClaudeMcpScope }
+  | { ok: true; agent: 'opencode'; scope: OpenCodeConfigScope }
   | { ok: false; error: CliStructuredError } {
   const agent = options.agent?.trim().toLowerCase();
-  if (agent !== 'codex' && agent !== 'claude') {
+  if (agent !== 'codex' && agent !== 'claude' && agent !== 'opencode') {
     return {
       ok: false,
       error: {
         code: 'INVALID_AGENT',
         message: `invalid --agent: ${options.agent ?? ''}`,
         path: '',
-        details: ['Expected one of: codex, claude.'],
+        details: ['Expected one of: codex, claude, opencode.'],
       },
     };
   }
 
-  const scope = agent === 'claude' ? parseClaudeMcpScope(options.scope) : parseMcpScope(options.scope);
+  if (agent === 'claude') {
+    const scope = parseClaudeMcpScope(options.scope);
+    if (!scope) {
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_SCOPE',
+          message: `invalid --scope: ${options.scope ?? ''}`,
+          path: '',
+          details: ['Expected one of: local, user, project.'],
+        },
+      };
+    }
+    return { ok: true, agent, scope };
+  }
+
+  if (agent === 'opencode') {
+    const scope = parseOpenCodeScope(options.scope);
+    if (!scope) {
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_SCOPE',
+          message: `invalid --scope: ${options.scope ?? ''}`,
+          path: '',
+          details: ['Expected one of: user, project.'],
+        },
+      };
+    }
+    return { ok: true, agent, scope };
+  }
+
+  const scope = parseMcpScope(options.scope);
   if (!scope) {
-    const expected = agent === 'claude' ? 'local, user, project' : 'user, project';
     return {
       ok: false,
       error: {
         code: 'INVALID_SCOPE',
         message: `invalid --scope: ${options.scope ?? ''}`,
         path: '',
-        details: [`Expected one of: ${expected}.`],
+        details: ['Expected one of: user, project.'],
       },
     };
   }
 
-  if (agent === 'claude') return { ok: true, agent, scope: scope as ClaudeMcpScope };
   return { ok: true, agent, scope: scope as McpConfigScope };
 }
 
@@ -105,9 +143,9 @@ export function registerMcpCommands(
   mcp
     .command('config')
     .description('Generate agent MCP config for VibecodeMCP')
-    .requiredOption('--agent <agent>', 'Agent to configure: codex | claude')
+    .requiredOption('--agent <agent>', 'Agent to configure: codex | claude | opencode')
     .requiredOption('--repo <path>', 'Repository path to bind VibecodeMCP to')
-    .option('--scope <scope>', 'Agent config scope. Codex: user | project. Claude: local | user | project')
+    .option('--scope <scope>', 'Agent config scope. Codex: user | project. Claude: local | user | project. OpenCode: user | project')
     .option('--print', 'Print the TOML snippet')
     .option('--json', 'Output canonical JSON envelope')
     .action((options: { agent: string; repo: string; scope?: string; print?: boolean; json?: boolean }) => {
@@ -138,6 +176,16 @@ export function registerMcpCommands(
         return;
       }
 
+      if (parsed.agent === 'opencode') {
+        const result = buildOpenCodeMcpConfig({ repoRoot: resolved.repoRoot, scope: parsed.scope });
+        if (options.json) {
+          printJson(result);
+          return;
+        }
+        console.log(JSON.stringify({ mcp: { vibecode: { type: 'local', command: result.command, enabled: true } } }, null, 2));
+        return;
+      }
+
       const result = buildCodexMcpConfig({ repoRoot: resolved.repoRoot, scope: parsed.scope });
       if (options.json) {
         printJson(result);
@@ -149,9 +197,9 @@ export function registerMcpCommands(
   mcp
     .command('install')
     .description('Install or update VibecodeMCP in an agent config')
-    .requiredOption('--agent <agent>', 'Agent to configure: codex | claude')
+    .requiredOption('--agent <agent>', 'Agent to configure: codex | claude | opencode')
     .requiredOption('--repo <path>', 'Repository path to bind VibecodeMCP to')
-    .option('--scope <scope>', 'Agent config scope. Codex: user | project. Claude: local | user | project')
+    .option('--scope <scope>', 'Agent config scope. Codex: user | project. Claude: local | user | project. OpenCode: user | project')
     .option('--dry-run', 'Preview the planned config change without writing')
     .option('--yes', 'Write the config change')
     .option('--json', 'Output canonical JSON envelope')
@@ -202,6 +250,36 @@ export function registerMcpCommands(
         return;
       }
 
+      if (parsed.agent === 'opencode') {
+        const result = applyOpenCodeMcpInstall({
+          repoRoot: resolved.repoRoot,
+          scope: parsed.scope,
+          dryRun: options.dryRun === true,
+          yes: options.yes === true,
+        });
+        if (!result.ok) {
+          if (options.json) printJson(result);
+          else {
+            console.error(`mcp install failed: ${result.error.message}`);
+            if (result.error.path) console.error(`path: ${result.error.path}`);
+            for (const detail of result.error.details ?? []) console.error(`detail: ${detail}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+        if (options.json) {
+          printJson(result);
+          return;
+        }
+        console.log(`OpenCode MCP config: ${result.config_path}`);
+        console.log(`Action: ${result.action} mcp.vibecode`);
+        console.log(`Existing server: ${result.existing_server ? 'yes' : 'no'}`);
+        if (result.dry_run) console.log('Dry run: no files were written.');
+        if (result.backup_path) console.log(`Backup: ${result.backup_path}`);
+        console.log('Restart or reload OpenCode before using VibecodeMCP.');
+        return;
+      }
+
       const result = applyCodexMcpInstall({
         repoRoot: resolved.repoRoot,
         scope: parsed.scope,
@@ -232,10 +310,10 @@ export function registerMcpCommands(
 
   mcp
     .command('doctor')
-    .description('Check VibecodeMCP Codex config and tool availability')
-    .requiredOption('--agent <agent>', 'Agent to inspect: codex | claude')
+    .description('Check VibecodeMCP agent config and tool availability')
+    .requiredOption('--agent <agent>', 'Agent to inspect: codex | claude | opencode')
     .requiredOption('--repo <path>', 'Repository path bound to VibecodeMCP')
-    .option('--scope <scope>', 'Agent config scope. Codex: user | project. Claude: local | user | project')
+    .option('--scope <scope>', 'Agent config scope. Codex: user | project. Claude: local | user | project. OpenCode: user | project')
     .option('--json', 'Output canonical JSON envelope')
     .action((options: { agent: string; repo: string; scope?: string; json?: boolean }) => {
       const parsed = parseAgentAndScope(options);
@@ -260,6 +338,54 @@ export function registerMcpCommands(
           console.log(`Claude MCP doctor: ${result.ok ? 'OK' : 'FAILED'}`);
           console.log(`Server: ${result.server_name}`);
           console.log(`Scope: ${result.scope}`);
+          for (const [name, check] of Object.entries(result.checks)) {
+            console.log(`${check.ok ? 'OK' : 'WARN'} ${name}: ${check.message}`);
+          }
+          if (result.warnings.length > 0) {
+            console.log('Warnings:');
+            for (const warning of result.warnings) console.log(`  - ${warning}`);
+          }
+          if (result.suggestions.length > 0) {
+            console.log('Suggestions:');
+            for (const suggestion of result.suggestions) console.log(`  - ${suggestion}`);
+          }
+        }
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
+
+      if (parsed.agent === 'opencode') {
+        const detection = detectOpenCodeMcpConfig({ repoRoot: resolved.repoRoot, scope: parsed.scope });
+        const config = buildOpenCodeMcpConfig({ repoRoot: resolved.repoRoot, scope: parsed.scope });
+        const checks: Record<string, { ok: boolean; message: string }> = {};
+        checks.configured = {
+          ok: detection.configured,
+          message: detection.configured
+            ? 'OpenCode config contains mcp.vibecode.'
+            : 'OpenCode config does not contain mcp.vibecode.',
+        };
+        checks.up_to_date = {
+          ok: detection.status === 'up_to_date',
+          message: detection.status === 'up_to_date'
+            ? 'mcp.vibecode command matches expected VibecodeMCP args.'
+            : `mcp.vibecode status: ${detection.status}.`,
+        };
+        const ok = detection.configured && detection.status === 'up_to_date';
+        const result = {
+          ok,
+          agent: 'opencode' as const,
+          scope: parsed.scope,
+          config_path: config.config_path,
+          server_name: 'vibecode',
+          checks,
+          warnings: detection.warnings,
+          suggestions: ok ? [] : ['Run: vibecode mcp install --agent opencode --repo <path> --yes'],
+        };
+        if (options.json) {
+          printJson(result);
+        } else {
+          console.log(`OpenCode MCP doctor: ${result.ok ? 'OK' : 'FAILED'}`);
+          console.log(`Config: ${result.config_path}`);
           for (const [name, check] of Object.entries(result.checks)) {
             console.log(`${check.ok ? 'OK' : 'WARN'} ${name}: ${check.message}`);
           }
