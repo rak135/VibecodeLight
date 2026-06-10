@@ -5,7 +5,10 @@ import { spawnSync } from 'child_process';
 
 import { describe, expect, test } from 'vitest';
 
-import { getSessionBootstrap } from '../../../src/core/agent_session/bootstrap.js';
+import {
+  getSessionBootstrap,
+  POSSIBLY_STALE_ACTIVE_CLAIM_MIN_AGE_MS,
+} from '../../../src/core/agent_session/bootstrap.js';
 import { registerAgent } from '../../../src/core/coordination/agents.js';
 import { addFileClaim } from '../../../src/core/coordination/claims.js';
 
@@ -121,11 +124,15 @@ describe('session_bootstrap — recommended_tool_profiles', () => {
 
   test('possibly-stale other-agent claims add conflict_resolution', async () => {
     const repo = makeRepo('vibecode-tp-conflict-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'feature' } });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'feature' } });
+    // Deterministic clocks: the clean-file claim must be older than the
+    // min-age grace, while heartbeats stay inside the 5-minute agent TTL.
+    const t0 = '2026-03-01T00:00:00.000Z';
+    const pastGrace = new Date(Date.parse(t0) + POSSIBLY_STALE_ACTIVE_CLAIM_MIN_AGE_MS + 30_000).toISOString();
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'feature' } }, { now: t0 });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'feature' } }, { now: t0 });
     // B claims a clean (not dirty) file → possibly-stale active claim from A's view.
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean.ts', mode: 'exclusive' });
-    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean.ts', mode: 'exclusive' }, { now: t0 });
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, now: pastGrace, ...baseOpts });
     expect(ids(result.recommended_tool_profiles)).toContain('conflict_resolution');
   });
 

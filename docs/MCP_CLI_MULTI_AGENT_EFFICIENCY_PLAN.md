@@ -3123,6 +3123,57 @@ vibecode claims reap --dry-run --json
   wins on `state.json`).
 - Stale detection still derives purely from the 5-minute heartbeat TTL.
 
+## 14H. Phase 2D — intent-aware conflict triage: dogfood follow-ups (Implemented)
+
+Phase 2D shipped intent-aware conflict triage (`core/coordination/conflict_triage.ts`,
+MCP `vibecode_conflict_detail` + CLI `vibecode conflicts detail`, bootstrap triage
+counts; tool count 41 → **42**). The Phase 2D dogfood passed and surfaced three
+small polish items, implemented as this follow-up batch. **No new tools — the
+count stays 42**, and no orchestration / handoff / ownership transfer / auto
+cleanup / auto release was added.
+
+1. **MCP server identity for stale-session detection.** During the dogfood a
+   live MCP server session was stale: it exposed 41 tools and lacked
+   `vibecode_conflict_detail` while the current build had 42.
+   `vibecode_workspace_info` and `vibecode_session_bootstrap` now return a
+   compact, bounded `server_identity` block (`src/app/mcp/server_identity.ts`):
+   `server_name`, `server_version`, `tool_count` (derived from the canonical
+   `VIBECODE_MCP_TOOL_NAMES` registry of the RUNNING build), `started_at`
+   (captured at server start), and `repo_root`. An agent compares the reported
+   `tool_count` against the current build (`vibecode mcp tools`, docs) and
+   restarts/reconnects the MCP server when tools are missing. Constants only —
+   no git, scanner, or filesystem work in the hot path; no mismatch warning is
+   emitted because the server alone cannot reliably know the expected build.
+   The MCP-layer wrapper adds the block; the shared core bootstrap result and
+   the CLI `vibecode session bootstrap` output are unchanged.
+2. **CLI conflict detail requester context.**
+   `vibecode conflicts detail --conflict-id <id> [--agent <agent_id>] --json`
+   accepts the optional requesting agent id and passes it as `currentAgentId`
+   to the same core triage service MCP uses. A cleared / no-longer-blocking
+   conflict then recommends requester-specific `claims plan` /
+   `claims add-bulk` follow-ups with the real agent id (and the agent's own
+   intent list for its own cleared conflicts). Without `--agent` behavior is
+   unchanged; the option is advisory and read-only — no permission widening, no
+   mutation, no conflict resolution, no claim create/release. MCP
+   `vibecode_conflict_detail` is unchanged.
+3. **Min-age grace for `POSSIBLY_STALE_ACTIVE_CLAIMS`.** A seconds-old active
+   claim by another agent on a clean file is normal "claimed, not yet edited"
+   state, not staleness. Bootstrap now flags clean-file other-agent claims only
+   when older than `POSSIBLY_STALE_ACTIVE_CLAIM_MIN_AGE_MS` (2 minutes, named
+   constant in `core/agent_session/bootstrap.ts`; unparseable `created_at`
+   fails toward warning). The grace applies ONLY to this advisory warning:
+   conflict triage still reports `still_blocking` immediately, dirty/unclaimed
+   safety warnings are untouched, claim authorization is unchanged, and
+   stale-agent TTL semantics are unchanged.
+
+Tests: `tests/app/mcp/workspace_tools.test.ts` /
+`tests/app/mcp/session_bootstrap_tool.test.ts` (server_identity shape, canonical
+tool count, stability), `tests/app/cli/conflicts_commands.test.ts` (`--agent`
+requester recommendations, no-agent parity, unknown agent stays advisory),
+`tests/core/agent_session/bootstrap.test.ts` /
+`bootstrap_tool_profiles.test.ts` (grace period quiet/fires, dirty-file and
+conflict paths unaffected).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

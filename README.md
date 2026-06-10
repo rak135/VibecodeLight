@@ -1106,7 +1106,12 @@ vibecode_artifacts_list
 These are the first calls an MCP-capable agent should make when it enters a
 repo. `vibecode_workspace_info` returns the bound repo path, the available
 VibecodeMCP tool groups, the CodeGraph status summary, the current run id (if
-any), and short agent guidance. `vibecode_workspace_status` adds read-only
+any), and short agent guidance. `vibecode_workspace_info` and
+`vibecode_session_bootstrap` also return a compact `server_identity` block
+(server name/version, canonical tool count, server start time, bound repo
+root) so an agent can detect a stale MCP server session — if the reported
+tool count differs from the current build's `vibecode mcp tools`, restart or
+reconnect the MCP server. `vibecode_workspace_status` adds read-only
 git inspection (branch, head, dirty flag, bounded changed-file summary — no
 diff, never mutates git) and the current run/artifact availability summary.
 `vibecode_mcp_guidance` is a compact static cheat sheet describing when to
@@ -1383,7 +1388,9 @@ generated `.vibecode/coordination/state.json` (detail and list are read-only). T
 equivalent CLI commands are `vibecode claims reap --repo <path> --json`,
 `vibecode conflicts list --repo <path> --json`, `vibecode conflicts resolve --repo
 <path> --conflict <id> --json`, and `vibecode conflicts detail --repo <path>
---conflict-id <id> --json`.
+--conflict-id <id> [--agent <agent_id>] --json` (the optional `--agent` passes
+the requesting agent so cleared conflicts recommend requester-specific
+`claims plan` / `claims add-bulk` follow-ups; it is advisory and read-only).
 
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createCli } from '../../../src/app/cli/index.js';
 import { registerAgent, markAgentTerminated } from '../../../src/core/coordination/agents.js';
-import { addFileClaim } from '../../../src/core/coordination/claims.js';
+import { addFileClaim, releaseFileClaim } from '../../../src/core/coordination/claims.js';
 import { HEARTBEAT_TTL_MS } from '../../../src/core/coordination/heartbeat.js';
 
 async function runCli(args: string[]): Promise<{ logs: string[]; errors: string[]; exitCode: number }> {
@@ -182,6 +182,112 @@ describe('vibecode conflicts (CLI)', () => {
     expect(env.ok).toBe(true);
     expect((env.data.conflict as { conflict_id: string }).conflict_id).toBe('conflict-1');
     expect((env.data.conflict as { triage_status: string }).triage_status).toBeDefined();
+  });
+
+  test('conflicts detail --agent adds requester-specific recommendations for a cleared conflict', async () => {
+    const { recordConflict } = await import('../../../src/core/coordination/conflicts.js');
+    const requesterId = await registerAgentCli('Requester');
+    const blockerId = await registerAgentCli('Blocker');
+    addFileClaim(
+      repo.repoRoot,
+      { agent_id: blockerId, path: 'src/app.ts', mode: 'exclusive' },
+      { claimId: 'claim-blk' },
+    );
+    recordConflict(repo.repoRoot, {
+      conflict_type: 'claim_denied',
+      detected_at: '2026-06-10T00:01:00.000Z',
+      involved_claims: ['claim-blk'],
+      involved_agents: [requesterId, blockerId],
+      involved_files: ['src/app.ts'],
+      severity: 'medium',
+      description: 'denied',
+      evidence: { detector: 'claim_manager', details: {} },
+    }, { conflictId: 'conflict-1' });
+    // Blocker finishes: the conflict is no longer blocking.
+    releaseFileClaim(repo.repoRoot, 'claim-blk');
+
+    const res = await runCli([
+      'conflicts', 'detail', '--repo', repo.repoRoot,
+      '--conflict-id', 'conflict-1', '--agent', requesterId, '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    expect(env.ok).toBe(true);
+    // Canonical envelope shape is preserved.
+    expect(Object.keys(env).sort()).toEqual(['artifacts', 'data', 'ok', 'warnings']);
+    const conflict = env.data.conflict as {
+      triage_status: string;
+      recommended_next_tools: string[];
+      recommended_cli_commands: string[];
+    };
+    expect(conflict.triage_status).toBe('cleared');
+    // Requester-specific claim plan command uses the REAL agent id.
+    expect(conflict.recommended_cli_commands.some(
+      (c) => c.includes('claims plan') && c.includes(`--agent ${requesterId}`),
+    )).toBe(true);
+    expect(conflict.recommended_next_tools).toContain('vibecode_claims_plan');
+    expect(conflict.recommended_next_tools).toContain('vibecode_claims_add_bulk');
+    // Own cleared conflict additionally points at the agent's intent list.
+    expect(conflict.recommended_next_tools).toContain('vibecode_claim_intents_list');
+  });
+
+  test('conflicts detail without --agent keeps existing generic recommendations', async () => {
+    const { recordConflict } = await import('../../../src/core/coordination/conflicts.js');
+    const requesterId = await registerAgentCli('Requester');
+    const blockerId = await registerAgentCli('Blocker');
+    addFileClaim(
+      repo.repoRoot,
+      { agent_id: blockerId, path: 'src/app.ts', mode: 'exclusive' },
+      { claimId: 'claim-blk' },
+    );
+    recordConflict(repo.repoRoot, {
+      conflict_type: 'claim_denied',
+      detected_at: '2026-06-10T00:01:00.000Z',
+      involved_claims: ['claim-blk'],
+      involved_agents: [requesterId, blockerId],
+      involved_files: ['src/app.ts'],
+      severity: 'medium',
+      description: 'denied',
+      evidence: { detector: 'claim_manager', details: {} },
+    }, { conflictId: 'conflict-1' });
+    releaseFileClaim(repo.repoRoot, 'claim-blk');
+
+    const res = await runCli([
+      'conflicts', 'detail', '--repo', repo.repoRoot, '--conflict-id', 'conflict-1', '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    const conflict = env.data.conflict as {
+      triage_status: string;
+      recommended_cli_commands: string[];
+    };
+    expect(conflict.triage_status).toBe('cleared');
+    // Without requester context no command embeds a concrete agent id.
+    expect(conflict.recommended_cli_commands.every((c) => !c.includes(requesterId))).toBe(true);
+  });
+
+  test('conflicts detail --agent with unknown agent id stays read-only and succeeds (advisory)', async () => {
+    const { recordConflict } = await import('../../../src/core/coordination/conflicts.js');
+    const agentId = await registerAgentCli();
+    recordConflict(repo.repoRoot, {
+      conflict_type: 'claim_denied',
+      detected_at: '2026-06-10T00:01:00.000Z',
+      involved_claims: ['claim-1'],
+      involved_agents: [agentId],
+      involved_files: ['src/app.ts'],
+      severity: 'medium',
+      description: 'denied',
+      evidence: { detector: 'claim_manager', details: {} },
+    }, { conflictId: 'conflict-1' });
+
+    const res = await runCli([
+      'conflicts', 'detail', '--repo', repo.repoRoot,
+      '--conflict-id', 'conflict-1', '--agent', 'agent-does-not-exist', '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const env = JSON.parse(res.logs[0]) as SuccessEnvelope;
+    expect(env.ok).toBe(true);
+    expect((env.data.conflict as { conflict_id: string }).conflict_id).toBe('conflict-1');
   });
 
   test('conflicts detail --json without --conflict-id returns JSON envelope', async () => {

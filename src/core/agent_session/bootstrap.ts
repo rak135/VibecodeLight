@@ -99,6 +99,16 @@ export const SESSION_BOOTSTRAP_MAX_ITEMS = 100;
 /** Default cap on the sample changed-file path preview. */
 export const DEFAULT_BOOTSTRAP_SAMPLE_FILES = 10;
 
+/**
+ * Phase 2D follow-up: minimum age before an other-agent ACTIVE claim on a
+ * CLEAN file is flagged POSSIBLY_STALE_ACTIVE_CLAIMS. A seconds-old claim on a
+ * still-clean file is normal "claimed, not yet edited" multi-agent state, not
+ * staleness. The grace applies ONLY to this advisory warning: real claim
+ * conflicts, dirty/unclaimed safety warnings, and stale-agent TTL semantics
+ * are untouched.
+ */
+export const POSSIBLY_STALE_ACTIVE_CLAIM_MIN_AGE_MS = 2 * 60 * 1000;
+
 /** Max bytes of the bounded project-instruction excerpt. */
 export const BOOTSTRAP_INSTRUCTION_EXCERPT_BYTES = 1_200;
 
@@ -775,11 +785,16 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
   let hasStaleCleanClaims = false;
   if (otherActiveClaims.length > 0 && changes.ok) {
     const dirtyPaths = new Set(changes.files.map((f) => f.path));
+    const nowMs = Date.parse(checkedAt);
     const staleCleanClaims: typeof otherActiveClaims = [];
     for (const claim of otherActiveClaims) {
-      if (!dirtyPaths.has(claim.path)) {
-        staleCleanClaims.push(claim);
-      }
+      if (dirtyPaths.has(claim.path)) continue;
+      // Min-age grace: a fresh claim on a clean file is normal (work not
+      // started yet). Unparseable created_at fails toward warning.
+      const createdMs = Date.parse(claim.created_at);
+      const ageMs = Number.isNaN(createdMs) ? Number.POSITIVE_INFINITY : nowMs - createdMs;
+      if (ageMs < POSSIBLY_STALE_ACTIVE_CLAIM_MIN_AGE_MS) continue;
+      staleCleanClaims.push(claim);
     }
     if (staleCleanClaims.length > 0) {
       hasStaleCleanClaims = true;

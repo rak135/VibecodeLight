@@ -19,6 +19,7 @@ import {
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
+import { buildMcpServerIdentity, type McpServerIdentity } from '../server_identity.js';
 import {
   buildAgentGuidanceRuntime,
   buildGuidanceStatusSummary,
@@ -120,6 +121,7 @@ function safeCurrentRunSummary(repoRoot: string): { run_id: string; run_dir: str
 function renderText(data: {
   repo_root: string;
   mcp_server: { name: string; version: string };
+  server_identity: McpServerIdentity;
   tools: { total: number; groups: Record<string, string[]> };
   codegraph: { available: boolean; initialized: boolean; version?: string | null };
   current_run: { run_id: string } | null;
@@ -135,6 +137,12 @@ function renderText(data: {
   const lines: string[] = ['# Vibecode workspace info', ''];
   lines.push(`repo_root: ${data.repo_root}`);
   lines.push(`mcp_server: ${data.mcp_server.name} ${data.mcp_server.version}`);
+  lines.push(
+    `server_identity: tool_count=${data.server_identity.tool_count}`
+      + ` version=${data.server_identity.server_version}`
+      + ` started_at=${data.server_identity.started_at}`
+      + ' (compare against the current build to detect a stale MCP server session)',
+  );
   lines.push(`tools_total: ${data.tools.total}`);
   for (const [group, names] of Object.entries(data.tools.groups)) {
     lines.push(`  ${group}: ${names.length}`);
@@ -229,6 +237,9 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
       const data = {
         repo_root: input.context.repoRoot,
         mcp_server: { name: WORKSPACE_INFO_SERVER_NAME, version: WORKSPACE_INFO_SERVER_VERSION },
+        // Phase 2D follow-up: compact identity of the RUNNING server build so
+        // agents can detect a stale MCP server session (e.g. tool_count drift).
+        server_identity: buildMcpServerIdentity(input.context.repoRoot),
         tools: {
           total,
           groups: {

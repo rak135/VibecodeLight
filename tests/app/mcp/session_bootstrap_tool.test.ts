@@ -74,6 +74,32 @@ describe('VibecodeMCP session_bootstrap tool', () => {
     expect(data.codegraph).toMatchObject({ available: false, initialized: false });
   });
 
+  test('includes compact server_identity so agents can detect a stale MCP server', async () => {
+    const result = await tool().handler({ context: ctx(repo.repoRoot), arguments: {}, requestId: null });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as SessionBootstrapResult & {
+      server_identity: {
+        server_name: string;
+        server_version: string;
+        tool_count: number;
+        started_at: string;
+        repo_root: string;
+      };
+    };
+    expect(Object.keys(data.server_identity).sort()).toEqual([
+      'repo_root',
+      'server_name',
+      'server_version',
+      'started_at',
+      'tool_count',
+    ]);
+    expect(data.server_identity.server_name).toBe('vibecode-mcp');
+    // Tool count comes from the canonical registry of THIS running build.
+    expect(data.server_identity.tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
+    expect(Number.isNaN(Date.parse(data.server_identity.started_at))).toBe(false);
+    expect(data.server_identity.repo_root).toBe(repo.repoRoot);
+  });
+
   test('includes a compact stale_coordination summary (Phase 2C)', async () => {
     // Clean repo: compact, no stale state, no housekeeping recommendation.
     const clean = await tool().handler({ context: ctx(repo.repoRoot), arguments: {}, requestId: null });

@@ -8,6 +8,7 @@ import { describe, expect, test } from 'vitest';
 import {
   getSessionBootstrap,
   AGENT_OPERATING_PROTOCOL,
+  POSSIBLY_STALE_ACTIVE_CLAIM_MIN_AGE_MS,
 } from '../../../src/core/agent_session/bootstrap.js';
 import { registerAgent, markAgentTerminated, listAgents } from '../../../src/core/coordination/agents.js';
 import { addFileClaim, releaseFileClaim } from '../../../src/core/coordination/claims.js';
@@ -357,14 +358,42 @@ describe('getSessionBootstrap — Phase 2D conflict triage summary', () => {
 });
 
 describe('getSessionBootstrap — stale active claim warnings for clean files', () => {
-  test('active other-agent claim on a clean file produces a POSSIBLY_STALE_ACTIVE_CLAIMS warning', async () => {
-    const repo = makeRepo('vibecode-bs-stale-clean-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
-    // B claims src/theirs.ts but does NOT dirty it (the file does not exist in the working tree).
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/theirs.ts', mode: 'exclusive' });
+  // Deterministic clocks: agents register and claims are created at CLAIM_T0;
+  // bootstrap runs either WITHIN the min-age grace (fresh claims stay quiet) or
+  // PAST it (clean claimed files become possibly stale). Both offsets stay well
+  // inside the 5-minute heartbeat TTL so the owning agents remain active.
+  const CLAIM_T0 = '2026-03-01T00:00:00.000Z';
+  const WITHIN_GRACE = new Date(Date.parse(CLAIM_T0) + 30_000).toISOString();
+  const PAST_GRACE = new Date(
+    Date.parse(CLAIM_T0) + POSSIBLY_STALE_ACTIVE_CLAIM_MIN_AGE_MS + 30_000,
+  ).toISOString();
 
-    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+  function registerPair(repo: string): { a: string; b: string } {
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } }, { now: CLAIM_T0 });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } }, { now: CLAIM_T0 });
+    return { a: a.agent_id, b: b.agent_id };
+  }
+
+  test('fresh other-agent active claim on a clean file is NOT flagged (min-age grace)', async () => {
+    const repo = makeRepo('vibecode-bs-stale-fresh-');
+    const { a, b } = registerPair(repo);
+    // B just claimed src/theirs.ts and has not started editing yet — normal state.
+    addFileClaim(repo, { agent_id: b, path: 'src/theirs.ts', mode: 'exclusive' }, { now: CLAIM_T0 });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: WITHIN_GRACE, ...baseOpts });
+    const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
+    expect(staleWarnings).toHaveLength(0);
+    // The claim itself is still visible as other_active.
+    expect(result.claims.counts.other_active).toBe(1);
+  });
+
+  test('claim older than the grace period on a clean file produces a POSSIBLY_STALE_ACTIVE_CLAIMS warning', async () => {
+    const repo = makeRepo('vibecode-bs-stale-clean-');
+    const { a, b } = registerPair(repo);
+    // B claims src/theirs.ts but never dirties it (the file does not exist in the working tree).
+    addFileClaim(repo, { agent_id: b, path: 'src/theirs.ts', mode: 'exclusive' }, { now: CLAIM_T0 });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: PAST_GRACE, ...baseOpts });
     const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
     expect(staleWarnings.length).toBeGreaterThan(0);
     const warning = staleWarnings[0];
@@ -375,45 +404,42 @@ describe('getSessionBootstrap — stale active claim warnings for clean files', 
 
   test('POSSIBLY_STALE_ACTIVE_CLAIMS warning includes claim ids, agent ids, and sample paths', async () => {
     const repo = makeRepo('vibecode-bs-stale-detail-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean1.ts', mode: 'exclusive' });
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean2.ts', mode: 'shared' });
+    const { a, b } = registerPair(repo);
+    addFileClaim(repo, { agent_id: b, path: 'src/clean1.ts', mode: 'exclusive' }, { now: CLAIM_T0 });
+    addFileClaim(repo, { agent_id: b, path: 'src/clean2.ts', mode: 'shared' }, { now: CLAIM_T0 });
 
-    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: PAST_GRACE, ...baseOpts });
     const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
     expect(staleWarnings.length).toBeGreaterThan(0);
     // The warning message should reference the claim details.
     const warning = staleWarnings[0];
-    expect(warning.message).toContain(b.agent_id);
+    expect(warning.message).toContain(b);
     expect(warning.message).toContain('src/clean1.ts');
   });
 
   test('POSSIBLY_STALE_ACTIVE_CLAIMS warning is bounded by max_items', async () => {
     const repo = makeRepo('vibecode-bs-stale-bound-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    const { a, b } = registerPair(repo);
     for (let i = 0; i < 10; i += 1) {
-      addFileClaim(repo, { agent_id: b.agent_id, path: `src/clean${i}.ts`, mode: 'exclusive' });
+      addFileClaim(repo, { agent_id: b, path: `src/clean${i}.ts`, mode: 'exclusive' }, { now: CLAIM_T0 });
     }
 
-    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, max_items: 3, ...baseOpts });
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, max_items: 3, now: PAST_GRACE, ...baseOpts });
     const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
     // Should have at least one warning, and the details should be bounded.
     expect(staleWarnings.length).toBeGreaterThan(0);
   });
 
-  test('active other-agent claim on a dirty file is NOT flagged as stale', async () => {
+  test('old active other-agent claim on a dirty file is NOT flagged as stale', async () => {
     const repo = makeRepo('vibecode-bs-stale-dirty-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    const { a, b } = registerPair(repo);
     // B claims src/theirs.ts AND the file is dirty in the working tree.
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/theirs.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b, path: 'src/theirs.ts', mode: 'exclusive' }, { now: CLAIM_T0 });
     write(repo, 'src/theirs.ts');
 
-    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: PAST_GRACE, ...baseOpts });
     const staleWarnings = result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS');
-    // The dirty-file claim should NOT be flagged as stale.
+    // The dirty-file claim should NOT be flagged as stale, even past the grace.
     expect(staleWarnings).toHaveLength(0);
     // The other_active claims summary should still work.
     expect(result.claims.counts.other_active).toBe(1);
@@ -421,14 +447,13 @@ describe('getSessionBootstrap — stale active claim warnings for clean files', 
 
   test('existing other_active claims summary still works alongside stale warnings', async () => {
     const repo = makeRepo('vibecode-bs-stale-summary-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    const { a, b } = registerPair(repo);
     // One clean-file claim (stale) and one dirty-file claim (legitimate).
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean.ts', mode: 'exclusive' });
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/dirty.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b, path: 'src/clean.ts', mode: 'exclusive' }, { now: CLAIM_T0 });
+    addFileClaim(repo, { agent_id: b, path: 'src/dirty.ts', mode: 'exclusive' }, { now: CLAIM_T0 });
     write(repo, 'src/dirty.ts');
 
-    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: PAST_GRACE, ...baseOpts });
     // Both claims are other_active.
     expect(result.claims.counts.other_active).toBe(2);
     // Only the clean-file claim produces a stale warning.
@@ -440,15 +465,37 @@ describe('getSessionBootstrap — stale active claim warnings for clean files', 
 
   test('recommended next commands include claims list and claims reap when stale warning present', async () => {
     const repo = makeRepo('vibecode-bs-stale-recs-');
-    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
-    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
-    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/clean.ts', mode: 'exclusive' });
+    const { a, b } = registerPair(repo);
+    addFileClaim(repo, { agent_id: b, path: 'src/clean.ts', mode: 'exclusive' }, { now: CLAIM_T0 });
 
-    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a.agent_id, ...baseOpts });
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: PAST_GRACE, ...baseOpts });
     expect(result.recommended_cli_commands.some((c) => c.includes('claims list'))).toBe(true);
     expect(result.recommended_cli_commands.some((c) => c.includes('claims reap'))).toBe(true);
     expect(result.recommended_next_tools).toContain('vibecode_claims_list');
     expect(result.recommended_next_tools).toContain('vibecode_claims_reap');
+  });
+
+  test('no grace period for real claim conflicts: fresh blocking claim still triages still_blocking', async () => {
+    const repo = makeRepo('vibecode-bs-stale-conflict-');
+    const { a, b } = registerPair(repo);
+    addFileClaim(repo, { agent_id: b, path: 'src/contested.ts', mode: 'exclusive' }, { now: CLAIM_T0, claimId: 'claim-blk' });
+    recordConflict(repo, {
+      conflict_type: 'claim_denied',
+      detected_at: CLAIM_T0,
+      involved_claims: ['claim-blk'],
+      involved_agents: [a, b],
+      involved_files: ['src/contested.ts'],
+      severity: 'medium',
+      description: 'Claim denied for src/contested.ts.',
+      evidence: { detector: 'claim_manager', details: {} },
+    }, { conflictId: 'conflict-fresh' });
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: WITHIN_GRACE, ...baseOpts });
+    // The advisory stale warning is silenced by the grace period…
+    expect(result.warnings.filter((w) => w.code === 'POSSIBLY_STALE_ACTIVE_CLAIMS')).toHaveLength(0);
+    // …but the conflict is reported as still blocking immediately.
+    expect(result.conflicts.still_blocking_count).toBe(1);
+    expect(result.conflicts.items[0].triage_status).toBe('still_blocking');
   });
 });
 

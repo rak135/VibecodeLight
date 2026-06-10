@@ -71,8 +71,9 @@ export function registerConflictsCommands(
     .description('Get intent-aware triage detail for one coordination conflict')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--conflict-id <id>', 'Conflict id to inspect')
+    .option('--agent <agent_id>', 'Requesting agent id for requester-specific recommendations (optional)')
     .option('--json', 'Output canonical JSON envelope')
-    .action((options: { repo: string; conflictId?: string; json?: boolean }) => {
+    .action((options: { repo: string; conflictId?: string; agent?: string; json?: boolean }) => {
       const repoRoot = path.resolve(options.repo);
       if (!options.conflictId) {
         emitCliStructuredError(
@@ -87,12 +88,19 @@ export function registerConflictsCommands(
         const claims = listFileClaims(repoRoot, { includeReleased: true });
         const intents = listClaimIntents(repoRoot);
 
+        // Optional requester context (Phase 2D follow-up): advisory only — it
+        // shapes the recommendations, never authorization or state.
+        const requesterId = options.agent && options.agent.trim().length > 0
+          ? options.agent.trim()
+          : null;
+
         const detail = getConflictTriageDetail({
           conflictId: options.conflictId,
           agents,
           claims,
           intents,
           conflicts: allConflicts,
+          currentAgentId: requesterId,
         });
 
         if (!detail) {

@@ -121,6 +121,53 @@ describe('vibecode_workspace_info', () => {
     }
   });
 
+  test('exposes server_identity (canonical tool count) for stale-MCP-session detection', async () => {
+    const { repoRoot, cleanup } = makeRepo('vibecode-mcp3-info-identity-');
+    try {
+      const tool = buildWorkspaceInfoTool({ codegraphStatus: async () => FAKE_CODEGRAPH_STATUS_AVAILABLE });
+      const first = await tool.handler({ context: ctx(repoRoot), arguments: {}, requestId: null });
+      expect(first.isError).toBe(false);
+      const data = first.structuredContent.data as {
+        tools: { total: number };
+        server_identity: {
+          server_name: string;
+          server_version: string;
+          tool_count: number;
+          started_at: string;
+          repo_root: string;
+        };
+      };
+      const identity = data.server_identity;
+      // Bounded, stable shape — agents compare these fields against the
+      // current build to detect a stale MCP server session.
+      expect(Object.keys(identity).sort()).toEqual([
+        'repo_root',
+        'server_name',
+        'server_version',
+        'started_at',
+        'tool_count',
+      ]);
+      expect(identity.server_name).toBe('vibecode-mcp');
+      expect(typeof identity.server_version).toBe('string');
+      expect(identity.server_version.length).toBeGreaterThan(0);
+      // Tool count is derived from the canonical registry of THIS build.
+      expect(identity.tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
+      expect(identity.tool_count).toBe(data.tools.total);
+      expect(Number.isNaN(Date.parse(identity.started_at))).toBe(false);
+      expect(identity.repo_root).toBe(repoRoot);
+
+      // Identity is stable across calls within the same server session.
+      const second = await tool.handler({ context: ctx(repoRoot), arguments: {}, requestId: null });
+      const secondIdentity = (second.structuredContent.data as {
+        server_identity: { started_at: string; tool_count: number };
+      }).server_identity;
+      expect(secondIdentity.started_at).toBe(identity.started_at);
+      expect(secondIdentity.tool_count).toBe(identity.tool_count);
+    } finally {
+      cleanup();
+    }
+  });
+
   test('exposes the available tool profiles compactly (ids/titles/purpose, no full tool lists)', async () => {
     const { repoRoot, cleanup } = makeRepo('vibecode-mcp3-info-profiles-');
     try {

@@ -14,6 +14,7 @@ import {
   type JsonSchema,
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
+import { buildMcpServerIdentity, type McpServerIdentity } from '../server_identity.js';
 
 /**
  * Phase 1A — `vibecode_session_bootstrap`.
@@ -60,9 +61,13 @@ function blockerErrorCode(code: string | undefined): McpErrorCode {
   }
 }
 
-function renderText(result: SessionBootstrapResult): string {
+function renderText(result: SessionBootstrapResult, serverIdentity: McpServerIdentity): string {
   const lines: string[] = ['# Vibecode session bootstrap', ''];
   lines.push(`repo_root: ${result.repo_root}`);
+  lines.push(
+    `mcp_server: ${serverIdentity.server_name} ${serverIdentity.server_version}`
+      + ` tools=${serverIdentity.tool_count} started_at=${serverIdentity.started_at}`,
+  );
   lines.push(
     `git: branch=${result.git.branch ?? '(n/a)'} head=${result.git.head ?? '(n/a)'} dirty=${result.git.dirty ? 'yes' : 'no'} changed=${result.git.changed_counts.total}`,
   );
@@ -199,11 +204,17 @@ export function buildSessionBootstrapTool(deps: SessionBootstrapToolDeps = {}): 
           return fail(blockerErrorCode(blocker?.code), blocker?.message ?? 'session bootstrap failed');
         }
 
+        // Phase 2D follow-up: attach the RUNNING server build's identity so an
+        // agent can detect a stale MCP server session (tool_count drift means
+        // restart/reconnect). MCP-layer only — the shared core result and the
+        // CLI command (which always reflects the current build) are unchanged.
+        const serverIdentity = buildMcpServerIdentity(input.context.repoRoot);
+
         return formatSimpleSuccess({
           tool: TOOL_NAME,
           repoRoot: input.context.repoRoot,
-          text: renderText(result),
-          data: result,
+          text: renderText(result, serverIdentity),
+          data: { ...result, server_identity: serverIdentity },
           warnings: result.warnings.map((w) => `${w.code}: ${w.message}`),
           durationMs: Date.now() - started,
         });
