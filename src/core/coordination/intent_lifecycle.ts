@@ -49,7 +49,9 @@ export interface IntentDetail {
   active_claim_count: number;
   released_claim_count: number;
   paths: string[];
+  /** Bounded preview of `paths`, capped at DEFAULT_INTENT_SAMPLE_PATHS entries. */
   sample_paths: string[];
+  /** True when `paths` has more entries than `sample_paths` shows. */
   sample_truncated: boolean;
   created_at: string;
   updated_at: string;

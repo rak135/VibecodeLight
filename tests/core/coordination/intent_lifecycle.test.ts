@@ -162,6 +162,19 @@ describe('Phase 2B — listClaimIntentsDetail', () => {
     expect(result.intents[0].intent).toBe('first');
   });
 
+  test('bounds sample_paths at 10 entries while keeping full paths', () => {
+    build(repo.repoRoot, 'agent-a');
+    const paths = Array.from({ length: 12 }, (_, i) => `src/file_${String(i).padStart(2, '0')}.ts`);
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'many paths', paths });
+
+    const result = listClaimIntentsDetail(repo.repoRoot, { agent_id: 'agent-a' });
+    expect(result.intents).toHaveLength(1);
+    expect(result.intents[0].paths).toHaveLength(12);
+    expect(result.intents[0].sample_paths).toHaveLength(10);
+    expect(result.intents[0].sample_paths).toEqual(paths.slice(0, 10));
+    expect(result.intents[0].sample_truncated).toBe(true);
+  });
+
   test('truncates at max_items', () => {
     build(repo.repoRoot, 'agent-a');
     addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', intent: 'first', paths: ['src/a.ts'] });
