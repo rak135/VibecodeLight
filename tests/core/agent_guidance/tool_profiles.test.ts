@@ -332,6 +332,25 @@ describe('tool profiles — team_handoff (Phase 4A)', () => {
     expect(commands.some((c) => c.includes('--register'))).toBe(true);
   });
 
+  test('team_handoff teaches the Phase 4B consumer side: handoff guide before continuing', () => {
+    const profile = getToolProfile('team_handoff');
+    const toolNames = profile!.mcp_tools.map((t) => t.name);
+    expect(toolNames).toContain('vibecode_handoff_guide');
+
+    const commands = profile!.cli_commands.map((c) => c.command);
+    expect(commands.some((c) => c.includes('handoff guide --from-agent <from_agent_id>'))).toBe(true);
+
+    const text = [
+      ...(profile?.next_steps ?? []),
+      ...(profile?.mcp_tools.map((t) => t.reason) ?? []),
+      ...(profile?.cli_commands.map((c) => c.reason) ?? []),
+    ].join(' ').toLowerCase();
+    // Producer runs prepare before ending; consumer runs guide before continuing.
+    expect(text).toMatch(/handoff guide/);
+    expect(text).toMatch(/before continuing|before starting/);
+    expect(text).toMatch(/not ready.*(do not|wait)|do not proceed/);
+  });
+
   test('team_handoff teaches the boundary rules: no transfer, no cross-agent release, no raw bypass', () => {
     const profile = getToolProfile('team_handoff');
     const text = [

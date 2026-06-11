@@ -533,6 +533,21 @@ export const HANDOFF_PREPARE_INPUT_SCHEMA: JsonSchema = {
   required: ['agent_id'],
 };
 
+// ---------------------------------------------------------------------------
+// Phase 4B: read-only next-agent onboarding guide
+// ---------------------------------------------------------------------------
+
+export const HANDOFF_GUIDE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    from_agent_id: { type: 'string', description: 'Previous agent id whose handoff packet is consumed as onboarding guidance.' },
+    for_agent_id: { type: 'string', description: 'Optional next-agent id; enables next-agent-specific onboarding checks. Never a transfer.' },
+    max_items: { ...POSITIVE_INT, maximum: HANDOFF_MAX_ITEMS, description: `Cap on path sample lists in the guide (positive integer, max ${HANDOFF_MAX_ITEMS}).` },
+  },
+  required: ['from_agent_id'],
+};
+
 export const GIT_CHANGES_INPUT_SCHEMA: JsonSchema = {
   type: 'object',
   additionalProperties: false,

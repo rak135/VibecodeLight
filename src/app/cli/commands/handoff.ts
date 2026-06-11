@@ -3,6 +3,10 @@ import path from 'path';
 import { Command } from 'commander';
 
 import {
+  getNextAgentHandoffGuide,
+  type NextAgentHandoffGuide,
+} from '../../../core/agent_session/handoff_guide.js';
+import {
   getAgentHandoffPacket,
   HANDOFF_MAX_ITEMS,
   type AgentHandoffPacket,
@@ -18,13 +22,16 @@ export interface HandoffCommandDependencies {
 }
 
 /**
- * Register `vibecode handoff …` commands (Phase 4A).
+ * Register `vibecode handoff …` commands (Phase 4A + 4B).
  *
- * Ships the `prepare` subcommand: a thin wrapper over the shared core service
- * (`core/agent_session/handoff_packet`) — the same service the MCP tool
- * `vibecode_handoff_prepare` uses — so CLI and MCP return equivalent data.
- * Strictly read-only: it never registers, heartbeats, releases, claims, reaps,
- * transfers ownership, assigns the next agent, or mutates git/source state.
+ * Ships the `prepare` subcommand (Phase 4A): a thin wrapper over the shared
+ * core service (`core/agent_session/handoff_packet`) — the same service the
+ * MCP tool `vibecode_handoff_prepare` uses — and the `guide` subcommand
+ * (Phase 4B): a thin wrapper over `core/agent_session/handoff_guide` — the
+ * same service the MCP tool `vibecode_handoff_guide` uses — so CLI and MCP
+ * return equivalent data. Strictly read-only: neither registers, heartbeats,
+ * releases, claims, reaps, transfers ownership, assigns the next agent, or
+ * mutates git/source state.
  */
 export function registerHandoffCommands(
   program: Command,
@@ -117,6 +124,129 @@ export function registerHandoffCommands(
 
       printHuman(packet);
     });
+
+  handoff
+    .command('guide')
+    .description('Next-agent onboarding guidance from a handoff packet (read-only; no transfer, no auto-claim)')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--from-agent <agent_id>', 'Previous agent id whose handoff packet is consumed as guidance')
+    .option('--for-agent <agent_id>', 'Optional next-agent id for next-agent-specific checks')
+    .option('--max-items <n>', 'Cap on path sample lists in the guide')
+    .option('--json', 'Output canonical JSON envelope')
+    .action((options: { repo: string; fromAgent?: string; forAgent?: string; maxItems?: string; json?: boolean }) => {
+      const repoRoot = path.resolve(options.repo);
+
+      if (!options.fromAgent || options.fromAgent.trim().length === 0) {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            'MISSING_REQUIRED_OPTION',
+            'handoff guide requires --from-agent.',
+            repoRoot,
+            ['Missing: --from-agent <agent_id>'],
+          ),
+          { json: options.json, prefix: 'handoff guide failed' },
+        );
+        return;
+      }
+
+      let maxItems: number | undefined;
+      if (options.maxItems !== undefined) {
+        const raw = Number(options.maxItems);
+        if (!Number.isFinite(raw) || !Number.isInteger(raw) || raw <= 0) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_ARGUMENT',
+              `invalid --max-items: expected a positive integer, got ${JSON.stringify(options.maxItems)}`,
+              repoRoot,
+            ),
+            { json: options.json, prefix: 'handoff guide failed' },
+          );
+          return;
+        }
+        if (raw > HANDOFF_MAX_ITEMS) {
+          emitCliStructuredError(
+            makeCliStructuredError(
+              'INVALID_ARGUMENT',
+              `invalid --max-items: value ${raw} exceeds maximum ${HANDOFF_MAX_ITEMS}`,
+              repoRoot,
+            ),
+            { json: options.json, prefix: 'handoff guide failed' },
+          );
+          return;
+        }
+        maxItems = raw;
+      }
+
+      let guide: NextAgentHandoffGuide;
+      try {
+        guide = getNextAgentHandoffGuide(repoRoot, {
+          from_agent_id: options.fromAgent.trim(),
+          for_agent_id: options.forAgent?.trim() || undefined,
+          max_items: maxItems,
+        });
+      } catch (error) {
+        emitCliStructuredError(
+          makeCliStructuredError(
+            'HANDOFF_GUIDE_FAILED',
+            error instanceof Error ? error.message : String(error),
+            repoRoot,
+          ),
+          { json: options.json, prefix: 'handoff guide failed' },
+        );
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          data: guide,
+          artifacts: [],
+          warnings: guide.warnings.map((w) => `${w.code}: ${w.message}`),
+        }));
+        return;
+      }
+
+      printGuideHuman(guide);
+    });
+}
+
+function printGuideHuman(guide: NextAgentHandoffGuide): void {
+  console.log(`from_agent: ${guide.from_agent_id} (${guide.handoff_source.handoff_state})`);
+  console.log(
+    `next_agent: ${guide.for_agent_id ?? 'not specified'}`
+      + ` registered=${guide.next_agent.registered ? 'yes' : 'no'}`
+      + ` status=${guide.next_agent.status ?? 'n/a'} mode=${guide.next_agent.operating_mode ?? 'n/a'}`,
+  );
+  console.log(`Onboarding: ${guide.onboarding.summary}`);
+  console.log(
+    `can_continue_now=${guide.onboarding.can_continue_now ? 'yes' : 'no'}`
+      + ` can_register_and_plan=${guide.onboarding.can_register_and_plan ? 'yes' : 'no'}`
+      + ` must_claim_explicitly=yes ownership_transferred=no`
+      + ` same_agent_resume=${guide.onboarding.same_agent_resume ? 'yes' : 'no'}`,
+  );
+  if (guide.required_before_continue.length > 0) {
+    console.log(`required_before_continue: ${guide.required_before_continue.join(', ')}`);
+  }
+  if (guide.blocked_paths.length > 0) {
+    console.log(`blocked_paths (still claimed by ${guide.from_agent_id}${guide.paths_truncated ? ', truncated' : ''}):`);
+    for (const p of guide.blocked_paths) console.log(`  - ${p}`);
+  }
+  if (guide.blockers.length > 0) {
+    console.log('blockers:');
+    for (const b of guide.blockers) console.log(`  [${b.code}] ${b.message}`);
+  }
+  if (guide.warnings.length > 0) {
+    console.log('warnings:');
+    for (const w of guide.warnings) console.log(`  [${w.code}] ${w.message}`);
+  }
+  if (guide.previous_agent_cli_commands.length > 0) {
+    console.log(`previous_agent_cli_commands (run by ${guide.from_agent_id} only):`);
+    for (const c of guide.previous_agent_cli_commands) console.log(`  - ${c}`);
+  }
+  console.log('next_agent_cli_commands:');
+  for (const c of guide.next_agent_cli_commands) console.log(`  - ${c}`);
+  console.log('do_not_do:');
+  for (const d of guide.do_not_do) console.log(`  - ${d}`);
 }
 
 function printHuman(packet: AgentHandoffPacket): void {

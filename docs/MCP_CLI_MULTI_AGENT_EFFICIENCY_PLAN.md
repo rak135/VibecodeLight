@@ -3645,6 +3645,128 @@ terminated/missing-as-state, no-mutation, canonical envelope),
 human output, no mutation), and
 `tests/core/agent_guidance/tool_profiles.test.ts` (`team_handoff`).
 
+## 14N. Phase 4B — next-agent onboarding from handoff packets (Implemented)
+
+Trigger: Phase 4A tells the STOPPING agent what it still owes. The mirror
+question was unanswered: an agent that wants to continue had to manually
+interpret the packet — is the previous agent actually ready, is its work still
+claimed, may I register/continue, which paths are unavailable, what must I
+claim myself, what exact commands do I run, what must I never do, and is this
+actually a same-agent resume? Phase 4B answers those questions with one
+bounded, read-only onboarding guide. **New MCP tool `vibecode_handoff_guide`;
+tool count 43 → 44.** Profile count stays 11 (`team_handoff` enhanced with the
+consumer side, no new profile).
+
+`handoff prepare` vs `handoff guide`: prepare is the PRODUCER view (state
+packet from the stopping agent's perspective); guide is the CONSUMER view
+(onboarding guidance for the next agent built FROM that packet). Producer runs
+prepare before ending; consumer runs guide before continuing.
+
+What the guide IS: one primary `onboarding_state`, a condensed
+`handoff_source` view of the previous agent's packet, the next agent's own
+lifecycle (`registered`/`status`/`operating_mode`), explicit onboarding flags
+(`can_continue_now`, `can_register_and_plan`, `must_claim_explicitly` always
+true, `ownership_transferred` always false, `same_agent_resume`),
+`blocked_paths` / `paths_requiring_new_claim_after_release` (bounded samples
+from the packet), `path_guidance` stating Vibecode never selects the next
+agent's scope, `required_before_continue` tokens, safe commands SEPARATED into
+`previous_agent_cli_commands` (run by the from-agent only — e.g. its own
+intent release, its own commit guard dry-run) and `next_agent_cli_commands`,
+plus a `do_not_do` boundary list.
+
+What it is NOT: handoff execution. The guide never transfers ownership, never
+registers/heartbeats/releases/claims/reaps/resolves anything, never assigns
+the next agent, and never mutates git/source/coordination state. Agent B may
+READ Agent A's packet; Agent B still registers separately and still claims
+exact files explicitly.
+
+- New core module `src/core/agent_session/handoff_guide.ts`:
+  - `buildNextAgentHandoffGuide` — pure classifier over an already-built
+    Phase 4A packet plus the (optional) next agent's resolved session;
+  - `getNextAgentHandoffGuide` — strictly read-only loader (packet loader +
+    agents listing only; no writes at all).
+- One primary `onboarding_state` (previous-agent side first, then next-agent
+  side, fail safe):
+  `previous_agent_not_ready` (source commit/staged/stale states — do not
+  continue on its paths; per-source prerequisites),
+  `previous_agent_ready_after_release` (clean active own intents/claims —
+  wait; release commands listed for the FROM agent only; next agent may
+  register and plan but not edit/claim those paths),
+  `blocked_by_active_claims` (terminated/missing previous agent whose claims
+  are still ACTIVE in the input — never transferred; explicit dry-run-first
+  housekeeping; in live state a terminated agent's claims compute to `stale`,
+  so this surfaces from fixtures/races, while live flows route to
+  `stale_coordination_requires_housekeeping`),
+  `blocked_by_conflict` (still-blocking conflict → conflict_resolution),
+  `stale_coordination_requires_housekeeping` (noisy stale state →
+  coordination_housekeeping, dry-run reap, never auto cleanup),
+  `next_agent_stale_or_terminated` (heartbeat a stale next agent / register a
+  NEW one for terminated — no claim/edit guidance until then),
+  `next_agent_read_only` (observe/report only),
+  `next_agent_not_registered` (no/unknown `for_agent_id`, or invalid session
+  metadata → session bootstrap --register; still no transfer),
+  `ready_for_new_agent` (previous agent ready → bootstrap, build_pre_edit,
+  claims plan with explicit paths),
+  `uncertain_state` (uncertain source, or terminated previous agent with
+  unowned staged blockers — inspect only).
+- Same-agent resume detection: `for_agent_id == from_agent_id` sets
+  `same_agent_resume`, warns `SAME_AGENT_RESUME`, and points to the
+  `session_recovery` profile instead of cross-agent onboarding.
+- Readiness rules: `can_continue_now` only in `ready_for_new_agent`;
+  registering/planning stays allowed in waiting states but never editing or
+  claiming the previous agent's still-claimed paths; unclaimed dirty
+  shared-tree files warn (`UNCLAIMED_DIRTY_FILES_PRESENT`) without blocking;
+  stale coordination is a secondary warning unless it is the primary state.
+- MCP `vibecode_handoff_guide` (input: required `from_agent_id`, optional
+  `for_agent_id`, optional bounded `max_items` ≤ 50; unknown fields rejected)
+  and CLI parity `vibecode handoff guide --repo <path> --from-agent <agent_id>
+  [--for-agent <agent_id>] [--max-items <n>] --json`. Missing previous/next
+  agents return safe onboarding states inside an ok envelope, never a tool
+  error and never a mutation. New error code `HANDOFF_GUIDE_FAILED`.
+- `team_handoff` profile enhanced (no new profile): producer runs prepare
+  before ending; consumer runs handoff guide before continuing; if the
+  previous agent is not ready, do not proceed; next agent registers separately
+  and claims exact files; session_recovery for same-agent resume;
+  runtime_preflight after registering; conflict_resolution /
+  coordination_housekeeping when indicated.
+- Bootstrap stays lean: no handoff-guide output added to session bootstrap.
+
+Example consumer workflow:
+
+```powershell
+# next agent (or human) checks before continuing:
+vibecode handoff guide --from-agent <from_agent_id> --json
+# if not registered yet:
+vibecode session bootstrap --register --agent-mode build --task "<task>" --json
+# re-check with its own identity:
+vibecode handoff guide --from-agent <from_agent_id> --for-agent <for_agent_id> --json
+# then claim explicitly:
+vibecode tools profile --profile build_pre_edit --json
+vibecode claims plan --agent <for_agent_id> --intent "<intent>" --path <path> --json
+```
+
+Out of scope, confirmed not added: ownership transfer, handoff execution or
+acceptance mutation, auto-claim/release/reap/resolve, force cleanup,
+orchestration, scheduler, subagent assignment, branch management, background
+worker, shared chat/notice board, UI, `.vibecode` editing workflows, automatic
+file selection, scanner-based suggestions, LLM relevance scoring,
+directory/glob claims, MCP commit tool, Phase 4C behavior.
+
+Known limitations: no handoff execution or automatic assignment — a human or
+external process still chooses who continues; the guide is point-in-time
+(re-run it after each prerequisite step); no shared chat/notice board; the
+guide cannot know the next agent's intended scope, so path lists describe the
+previous agent's ownership, never a recommendation of what to work on.
+
+Tests: `tests/core/agent_session/handoff_guide.test.ts` (pure onboarding state
+matrix, readiness rules, separated command lists, path framing, do_not_do,
+bounded output, purity), `tests/app/mcp/handoff_guide_tool.test.ts`
+(registration, schema, validation, missing-agents-as-states, no-mutation,
+canonical envelope), `tests/app/cli/handoff_guide_commands.test.ts` (CLI
+parity, --for-agent behavior, validation, compact human output, no mutation),
+and `tests/core/agent_guidance/tool_profiles.test.ts` (`team_handoff`
+consumer-side guidance).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

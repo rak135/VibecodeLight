@@ -89,7 +89,9 @@ export type McpErrorCode =
   // Phase 1B-3: tool profiles / recommended tool sets.
   | 'TOOL_PROFILE_FAILED'
   // Phase 4A: read-only handoff packet.
-  | 'HANDOFF_PREPARE_FAILED';
+  | 'HANDOFF_PREPARE_FAILED'
+  // Phase 4B: read-only next-agent onboarding guide.
+  | 'HANDOFF_GUIDE_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -369,6 +371,11 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'handoff_prepare is read-only (it never transfers, releases, or claims anything). Terminated/missing agents are reported inside the packet, not as this error. Verify the agent_id and retry only if the failure is transient.',
+  },
+  HANDOFF_GUIDE_FAILED: {
+    retryable: true,
+    suggestion:
+      'handoff_guide is read-only (it never transfers ownership, registers, releases, or claims anything). Missing previous/next agents are reported inside the guide as safe onboarding states, not as this error. Verify from_agent_id and retry only if the failure is transient.',
   },
 };
 
