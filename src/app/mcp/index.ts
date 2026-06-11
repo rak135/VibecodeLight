@@ -16,6 +16,16 @@ export {
 } from './tool_registry.js';
 
 export {
+  MCP_TOOL_CONTRACTS,
+  getMcpToolCatalog,
+  getMcpToolDetail,
+  type McpToolCatalog,
+  type McpToolCatalogItem,
+  type McpToolOutputContract,
+  type McpToolSideEffect,
+} from './tool_catalog.js';
+
+export {
   buildMcpError,
   type McpErrorCode,
   type McpStructuredError,

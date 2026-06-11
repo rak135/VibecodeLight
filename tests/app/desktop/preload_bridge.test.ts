@@ -385,21 +385,36 @@ describe('desktop preload bridge boundary', () => {
       installDryRun: (agent: string) => Promise<unknown>;
       install: (agent: string) => Promise<unknown>;
       getTools: () => Promise<unknown>;
+      getToolCatalog: () => Promise<unknown>;
+      getToolDetail: (name: string) => Promise<unknown>;
     };
 
-    expect(Object.keys(mcp).sort()).toEqual(['doctor', 'getOverview', 'getTools', 'install', 'installDryRun']);
+    expect(Object.keys(mcp).sort()).toEqual([
+      'doctor',
+      'getOverview',
+      'getToolCatalog',
+      'getToolDetail',
+      'getTools',
+      'install',
+      'installDryRun',
+    ]);
 
     await mcp.getOverview();
     await mcp.doctor('claude');
     await mcp.installDryRun('codex');
     await mcp.install('opencode');
     await mcp.getTools();
+    await mcp.getToolCatalog();
+    await mcp.getToolDetail('vibecode_session_bootstrap');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:getOverview');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:doctor', 'claude');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:installDryRun', 'codex');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:install', 'opencode');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:getTools');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:getToolCatalog');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('mcp:getToolDetail', 'vibecode_session_bootstrap');
+    expect(collectKeys(api.mcp)).not.toEqual(expect.arrayContaining(['runTool', 'executeTool', 'callTool']));
     expect(ipcRenderer.send).not.toHaveBeenCalled();
   });
 

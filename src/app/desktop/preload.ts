@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { McpDashboardOverview } from '../../core/mcp/mcp_dashboard';
+import type { McpToolCatalog, McpToolCatalogItem } from '../mcp/tool_catalog';
 
 export interface ContextSummaryIpc {
   relevant_files: string[];
@@ -277,7 +278,7 @@ export interface AgentGuidanceConfigPathIpc {
 
 export interface AgentGuidanceMcpToolIpc {
   name: string;
-  group: 'workspace_orientation' | 'codegraph' | 'runs_artifacts';
+  group: 'workspace_orientation' | 'codegraph' | 'runs_artifacts' | 'coordination';
   description: string;
 }
 
@@ -569,6 +570,8 @@ export interface VibecodePreloadApi {
     installDryRun(agent: 'claude' | 'codex' | 'opencode'): Promise<AgentGuidanceIntegrationApplyIpc>;
     install(agent: 'claude' | 'codex' | 'opencode'): Promise<AgentGuidanceIntegrationApplyIpc>;
     getTools(): Promise<AgentGuidanceMcpToolsIpc>;
+    getToolCatalog(): Promise<McpToolCatalog>;
+    getToolDetail(name: string): Promise<McpToolCatalogItem | null>;
   };
 }
 
@@ -814,6 +817,12 @@ export function createVibecodeApi(): VibecodePreloadApi {
       },
       getTools() {
         return ipcRenderer.invoke('mcp:getTools') as Promise<AgentGuidanceMcpToolsIpc>;
+      },
+      getToolCatalog() {
+        return ipcRenderer.invoke('mcp:getToolCatalog') as Promise<McpToolCatalog>;
+      },
+      getToolDetail(name: string) {
+        return ipcRenderer.invoke('mcp:getToolDetail', name) as Promise<McpToolCatalogItem | null>;
       },
     },
   };

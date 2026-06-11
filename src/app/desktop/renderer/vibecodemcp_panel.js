@@ -18,7 +18,15 @@
   const vibecodemcpRefreshBtn = $('vibecodemcp-refresh');
   const vibecodemcpCloseBtn = $('vibecodemcp-close');
   let vibecodemcpLastOverview = null;
+  let vibecodemcpToolCatalog = null;
   let vibecodemcpSelectedAgent = null;
+  let vibecodemcpToolFilters = {
+    query: '',
+    group: 'all',
+    sideEffect: 'all',
+    profile: 'all',
+    selectedName: '',
+  };
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -61,7 +69,7 @@
         vibecodemcpMeta.textContent = text;
       }
       renderVibecodeMcpAgents(overview);
-      renderVibecodeMcpTools(overview);
+      await renderVibecodeMcpTools(overview);
       if (vibecodemcpSelectedAgent) renderVibecodeMcpDetails(vibecodemcpSelectedAgent);
     } catch (error) {
       if (vibecodemcpCards) {
@@ -88,6 +96,9 @@
       const meta = [];
       if (agent.scope) meta.push('scope: ' + agent.scope);
       if (agent.config_path) meta.push('config: ' + agent.config_path);
+      if (agent.mcp && agent.mcp.expected_tool_count) meta.push('expected tools: ' + agent.mcp.expected_tool_count);
+      if (agent.mcp && agent.mcp.status) meta.push('config status: ' + agent.mcp.status);
+      if (agent.status === 'stale') meta.push('stale or mismatched config; restart/reconnect the agent after updating');
       const metaHtml = meta.length > 0 ? '<div class="card-meta">' + meta.map((m) => escapeHtml(m)).join('<br>') + '</div>' : '';
       const actions = [];
       if (agent.can_install || agent.can_update) {
@@ -98,6 +109,7 @@
         actions.push('<button data-action="install" data-agent="' + escapeHtml(agent.agent) + '">Install / Update</button>');
       }
       actions.push('<button data-action="details" data-agent="' + escapeHtml(agent.agent) + '">Show details</button>');
+      actions.push('<button data-action="catalog" data-agent="' + escapeHtml(agent.agent) + '">Tool catalog</button>');
       const actionsHtml = actions.length > 0 ? '<div class="card-actions">' + actions.join('') + '</div>' : '';
 
       html += '<div class="vibecodemcp-card" data-agent="' + escapeHtml(agent.agent) + '">' +
@@ -114,6 +126,11 @@
         if (action === 'details') {
           vibecodemcpSelectedAgent = agent;
           renderVibecodeMcpDetails(agent);
+          return;
+        }
+        if (action === 'catalog') {
+          const toolsSection = $('vibecodemcp-tools');
+          if (toolsSection && toolsSection.scrollIntoView) toolsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
           return;
         }
         if (action === 'doctor') {
@@ -133,20 +150,69 @@
     });
   }
 
-  function renderVibecodeMcpTools(overview) {
-    if (!vibecodemcpToolsContent || !overview || !Array.isArray(overview.tools)) return;
-    const tools = overview.tools;
-    if (tools.length === 0) {
-      vibecodemcpToolsContent.innerHTML = '<div class="rp-empty">No tools available.</div>';
+  async function renderVibecodeMcpTools(overview) {
+    if (!vibecodemcpToolsContent) return;
+    if (!window.VibecodeMcpToolsPanel) {
+      vibecodemcpToolsContent.innerHTML = '<div class="rp-empty">MCP catalog renderer is unavailable.</div>';
       return;
     }
-    let html = '<div>Total: ' + tools.length + '</div>';
-    html += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">';
-    for (const name of tools) {
-      html += '<span style="font-size:10.5px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);">' + escapeHtml(name) + '</span>';
+    try {
+      if (!vibecodemcpToolCatalog && window.vibecodeAPI && window.vibecodeAPI.mcp && typeof window.vibecodeAPI.mcp.getToolCatalog === 'function') {
+        vibecodemcpToolCatalog = await window.vibecodeAPI.mcp.getToolCatalog();
+      }
+      if (!vibecodemcpToolCatalog && overview && Array.isArray(overview.tools)) {
+        vibecodemcpToolsContent.innerHTML = '<div class="rp-empty">MCP tool catalog is unavailable. Registry reported ' + overview.tools.length + ' tools.</div>';
+        return;
+      }
+      renderVibecodeMcpCatalogHtml();
+    } catch (_error) {
+      vibecodemcpToolsContent.innerHTML = '<div class="rp-empty">MCP tool catalog could not be loaded.</div>';
     }
-    html += '</div>';
-    vibecodemcpToolsContent.innerHTML = html;
+  }
+
+  function renderVibecodeMcpCatalogHtml() {
+    if (!vibecodemcpToolsContent || !window.VibecodeMcpToolsPanel) return;
+    vibecodemcpToolsContent.innerHTML = window.VibecodeMcpToolsPanel.renderCatalogHtml(vibecodemcpToolCatalog, vibecodemcpToolFilters);
+    wireVibecodeMcpCatalogControls();
+  }
+
+  function wireVibecodeMcpCatalogControls() {
+    if (!vibecodemcpToolsContent) return;
+    const search = vibecodemcpToolsContent.querySelector('[data-filter="search"]');
+    const group = vibecodemcpToolsContent.querySelector('[data-filter="group"]');
+    const sideEffect = vibecodemcpToolsContent.querySelector('[data-filter="side-effect"]');
+    const profile = vibecodemcpToolsContent.querySelector('[data-filter="profile"]');
+    if (search) {
+      search.addEventListener('input', () => {
+        vibecodemcpToolFilters.query = search.value || '';
+        renderVibecodeMcpCatalogHtml();
+      });
+    }
+    if (group) {
+      group.addEventListener('change', () => {
+        vibecodemcpToolFilters.group = group.value || 'all';
+        renderVibecodeMcpCatalogHtml();
+      });
+    }
+    if (sideEffect) {
+      sideEffect.addEventListener('change', () => {
+        vibecodemcpToolFilters.sideEffect = sideEffect.value || 'all';
+        renderVibecodeMcpCatalogHtml();
+      });
+    }
+    if (profile) {
+      profile.addEventListener('change', () => {
+        vibecodemcpToolFilters.profile = profile.value || 'all';
+        renderVibecodeMcpCatalogHtml();
+      });
+    }
+    vibecodemcpToolsContent.querySelectorAll('[data-tool-name]').forEach((card) => {
+      card.addEventListener('click', () => {
+        const name = card.getAttribute('data-tool-name') || '';
+        vibecodemcpToolFilters.selectedName = name;
+        renderVibecodeMcpCatalogHtml();
+      });
+    });
   }
 
   async function renderVibecodeMcpDetails(agent) {
@@ -250,6 +316,7 @@
 
   if (vibecodemcpRefreshBtn) {
     vibecodemcpRefreshBtn.addEventListener('click', () => {
+      vibecodemcpToolCatalog = null;
       void renderVibecodeMcpPanel();
     });
   }

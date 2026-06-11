@@ -3780,6 +3780,58 @@ parity, --for-agent behavior, validation, compact human output, no mutation),
 and `tests/core/agent_guidance/tool_profiles.test.ts` (`team_handoff`
 consumer-side guidance).
 
+## 14O. Phase 4C — MCP tool catalog and agent contract viewer (Implemented)
+
+Trigger: after Phase 4A/4B, the desktop VibecodeMCP panel still showed agent
+integration cards plus a flat tool-name list. That was not enough for a user to
+understand what each MCP tool does, whether it writes generated coordination
+state, what input schema it accepts, or what an agent receives in
+`structuredContent`.
+
+What Phase 4C adds: a bounded MCP Tool Catalog / Agent Contract DTO built from
+the app MCP registry, tool input schemas, explicit output-contract metadata, and
+the existing static tool profiles. The desktop bridge exposes read-only
+`mcp:getToolCatalog` and `mcp:getToolDetail` channels, and the preload API
+exposes `vibecodeAPI.mcp.getToolCatalog()` /
+`vibecodeAPI.mcp.getToolDetail(name)`.
+
+The catalog includes the registry-derived tool count (**44** in the active
+Phase 4B/4C tree), groups, every registered tool name, title, summary,
+description, side-effect classification, input schema, output contract summary,
+CLI equivalents where available, recommending profiles, safety notes, and
+source/test pointers. Tool metadata is validated in lockstep with the registry:
+every registered tool must have contract metadata, no metadata may point at a
+missing tool, every tool exposes an input schema and output summary, CLI
+equivalents start with `vibecode `, and profiles in the catalog match
+`tool_profiles.ts`.
+
+The desktop VibecodeMCP panel now renders a searchable/filterable catalog with
+group, side-effect, and profile filters. Selecting a tool shows when to use it,
+the input schema, what the agent receives, CLI equivalent, profiles, safety
+notes, and maintainer source/tests. Handoff tools are explicitly marked
+read-only: `vibecode_handoff_prepare` is a visibility packet and
+`vibecode_handoff_guide` is next-agent onboarding guidance with no ownership
+transfer.
+
+Boundaries confirmed not added: no tool execution button, no MCP tool runner,
+no orchestration, no ownership transfer, no auto-claim/release/reap/resolve, no
+source mutation, no git mutation, and no generated coordination mutation from
+the catalog UI. Existing integration cards remain visible and link users toward
+the catalog; tool count is shown as a visibility signal, not proof that an
+already-running external MCP client is fresh.
+
+Known limitation: output contracts are concise summaries of important
+`structuredContent` fields and text-output behavior. They are not full runtime
+examples for every tool unless explicit examples are added later.
+
+Tests: `tests/app/mcp/tool_catalog.test.ts` (registry/schema/profile lockstep,
+metadata completeness, side effects, handoff read-only contracts, no commit
+guard, bounded determinism), `tests/app/desktop/mcp_bridge.test.ts` and
+`tests/app/desktop/preload_bridge.test.ts` (read-only bridge/preload contract),
+and `tests/app/desktop/mcp_tools_panel.test.ts` /
+`tests/app/desktop/vibecodemcp_panel.test.ts` (search/filter/detail rendering,
+side-effect badges, empty state, no run-tool mutation control).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

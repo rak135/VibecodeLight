@@ -1278,6 +1278,206 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--danger);
 }
 
+.mcp-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-catalog-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.mcp-catalog-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.mcp-catalog-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.mcp-source-badge,
+.mcp-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.mcp-badge.side-effect.read { color: var(--success); border-color: color-mix(in oklab, var(--success) 45%, var(--border)); }
+.mcp-badge.side-effect.write { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 45%, var(--border)); }
+.mcp-badge.side-effect.git { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 45%, var(--border)); }
+.mcp-badge.profile { color: var(--accent-text); }
+.mcp-catalog-warning {
+  border-left: 2px solid var(--warn);
+  color: var(--warn);
+  padding-left: 8px;
+}
+.mcp-catalog-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(130px, auto));
+  gap: 8px;
+}
+.mcp-catalog-filters input,
+.mcp-catalog-filters select {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--text);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.mcp-catalog-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.2fr);
+  gap: 12px;
+  align-items: start;
+}
+.mcp-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.mcp-tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mcp-tool-group-title {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.mcp-tool-card {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  padding: 9px 10px;
+}
+.mcp-tool-card:hover,
+.mcp-tool-card.active {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.mcp-tool-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mcp-tool-card-head code {
+  color: var(--accent-text);
+  white-space: normal;
+  word-break: break-word;
+}
+.mcp-tool-card-head span {
+  color: var(--text);
+  font-size: 12px;
+}
+.mcp-tool-summary {
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.mcp-tool-card-meta,
+.mcp-detail-badges,
+.mcp-fields {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.mcp-tool-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  padding: 12px;
+  min-width: 0;
+}
+.mcp-tool-detail.empty,
+.mcp-catalog-empty,
+.mcp-none {
+  color: var(--muted);
+}
+.mcp-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.mcp-detail-head h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.mcp-tool-detail p {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.mcp-detail-section {
+  margin-top: 12px;
+}
+.mcp-detail-section h5 {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.mcp-detail-section ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+.mcp-schema {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  background: var(--surface);
+}
+.mcp-fields code {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: 1px 4px;
+}
+.mcp-muted {
+  color: var(--muted);
+}
+.mcp-maintainer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .mcp-catalog-filters,
+  .mcp-catalog-grid,
+  .mcp-maintainer {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* CodeGraph action buttons */
 .cg-action-btn {
   font-size: 11px;

@@ -3,6 +3,10 @@ import {
   type McpDashboardOptions,
 } from '../../core/mcp/mcp_dashboard.js';
 import {
+  getMcpToolCatalog,
+  getMcpToolDetail,
+} from '../mcp/tool_catalog.js';
+import {
   applyAgentGuidanceIntegration,
   getAgentGuidanceIntegrationStatus,
   type AgentGuidanceIntegrationAgent,
@@ -97,5 +101,14 @@ export function registerDesktopMcpIpcHandlers(ipcMain: IpcMainLike, options: Mcp
       ok: true,
       tools: buildAgentGuidanceMcpTools(),
     };
+  });
+
+  ipcMain.handle('mcp:getToolCatalog', () => {
+    return getMcpToolCatalog();
+  });
+
+  ipcMain.handle('mcp:getToolDetail', (_event, nameRaw: unknown) => {
+    if (typeof nameRaw !== 'string') return null;
+    return getMcpToolDetail(nameRaw);
   });
 }

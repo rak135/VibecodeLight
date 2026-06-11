@@ -115,6 +115,36 @@ describe('desktop MCP bridge', () => {
     expect(result.tools[0].name).toMatch(/^vibecode_/);
   });
 
+  test('mcp:getToolCatalog returns registry-derived catalog detail', async () => {
+    const ipc = register();
+    const result = (await ipc.invoke('mcp:getToolCatalog')) as {
+      tool_count: number;
+      generated_from: { registry: boolean; schemas: boolean; profiles: boolean };
+      tools: Array<{ name: string; input_schema: unknown; output_contract: { summary: string } }>;
+    };
+
+    expect(result.generated_from).toEqual({ registry: true, schemas: true, profiles: true });
+    expect(result.tool_count).toBe(result.tools.length);
+    expect(result.tools.length).toBeGreaterThan(0);
+    expect(result.tools[0].input_schema).toBeTruthy();
+    expect(result.tools[0].output_contract.summary.length).toBeGreaterThan(0);
+  });
+
+  test('mcp:getToolDetail returns one tool and safely returns null for invalid names', async () => {
+    const ipc = register();
+    const known = (await ipc.invoke('mcp:getToolDetail', 'vibecode_session_bootstrap')) as {
+      name: string;
+      output_contract: { summary: string };
+    } | null;
+    const missing = (await ipc.invoke('mcp:getToolDetail', 'vibecode_commit_guard')) as unknown;
+    const invalid = (await ipc.invoke('mcp:getToolDetail', 42)) as unknown;
+
+    expect(known?.name).toBe('vibecode_session_bootstrap');
+    expect(known?.output_contract.summary).toMatch(/repo|session|runtime|recovery/i);
+    expect(missing).toBeNull();
+    expect(invalid).toBeNull();
+  });
+
   test('mcp:install supports OpenCode', async () => {
     const ipc = register();
     const dryRun = (await ipc.invoke('mcp:installDryRun', 'opencode')) as {
@@ -131,5 +161,7 @@ describe('desktop MCP bridge', () => {
     const ipc = register();
     expect(ipc.handlers.has('terminal:input')).toBe(false);
     expect(ipc.handlers.has('mcp:writeArbitraryPath')).toBe(false);
+    expect(ipc.handlers.has('mcp:runTool')).toBe(false);
+    expect(ipc.handlers.has('mcp:executeTool')).toBe(false);
   });
 });

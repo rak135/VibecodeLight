@@ -1737,7 +1737,15 @@ The desktop app should provide:
 - final prompt preview;
 - prompt send into the active terminal;
 - run artifact visibility;
-- a VibecodeMCP panel (left nav) showing per-agent MCP status for Claude, Codex, and OpenCode, with read-only doctor/dry-run/install controls.
+- a VibecodeMCP panel (left nav) showing per-agent MCP status for Claude, Codex, and OpenCode, with read-only doctor/dry-run/install controls and a registry-loaded MCP Tool Catalog / Agent Contract viewer.
+
+### VibecodeMCP Tool Catalog
+
+The VibecodeMCP panel includes a read-only tool catalog loaded through the desktop bridge from the app MCP registry, schema definitions, and tool profile metadata. The renderer does not keep a hardcoded tool list.
+
+The catalog shows the current registry-derived tool count, search and filters, side-effect classification, input schema, output contract summary ("what the agent receives"), CLI equivalents where available, profiles that include the tool, safety notes, and source/test pointers for maintainers. Output contracts are concise summaries of the `structuredContent` shape and important fields; they are not full live response examples unless a tool explicitly supplies one.
+
+This UI is visibility only. It does not run MCP tools, does not orchestrate agents, does not mutate source files, git, or coordination state, and does not transfer ownership.
 
 ### Composer preview overlay
 
@@ -1773,7 +1781,7 @@ The desktop Settings overlay now ships a tabbed layout:
 Flash · CodeGraph · MCP · Agent Guidance · Terminal · Advanced
 ```
 
-The Flash tab preserves the existing Flash provider/model controls. The MCP tab shows the canonical VibecodeMCP tool inventory (read-only) grouped into workspace orientation, CodeGraph, and runs/artifacts, plus Agent Guidance enabled/source/hash status. The Agent Guidance tab edits a dedicated, separate config layer described below and shows safe Claude/Codex integration status/apply controls plus Terminal Agent Preflight policy. The CodeGraph and Advanced tabs are placeholders in this slice.
+The Flash tab preserves the existing Flash provider/model controls. The MCP tab shows the canonical VibecodeMCP tool inventory (read-only) grouped into workspace orientation, CodeGraph, runs/artifacts, and coordination, plus Agent Guidance enabled/source/hash status. The richer VibecodeMCP left-nav panel shows the full registry-loaded tool catalog and agent contract viewer. The Agent Guidance tab edits a dedicated, separate config layer described below and shows safe Claude/Codex integration status/apply controls plus Terminal Agent Preflight policy. The CodeGraph and Advanced tabs are placeholders in this slice.
 
 ### Agent Guidance (Settings)
 
