@@ -1891,3 +1891,45 @@ input, textarea, select { font: inherit; color: inherit; }
   font-style: italic;
   padding: 4px 6px;
 }
+
+/* ------------- Codebase Map Layer Toggles ------------- */
+.cmap-layers {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cmap-layer-chip {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  line-height: 1.4;
+}
+.cmap-layer-chip:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.cmap-layer-chip.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.cmap-layer-chip .layer-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* Overlay badge styles for SVG nodes */
+.cmap-overlay-badge {
+  font-size: 8px;
+  font-family: var(--font-mono);
+}

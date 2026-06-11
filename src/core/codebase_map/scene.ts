@@ -103,10 +103,51 @@ export interface SceneCameraHints {
 }
 
 export interface SceneOverlays {
-  current_run?: Record<string, unknown>;
-  git?: Record<string, unknown>;
-  agents?: Record<string, unknown>;
-  conflicts?: Record<string, unknown>;
+  current_run?: SceneCurrentRunOverlay;
+  git?: SceneGitOverlay;
+  agents?: SceneAgentsOverlay;
+  conflicts?: SceneConflictsOverlay;
+  tests?: SceneTestsOverlay;
+}
+
+export interface SceneCurrentRunOverlay {
+  run_id?: string;
+  selected_files: string[];
+  files_to_read: string[];
+  relevant_tests: string[];
+}
+
+export interface SceneGitOverlay {
+  changed_files: string[];
+  branch?: string;
+  dirty?: boolean;
+}
+
+export interface SceneAgentClaim {
+  path: string;
+  agent_id: string;
+  agent_name?: string;
+  stale?: boolean;
+}
+
+export interface SceneAgentsOverlay {
+  claims: SceneAgentClaim[];
+}
+
+export interface SceneConflict {
+  id: string;
+  path?: string;
+  blocking_agent?: string;
+  status: 'detected' | 'resolved';
+}
+
+export interface SceneConflictsOverlay {
+  conflicts: SceneConflict[];
+}
+
+export interface SceneTestsOverlay {
+  test_files: string[];
+  target_files: string[];
 }
 
 export interface CodebaseGraphScene {
@@ -161,12 +202,43 @@ const EDGE_LABELS: Record<CodebaseMapEdgeType, string> = {
 
 // ============ Scene builder ============
 
+export interface SceneOverlayInput {
+  git?: {
+    changed_files?: string[];
+    branch?: string;
+    dirty?: boolean;
+  };
+  current_run?: {
+    run_id?: string;
+    selected_files?: string[];
+    files_to_read?: string[];
+    relevant_tests?: string[];
+  };
+  agents?: {
+    claims?: Array<{
+      path: string;
+      agent_id: string;
+      agent_name?: string;
+      stale?: boolean;
+    }>;
+  };
+  conflicts?: {
+    conflicts?: Array<{
+      id: string;
+      path?: string;
+      blocking_agent?: string;
+      status: 'detected' | 'resolved';
+    }>;
+  };
+}
+
 /**
  * Build a CodebaseGraphScene from an existing CodebaseMapOverview.
  * Renderer-neutral, deterministic, read-only.
  */
 export function buildCodebaseGraphScene(
   overview: CodebaseMapOverview,
+  overlayInput?: SceneOverlayInput,
 ): CodebaseGraphScene {
   const { nodes: overviewNodes, edges: overviewEdges, repo_root, source, warnings } = overview;
 
@@ -285,6 +357,75 @@ export function buildCodebaseGraphScene(
     ],
   };
 
+  // Build overlays from input
+  const overlays: SceneOverlays = {};
+
+  if (overlayInput?.git) {
+    overlays.git = {
+      changed_files: overlayInput.git.changed_files ?? [],
+      branch: overlayInput.git.branch,
+      dirty: overlayInput.git.dirty,
+    };
+    // Mark changed nodes
+    const changedSet = new Set(overlays.git.changed_files);
+    for (const node of sceneNodes) {
+      if (changedSet.has(node.path)) {
+        node.status.changed = true;
+      }
+    }
+  }
+
+  if (overlayInput?.current_run) {
+    overlays.current_run = {
+      run_id: overlayInput.current_run.run_id,
+      selected_files: overlayInput.current_run.selected_files ?? [],
+      files_to_read: overlayInput.current_run.files_to_read ?? [],
+      relevant_tests: overlayInput.current_run.relevant_tests ?? [],
+    };
+  }
+
+  if (overlayInput?.agents) {
+    overlays.agents = {
+      claims: overlayInput.agents.claims ?? [],
+    };
+    // Mark claimed nodes
+    for (const claim of overlays.agents.claims) {
+      const node = sceneNodes.find((n) => n.path === claim.path);
+      if (node) {
+        node.status.claimed = true;
+      }
+    }
+  }
+
+  if (overlayInput?.conflicts) {
+    overlays.conflicts = {
+      conflicts: overlayInput.conflicts.conflicts ?? [],
+    };
+    // Mark conflicted nodes
+    for (const conflict of overlays.conflicts.conflicts) {
+      if (conflict.path) {
+        const node = sceneNodes.find((n) => n.path === conflict.path);
+        if (node) {
+          node.status.conflicted = true;
+        }
+      }
+    }
+  }
+
+  // Add overlay legend badges
+  if (overlays.git) {
+    legend.status_badges.push({ id: 'changed', label: 'Changed' });
+  }
+  if (overlays.current_run) {
+    legend.status_badges.push({ id: 'selected_by_run', label: 'Selected by run' });
+  }
+  if (overlays.agents) {
+    legend.status_badges.push({ id: 'claimed', label: 'Claimed' });
+  }
+  if (overlays.conflicts) {
+    legend.status_badges.push({ id: 'conflicted', label: 'Conflict' });
+  }
+
   return {
     version: 1,
     repo_root,
@@ -299,7 +440,7 @@ export function buildCodebaseGraphScene(
     groups,
     nodes: sceneNodes,
     edges: sceneEdges,
-    overlays: {},
+    overlays,
     camera_hints: {
       default_view: 'top',
       bounds: { x: 0, y: 0, width: boundsW, height: boundsH },

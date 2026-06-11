@@ -61,6 +61,12 @@ describe('desktop renderer codebase map layout', () => {
     expect(html).toMatch(/id="cmap-detail-close"/);
   });
 
+  test('Codebase Map layer toggles DOM exists', () => {
+    const html = readHtml();
+    expect(html).toMatch(/id="cmap-layers"/);
+    expect(html).toMatch(/class="cmap-layers"/);
+  });
+
   test('Codebase Map layout container exists', () => {
     const html = readHtml();
     expect(html).toMatch(/class="codebase-map-layout"/);

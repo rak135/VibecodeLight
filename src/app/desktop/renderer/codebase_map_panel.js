@@ -41,6 +41,15 @@ window.CodebaseMapPanel = undefined;
   let selectedNodeId = null;
   let hoveredNodeId = null;
 
+  // Overlay layer toggles
+  const activeLayers = {
+    changed: true,
+    entrypoints: true,
+    tests: true,
+    claimed: true,
+    conflicted: true,
+  };
+
   // CAD viewport state
   const MIN_ZOOM = 0.05;
   const MAX_ZOOM = 20;
@@ -123,8 +132,30 @@ window.CodebaseMapPanel = undefined;
         '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:#ff9800"></span>Changed</div>',
         '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:#4fc3f7"></span>Entrypoint</div>',
         '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:var(--accent)"></span>Selected</div>',
+        '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:#81c784"></span>Claimed</div>',
+        '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:#ef5350"></span>Conflict</div>',
       ].join('');
     }
+  }
+
+  function renderLayerToggles() {
+    const layersEl = $('cmap-layers');
+    if (!layersEl) return;
+
+    const layers = [
+      { id: 'changed', label: 'Changed', color: '#ff9800' },
+      { id: 'entrypoints', label: 'Entrypoints', color: '#4fc3f7' },
+      { id: 'tests', label: 'Tests', color: '#81c784' },
+      { id: 'claimed', label: 'Claimed', color: '#81c784' },
+      { id: 'conflicted', label: 'Conflicts', color: '#ef5350' },
+    ];
+
+    let html = '';
+    for (const layer of layers) {
+      const activeClass = activeLayers[layer.id] ? ' active' : '';
+      html += `<button class="cmap-layer-chip${activeClass}" data-layer="${layer.id}" type="button"><span class="layer-dot" style="background:${layer.color}"></span>${layer.label}</button>`;
+    }
+    layersEl.innerHTML = html;
   }
 
   // ============ Tooltip ============
@@ -454,6 +485,17 @@ window.CodebaseMapPanel = undefined;
     for (const node of filteredNodes) {
       const pos = positions.get(node.id);
       if (!pos) continue;
+
+      // Check layer visibility
+      const isChanged = node.changed && activeLayers.changed;
+      const isEntrypoint = node.entrypoint && activeLayers.entrypoints;
+      const isClaimed = node.claimed && activeLayers.claimed;
+      const isConflicted = node.conflicted && activeLayers.conflicted;
+
+      // Hide nodes that are filtered out by layers
+      if (node.changed && !activeLayers.changed) continue;
+      if (node.entrypoint && !activeLayers.entrypoints) continue;
+
       const color = KIND_COLORS[node.kind] || KIND_COLORS.unknown;
       const isSelected = node.id === focusNodeId;
       const isFocused = !focusNodeIds || focusNodeIds.has(node.id);
@@ -464,10 +506,16 @@ window.CodebaseMapPanel = undefined;
       if (isSelected) {
         strokeColor = 'var(--accent, #e8a050)';
         strokeWidth = 2.5;
-      } else if (node.changed) {
+      } else if (isConflicted) {
+        strokeColor = '#ef5350';
+        strokeWidth = 2;
+      } else if (isClaimed) {
+        strokeColor = '#81c784';
+        strokeWidth = 2;
+      } else if (isChanged) {
         strokeColor = '#ff9800';
         strokeWidth = 2;
-      } else if (node.entrypoint) {
+      } else if (isEntrypoint) {
         strokeColor = '#4fc3f7';
         strokeWidth = 2;
       }
@@ -479,6 +527,20 @@ window.CodebaseMapPanel = undefined;
       svg += `<rect x="${pos.x}" y="${pos.y}" width="${NODE_W}" height="${NODE_H}" rx="4" fill="rgba(30,30,30,${fillOpacity})" stroke="${strokeColor}" stroke-width="${strokeWidth}" data-node-id="${escapeHtml(node.id)}" opacity="${opacity}" />`;
       svg += `<circle cx="${pos.x + 12}" cy="${pos.y + NODE_H / 2}" r="4" fill="${color}" opacity="${opacity}" />`;
       svg += `<text x="${pos.x + 22}" y="${pos.y + NODE_H / 2 + 4}" fill="var(--text, #e0e0e0)" font-size="11" font-family="system-ui" opacity="${opacity}">${escapeHtml(node.label)}</text>`;
+
+      // Overlay badges
+      if (isChanged) {
+        svg += `<rect x="${pos.x + NODE_W - 8}" y="${pos.y + 2}" width="6" height="6" rx="1" fill="#ff9800" opacity="${opacity}" />`;
+      }
+      if (isEntrypoint) {
+        svg += `<rect x="${pos.x + NODE_W - 8}" y="${pos.y + (isChanged ? 10 : 2)}" width="6" height="6" rx="1" fill="#4fc3f7" opacity="${opacity}" />`;
+      }
+      if (isClaimed) {
+        svg += `<rect x="${pos.x + NODE_W - 8}" y="${pos.y + (isChanged || isEntrypoint ? 18 : 2)}" width="6" height="6" rx="1" fill="#81c784" opacity="${opacity}" />`;
+      }
+      if (isConflicted) {
+        svg += `<rect x="${pos.x + NODE_W - 8}" y="${pos.y + (isChanged || isEntrypoint || isClaimed ? 26 : 2)}" width="6" height="6" rx="1" fill="#ef5350" opacity="${opacity}" />`;
+      }
     }
 
     svg += '</g></svg>';
@@ -698,6 +760,7 @@ window.CodebaseMapPanel = undefined;
       resetViewport();
       updateSvg();
       renderLegend();
+      renderLayerToggles();
       renderFilterChips(overview);
       attachViewportEvents();
 
@@ -828,6 +891,21 @@ window.CodebaseMapPanel = undefined;
     mapEdgesToggle.addEventListener('change', (e) => {
       showEdges = e.target.checked;
       updateSvg();
+    });
+  }
+
+  // Layer toggle event delegation
+  const layersEl = $('cmap-layers');
+  if (layersEl) {
+    layersEl.addEventListener('click', (e) => {
+      const chip = e.target.closest('.cmap-layer-chip');
+      if (!chip) return;
+      const layerId = chip.getAttribute('data-layer');
+      if (layerId && layerId in activeLayers) {
+        activeLayers[layerId] = !activeLayers[layerId];
+        chip.classList.toggle('active', activeLayers[layerId]);
+        updateSvg();
+      }
     });
   }
 

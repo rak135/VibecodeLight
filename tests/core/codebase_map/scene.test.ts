@@ -230,5 +230,133 @@ describe('buildCodebaseGraphScene', () => {
 
     expect(scene.overlays).toBeDefined();
     expect(typeof scene.overlays).toBe('object');
+    expect(scene.overlays.git).toBeUndefined();
+    expect(scene.overlays.current_run).toBeUndefined();
+    expect(scene.overlays.agents).toBeUndefined();
+    expect(scene.overlays.conflicts).toBeUndefined();
+  });
+});
+
+describe('buildCodebaseGraphScene overlays', () => {
+  test('git overlay marks changed files', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview, {
+      git: { changed_files: ['src/utils.ts', 'README.md'], branch: 'main', dirty: true },
+    });
+
+    expect(scene.overlays.git).toBeDefined();
+    expect(scene.overlays.git!.changed_files).toEqual(['src/utils.ts', 'README.md']);
+    expect(scene.overlays.git!.branch).toBe('main');
+    expect(scene.overlays.git!.dirty).toBe(true);
+
+    const utilsNode = scene.nodes.find((n) => n.id === 'src/utils.ts');
+    expect(utilsNode!.status.changed).toBe(true);
+
+    const readmeNode = scene.nodes.find((n) => n.id === 'README.md');
+    expect(readmeNode!.status.changed).toBe(true);
+
+    const indexNode = scene.nodes.find((n) => n.id === 'src/index.ts');
+    expect(indexNode!.status.changed).toBeUndefined();
+  });
+
+  test('current run overlay stores selected files', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview, {
+      current_run: {
+        run_id: 'run-123',
+        selected_files: ['src/index.ts', 'src/utils.ts'],
+        files_to_read: ['src/app.ts'],
+        relevant_tests: ['src/utils.test.ts'],
+      },
+    });
+
+    expect(scene.overlays.current_run).toBeDefined();
+    expect(scene.overlays.current_run!.run_id).toBe('run-123');
+    expect(scene.overlays.current_run!.selected_files).toEqual(['src/index.ts', 'src/utils.ts']);
+    expect(scene.overlays.current_run!.files_to_read).toEqual(['src/app.ts']);
+    expect(scene.overlays.current_run!.relevant_tests).toEqual(['src/utils.test.ts']);
+  });
+
+  test('agents overlay marks claimed files', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview, {
+      agents: {
+        claims: [
+          { path: 'src/index.ts', agent_id: 'agent-1', agent_name: 'test-agent' },
+          { path: 'src/utils.ts', agent_id: 'agent-2', stale: true },
+        ],
+      },
+    });
+
+    expect(scene.overlays.agents).toBeDefined();
+    expect(scene.overlays.agents!.claims.length).toBe(2);
+
+    const indexNode = scene.nodes.find((n) => n.id === 'src/index.ts');
+    expect(indexNode!.status.claimed).toBe(true);
+
+    const utilsNode = scene.nodes.find((n) => n.id === 'src/utils.ts');
+    expect(utilsNode!.status.claimed).toBe(true);
+  });
+
+  test('conflicts overlay marks conflicted files', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview, {
+      conflicts: {
+        conflicts: [
+          { id: 'conflict-1', path: 'src/index.ts', blocking_agent: 'agent-1', status: 'detected' },
+        ],
+      },
+    });
+
+    expect(scene.overlays.conflicts).toBeDefined();
+    expect(scene.overlays.conflicts!.conflicts.length).toBe(1);
+
+    const indexNode = scene.nodes.find((n) => n.id === 'src/index.ts');
+    expect(indexNode!.status.conflicted).toBe(true);
+  });
+
+  test('overlay legend badges are added when overlays present', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview, {
+      git: { changed_files: ['src/utils.ts'] },
+      current_run: { selected_files: ['src/index.ts'] },
+      agents: { claims: [{ path: 'src/app.ts', agent_id: 'a1' }] },
+      conflicts: { conflicts: [{ id: 'c1', path: 'README.md', status: 'detected' }] },
+    });
+
+    const badgeIds = scene.legend.status_badges.map((b) => b.id);
+    expect(badgeIds).toContain('changed');
+    expect(badgeIds).toContain('selected_by_run');
+    expect(badgeIds).toContain('claimed');
+    expect(badgeIds).toContain('conflicted');
+  });
+
+  test('no overlays produces empty overlays object', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview);
+
+    expect(scene.overlays).toBeDefined();
+    expect(scene.overlays.git).toBeUndefined();
+    expect(scene.overlays.current_run).toBeUndefined();
+    expect(scene.overlays.agents).toBeUndefined();
+    expect(scene.overlays.conflicts).toBeUndefined();
+  });
+
+  test('empty overlay input produces empty overlays', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview, {});
+
+    expect(scene.overlays).toBeDefined();
+    expect(scene.overlays.git).toBeUndefined();
+  });
+
+  test('git overlay with empty changed_files', () => {
+    const overview = makeOverview();
+    const scene = buildCodebaseGraphScene(overview, {
+      git: { changed_files: [] },
+    });
+
+    expect(scene.overlays.git).toBeDefined();
+    expect(scene.overlays.git!.changed_files).toEqual([]);
   });
 });
