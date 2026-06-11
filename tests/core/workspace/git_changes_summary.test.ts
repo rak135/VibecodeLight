@@ -194,6 +194,34 @@ describe('getGitChangesSummary — classification', () => {
     expect(summary.summary.unclaimed).toBe(1);
   });
 
+  test('staged_unclaimed counts unclaimed files already staged in the index (Phase 3B)', () => {
+    const repo = makeRepo('vibecode-gcs-stagedunclaimed-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
+    write(repo, 'src/mine.ts');
+    write(repo, 'src/loose-staged.ts');
+    write(repo, 'src/loose-unstaged.ts');
+    git(['add', '--', 'src/loose-staged.ts'], repo);
+
+    const summary = getGitChangesSummary(repo, { agent_id: a.agent_id });
+    expect(summary.summary.unclaimed).toBe(2);
+    // Only the staged unclaimed file is counted — this feeds the Phase 3B
+    // commit-guard preflight (staged unclaimed files hard-block the guard).
+    expect(summary.summary.staged_unclaimed).toBe(1);
+  });
+
+  test('staged_unclaimed is zero when only claimed files are staged', () => {
+    const repo = makeRepo('vibecode-gcs-stagedclaimed-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
+    write(repo, 'src/mine.ts');
+    git(['add', '--', 'src/mine.ts'], repo);
+
+    const summary = getGitChangesSummary(repo, { agent_id: a.agent_id });
+    expect(summary.summary.claimed_by_agent).toBe(1);
+    expect(summary.summary.staged_unclaimed).toBe(0);
+  });
+
   test('unclaimed dirty source files produce a HIGH warning when an agent is supplied', () => {
     const repo = makeRepo('vibecode-gcs-unclaimed-');
     const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });

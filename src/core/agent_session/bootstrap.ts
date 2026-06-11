@@ -38,6 +38,10 @@ import {
   recommendBootstrapToolProfiles,
   type ToolProfileRecommendation,
 } from '../agent_guidance/tool_profiles.js';
+import {
+  getAgentRuntimeAwareness,
+  type AgentRuntimeAwareness,
+} from './runtime_awareness.js';
 import { getCoordinationStatus } from '../coordination/status.js';
 import { isAgentType, type AgentSession } from '../coordination/types.js';
 import { buildProjectInstructions } from '../runs/project_instructions.js';
@@ -255,6 +259,13 @@ export interface SessionBootstrapResult {
     excerpt: string | null;
     excerpt_truncated: boolean;
   };
+  /**
+   * Phase 3B: compact runtime/preflight awareness — lifecycle, heartbeat age,
+   * shared-tree commit readiness (finalize vs isolated commit guard), bounded
+   * coordination counts, and exact safe next commands. Read-only; `server` is
+   * null here and filled only by the MCP adapter (the live server identity).
+   */
+  runtime_awareness: AgentRuntimeAwareness;
   agent_protocol: string[];
   warnings: BootstrapNotice[];
   blockers: BootstrapNotice[];
@@ -507,7 +518,9 @@ function recommendations(args: {
     // Read-only agents get project-instructions and artifact tools, not claim workflow.
     tools.push('vibecode_project_instructions', 'vibecode_workspace_info');
     commands.push(
-      'vibecode workspace info --json',
+      // Phase 3B fix: `vibecode workspace info` does not exist as a CLI
+      // command; point at the real read-only orientation profile instead.
+      'vibecode tools profile --profile read_only_orientation --json',
     );
   } else {
     // Unknown mode (not registered) — show both for guidance.
@@ -869,6 +882,38 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     hasStillBlockingConflicts: stillBlockingCount > 0,
   });
 
+  // --- runtime/preflight awareness (Phase 3B; pure over the data above) ---
+  // For terminated/legacy sessions the identity resolution dropped the agent;
+  // look the requested id up in the already-loaded agent list so the awareness
+  // can report the real lifecycle status instead of "missing".
+  const awarenessAgent =
+    currentAgent ?? (input.agent_id ? agents.find((a) => a.agent_id === input.agent_id) ?? null : null);
+  const ownActiveIntentsCount = currentAgent
+    ? allIntents.filter((i) => i.status === 'active' && i.agent_id === currentAgent.agent_id).length
+    : 0;
+  const runtimeAwareness = getAgentRuntimeAwareness({
+    agent: awarenessAgent,
+    requestedAgentId: input.agent_id ?? null,
+    changes: {
+      ok: changes.ok,
+      dirty: changes.ok ? changes.dirty : false,
+      counts: {
+        total: changes.summary.changed_count,
+        claimed_by_agent: changes.summary.claimed_by_agent,
+        claimed_by_other_agent: changes.summary.claimed_by_other_active_agent,
+        unclaimed: changes.summary.unclaimed,
+        stale_claim_overlap: changes.summary.stale_claim_overlap,
+        generated_or_ignored: changes.summary.generated_or_ignored,
+        staged_unclaimed: changes.summary.staged_unclaimed,
+      },
+    },
+    activeIntentsCount: ownActiveIntentsCount,
+    releasableIntentsCount: hasReleasableIntents ? ownActiveIntentsCount : 0,
+    conflictTriages: triageResult.conflicts,
+    staleCoordinationPresent: staleCoordination.has_stale_state,
+    now: checkedAt,
+  });
+
   // Phase 1B-3: context-aware tool-profile recommendations (ids + reasons only).
   const recommendedToolProfiles = recommendBootstrapToolProfiles({
     registered: Boolean(currentAgent),
@@ -915,6 +960,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     scan: { current_run_scan_available: scanCurrentRunAvailable },
     codegraph: { available: codegraph.available, initialized: codegraph.initialized, stale: false },
     project_instructions: projectInstructions,
+    runtime_awareness: runtimeAwareness,
     agent_protocol: [...AGENT_OPERATING_PROTOCOL],
     warnings,
     blockers,

@@ -79,6 +79,19 @@ describe('vibecode session bootstrap --json', () => {
     expect(Array.isArray(envelope.artifacts)).toBe(true);
   });
 
+  test('carries the Phase 3B runtime_awareness preflight with a null server section', async () => {
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'preflight' } });
+    const result = await runCli(['session', 'bootstrap', '--repo', repo.repoRoot, '--agent', agent.agent_id, '--json']);
+    expect(result.exitCode).toBe(0);
+    const envelope = JSON.parse(result.logs[0]) as { ok: boolean; data: SessionBootstrapResult };
+    const ra = envelope.data.runtime_awareness;
+    expect(ra.agent.agent_id).toBe(agent.agent_id);
+    expect(ra.agent.status).toBe('active');
+    expect(ra.commit_guard.can_edit).toBe(true);
+    // The CLI always runs the current build, so it has no live-server identity.
+    expect(ra.server).toBeNull();
+  });
+
   test('--register --agent-mode build --task creates an agent', async () => {
     const result = await runCli([
       'session', 'bootstrap', '--repo', repo.repoRoot,
@@ -163,6 +176,17 @@ describe('CLI/MCP parity (Phase 1A)', () => {
       expect(cliData.recommended_cli_commands).toEqual(mcpData.recommended_cli_commands);
       expect(cliData.git.changed_counts).toEqual(mcpData.git.changed_counts);
       expect(cliData.claims.counts).toEqual(mcpData.claims.counts);
+      // Phase 3B: the preflight matches except for the server section, which
+      // only the live MCP server fills (CLI always reflects the current build).
+      expect(cliData.runtime_awareness.server).toBeNull();
+      expect(mcpData.runtime_awareness.server).not.toBeNull();
+      // checked_at is the only timing-dependent field; normalize it and the
+      // adapter-filled server section for the structural comparison.
+      expect({ ...cliData.runtime_awareness, server: null, checked_at: 'T' }).toEqual({
+        ...mcpData.runtime_awareness,
+        server: null,
+        checked_at: 'T',
+      });
     } finally {
       repo.cleanup();
     }

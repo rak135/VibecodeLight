@@ -36,6 +36,7 @@ export const TOOL_PROFILE_IDS = [
   'safe_commit',
   'conflict_resolution',
   'coordination_housekeeping',
+  'runtime_preflight',
 ] as const;
 
 export type ToolProfileId = (typeof TOOL_PROFILE_IDS)[number];
@@ -351,6 +352,42 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       'Do not edit unclaimed files while housekeeping.',
       'Never edit .vibecode/coordination/state.json by hand — use the commands above.',
       'Use the CLI fallback commands when MCP is unavailable.',
+    ],
+  },
+  runtime_preflight: {
+    profile_id: 'runtime_preflight',
+    title: 'Runtime preflight',
+    purpose: 'Verify your session, MCP server, and shared-tree state before editing, committing, or continuing after long-running work.',
+    when_to_use: [
+      'You are starting work, or returning after long-running tests/builds.',
+      'MCP tools seem missing, or you suspect the MCP server session is stale.',
+      'You want to know whether finalize or the commit guard can proceed before acting.',
+    ],
+    mcp_tools: [
+      { name: 'vibecode_session_bootstrap', reason: 'One-call preflight: the runtime_awareness section reports lifecycle (active/stale/terminated), heartbeat age, shared-tree dirty ownership, finalize vs isolated-commit readiness, and exact next commands.' },
+      { name: 'vibecode_workspace_info', reason: 'Live server identity (tool_count/version/started_at) — compare against the current build to detect a stale MCP server session.' },
+      { name: 'vibecode_agent_heartbeat', reason: 'Heartbeat during long-running work so your session does not go stale.' },
+      { name: 'vibecode_git_changes', reason: 'Claim-aware dirty-tree summary: which changed files are yours, another agent’s, or unclaimed.' },
+      { name: 'vibecode_finalize_check', reason: 'Conservative commit-readiness gate; the commit guard itself is CLI-only.' },
+    ],
+    cli_commands: [
+      { command: 'vibecode session bootstrap --agent <agent_id> --json', reason: 'Refresh your heartbeat and read the runtime_awareness preflight in one call.' },
+      { command: 'vibecode agents heartbeat --agent <agent_id> --json', reason: 'Heartbeat between long test runs without a full re-bootstrap.' },
+      { command: 'vibecode mcp tools --json', reason: 'Canonical tool list of the CURRENT build — compare with the live server tool_count to detect a stale MCP server.' },
+      { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback for the claim-aware dirty-tree summary.' },
+      { command: 'vibecode finalize check --agent <agent_id> --json', reason: 'CLI fallback for the finalize gate.' },
+      { command: 'vibecode commit guard --agent <agent_id> --dry-run --json', reason: 'Preview whether the guard would commit (possibly isolated) without staging or committing anything.' },
+    ],
+    next_steps: [
+      'If the live server tool_count differs from the current build (`vibecode mcp tools`), restart/reconnect the MCP server or use the CLI fallback.',
+      'If your agent is stale, heartbeat or re-run session bootstrap with your agent id; if terminated, register a new agent.',
+      'If finalize is blocked only by unrelated unclaimed dirty files, the commit guard may still make an isolated commit of your claimed files.',
+    ],
+    warnings: [
+      'Preflight is read-only: it never releases, reaps, resolves, cleans up, or commits on your behalf.',
+      'read_only agents must not edit, claim, finalize, or commit.',
+      'Staged unclaimed files hard-block the commit guard — unstage and review them yourself; never commit them.',
+      'Use the CLI fallback when the MCP server is stale or missing tools.',
     ],
   },
 });

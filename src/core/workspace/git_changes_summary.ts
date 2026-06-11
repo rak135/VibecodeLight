@@ -106,6 +106,12 @@ export interface GitChangesSummaryCounts {
   unclaimed: number;
   stale_claim_overlap: number;
   unknown_without_agent_id: number;
+  /**
+   * Phase 3B: unclaimed/stale-overlap changed files already STAGED in the git
+   * index. The commit guard hard-blocks on these (STAGED_UNCLAIMED_FILES_BLOCKED),
+   * so the runtime preflight needs the full-tree count, not a capped sample.
+   */
+  staged_unclaimed: number;
 }
 
 export type GitChangesWarningSeverity = 'info' | 'warning' | 'high';
@@ -170,6 +176,7 @@ function emptyCounts(): GitChangesSummaryCounts {
     unclaimed: 0,
     stale_claim_overlap: 0,
     unknown_without_agent_id: 0,
+    staged_unclaimed: 0,
   };
 }
 
@@ -360,6 +367,11 @@ export function getGitChangesSummary(
     if (changed.status === 'type_changed') counts.type_changed += 1;
     // classification counts
     counts[classification] += 1;
+    // Phase 3B: staged unclaimed files hard-block the commit guard. Finalize
+    // treats stale_claim_overlap as unclaimed, so it is included here.
+    if ((classification === 'unclaimed' || classification === 'stale_claim_overlap') && changed.staged) {
+      counts.staged_unclaimed += 1;
+    }
   }
   counts.changed_count = files.length;
 

@@ -1083,7 +1083,8 @@ vibecode_tool_profile
 common agent situations so an agent does not have to reason over every tool.
 Omit `profile` to list the profiles; pass a profile id
 (`read_only_orientation`, `build_pre_edit`, `build_post_edit`, `scan_inspection`,
-`artifact_continuation`, `safe_commit`, `conflict_resolution`) to get its
+`artifact_continuation`, `safe_commit`, `conflict_resolution`,
+`coordination_housekeeping`, `runtime_preflight`) to get its
 recommended MCP tools, CLI fallbacks, when-to-use notes, next steps, and
 warnings. Profiles are **static/deterministic** — no LLM ranking, no task-aware
 relevance scoring, and no tool execution. CLI parity:
@@ -1150,6 +1151,24 @@ category and classification (`claimed_by_agent` / `claimed_by_other_active_agent
 `git diff --stat` (never a full diff). Both have CLI parity (`vibecode session
 bootstrap --json`, `vibecode git changes --json`) and never mutate git or source
 files. See `docs/MCP_CLI_MULTI_AGENT_EFFICIENCY_PLAN.md` for the full contract.
+
+Runtime preflight awareness (Phase 3B): `vibecode_session_bootstrap` /
+`vibecode session bootstrap --json` additionally return a compact
+`runtime_awareness` section — agent lifecycle (registered / active / stale /
+terminated, operating mode, heartbeat age and whether a heartbeat is
+recommended), the live MCP `server` identity (MCP responses only; the CLI
+always reflects the current build, so it reports `null`), the claim-aware
+shared-tree state (claimed-by-you / other-agent / unclaimed / staged-unclaimed
+counts), commit readiness (`finalize_ready`, `commit_guard_ready`,
+`isolated_commit_possible`, staged-unclaimed blockers), bounded coordination
+counts (own intents, releasable intents, conflicts involving the agent, stale
+coordination), and exact safe next commands. Finalize stays conservative;
+unclaimed dirty files are never committed; staged unclaimed files still
+hard-block the guard. The preflight is read-only and never heartbeats,
+releases, reaps, resolves, or commits by itself. The `runtime_preflight` tool
+profile (`vibecode tools profile --profile runtime_preflight --json`) teaches
+the stale-MCP-server check (compare the live server `tool_count` with
+`vibecode mcp tools --json`) and the CLI fallback path.
 
 Multi-agent coordination tool (Phase Coordination-1 — read-only):
 

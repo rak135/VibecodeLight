@@ -125,6 +125,34 @@ describe('VibecodeMCP session_bootstrap tool', () => {
     expect(data.warnings.some((w) => w.code === 'STALE_COORDINATION_STATE')).toBe(true);
   });
 
+  test('runtime_awareness is present and the MCP adapter fills its server section (Phase 3B)', async () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'Me', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'phase 3b' } },
+      { agentId: 'agent-me' },
+    );
+    const result = await tool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-me' },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as SessionBootstrapResult & {
+      server_identity: { tool_count: number; started_at: string };
+    };
+    const ra = data.runtime_awareness;
+    expect(ra.agent.agent_id).toBe('agent-me');
+    expect(ra.agent.status).toBe('active');
+    // The MCP layer fills the live server identity (core leaves it null) so an
+    // agent can detect a stale MCP server session from the preflight alone.
+    expect(ra.server).not.toBeNull();
+    expect(ra.server?.server_name).toBe('vibecode-mcp');
+    expect(ra.server?.tool_count).toBe(VIBECODE_MCP_TOOL_NAMES.length);
+    // The preflight server section and the top-level server_identity agree.
+    expect(ra.server?.tool_count).toBe(data.server_identity.tool_count);
+    expect(ra.server?.started_at).toBe(data.server_identity.started_at);
+  });
+
   test('register=true writes only generated coordination state and returns identity', async () => {
     const result = await tool().handler({
       context: ctx(repo.repoRoot),

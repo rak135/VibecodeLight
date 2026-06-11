@@ -105,6 +105,14 @@ function renderText(result: SessionBootstrapResult, serverIdentity: McpServerIde
   lines.push(
     `codegraph: available=${result.codegraph.available ? 'yes' : 'no'} initialized=${result.codegraph.initialized ? 'yes' : 'no'}`,
   );
+  const preflight = result.runtime_awareness;
+  lines.push(
+    `preflight: can_edit=${preflight.commit_guard.can_edit ? 'yes' : 'no'}`
+      + ` finalize_ready=${preflight.commit_guard.finalize_ready ? 'yes' : 'no'}`
+      + ` commit_guard_ready=${preflight.commit_guard.commit_guard_ready ? 'yes' : 'no'}`
+      + ` isolated_commit_possible=${preflight.commit_guard.isolated_commit_possible ? 'yes' : 'no'}`
+      + ` needs_heartbeat=${preflight.agent.needs_heartbeat ? 'yes' : 'no'}`,
+  );
   if (result.blockers.length > 0) {
     lines.push('', 'blockers:');
     for (const b of result.blockers) lines.push(`  - [${b.code}] ${b.message}`);
@@ -210,11 +218,19 @@ export function buildSessionBootstrapTool(deps: SessionBootstrapToolDeps = {}): 
         // CLI command (which always reflects the current build) are unchanged.
         const serverIdentity = buildMcpServerIdentity(input.context.repoRoot);
 
+        // Phase 3B: the live server fills the preflight `server` section (core
+        // leaves it null) so the runtime_awareness block alone answers "is my
+        // MCP server stale?". Same identity object as `server_identity`.
+        const withServer = {
+          ...result,
+          runtime_awareness: { ...result.runtime_awareness, server: serverIdentity },
+        };
+
         return formatSimpleSuccess({
           tool: TOOL_NAME,
           repoRoot: input.context.repoRoot,
-          text: renderText(result, serverIdentity),
-          data: { ...result, server_identity: serverIdentity },
+          text: renderText(withServer, serverIdentity),
+          data: { ...withServer, server_identity: serverIdentity },
           warnings: result.warnings.map((w) => `${w.code}: ${w.message}`),
           durationMs: Date.now() - started,
         });

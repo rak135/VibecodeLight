@@ -30,6 +30,7 @@ const KEY_PROFILES = [
   'safe_commit',
   'conflict_resolution',
   'coordination_housekeeping',
+  'runtime_preflight',
 ];
 
 describe('tool profiles — structure', () => {
@@ -209,6 +210,50 @@ describe('tool profiles — coordination_housekeeping (Phase 2C)', () => {
       ...(profile?.cli_commands.map((c) => c.reason) ?? []),
     ].join(' ').toLowerCase();
     expect(text).toContain('own');
+  });
+});
+
+describe('tool profiles — runtime_preflight (Phase 3B)', () => {
+  test('runtime_preflight exists with bootstrap/heartbeat/server-identity guidance', () => {
+    const profile = getToolProfile('runtime_preflight');
+    expect(profile).not.toBeNull();
+    const toolNames = profile!.mcp_tools.map((t) => t.name);
+    expect(toolNames).toContain('vibecode_session_bootstrap');
+    expect(toolNames).toContain('vibecode_workspace_info');
+    expect(toolNames).toContain('vibecode_agent_heartbeat');
+    expect(toolNames).toContain('vibecode_finalize_check');
+
+    const commands = profile!.cli_commands.map((c) => c.command);
+    expect(commands.some((c) => c.includes('session bootstrap --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('agents heartbeat --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('mcp tools'))).toBe(true);
+    expect(commands.some((c) => c.includes('commit guard --agent <agent_id> --dry-run'))).toBe(true);
+  });
+
+  test('runtime_preflight teaches stale-server detection and CLI fallback', () => {
+    const profile = getToolProfile('runtime_preflight');
+    const text = [
+      ...(profile?.next_steps ?? []),
+      ...(profile?.warnings ?? []),
+      ...(profile?.mcp_tools.map((t) => t.reason) ?? []),
+      ...(profile?.cli_commands.map((c) => c.reason) ?? []),
+    ].join(' ').toLowerCase();
+    expect(text).toMatch(/stale/);
+    expect(text).toMatch(/restart|reconnect/);
+    expect(text).toContain('cli fallback');
+    expect(text).toContain('heartbeat');
+    expect(text).toMatch(/tool_count|tool count/);
+  });
+
+  test('runtime_preflight stays read-only: no release/reap/resolve commands', () => {
+    const profile = getToolProfile('runtime_preflight');
+    const commands = (profile?.cli_commands ?? []).map((c) => c.command).join(' ');
+    expect(commands).not.toContain('intent-release');
+    expect(commands).not.toContain('claims reap');
+    expect(commands).not.toContain('conflicts resolve');
+    // The only commit-guard reference is the dry-run preview.
+    const guardCommands = (profile?.cli_commands ?? []).filter((c) => c.command.includes('commit guard'));
+    for (const c of guardCommands) expect(c.command).toContain('--dry-run');
   });
 });
 

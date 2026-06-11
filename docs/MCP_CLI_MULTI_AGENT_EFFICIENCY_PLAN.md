@@ -3250,6 +3250,107 @@ longer authorizes, non-git fail-closed, normal commit reports
 dry-run/commit envelopes, `STAGED_UNCLAIMED_FILES_BLOCKED`, human output), and
 `tests/core/agent_guidance/tool_profiles.test.ts` (Phase 3A guidance).
 
+## 14J. Phase 3B — agent runtime awareness and preflight reliability (Implemented)
+
+Trigger (dogfood findings): a live MCP server can be stale relative to the
+current code; long-running tests make an agent heartbeat go stale; shared trees
+contain unrelated WIP; and agents could not tell, before acting, whether the
+commit guard would isolate a commit or hard-block. Bootstrap returned lots of
+useful data but no compact answer to "can I safely edit / finalize / commit
+right now, and what exactly should I run next?".
+
+Phase 3B adds a single read-only preflight surface. **No new MCP tool; the tool
+count stays 42.** Bootstrap and workspace_info are the carriers:
+
+- New shared core service `src/core/agent_session/runtime_awareness.ts`
+  (`getAgentRuntimeAwareness`). Pure function over already-loaded data: no
+  filesystem, no git, no scanner, no writes, and no heartbeat/claim/release/
+  reap/resolve mutation. Bounded output (fixed sections, task text capped at
+  200 chars, recommendation lists deduped and capped at 12).
+- `SessionBootstrapResult` gains a `runtime_awareness` section, returned by
+  both MCP `vibecode_session_bootstrap` and CLI `vibecode session bootstrap`
+  (same core service — full parity except the `server` block below). Sections:
+  - `agent` — registered, lifecycle status (active/idle/stale/terminated),
+    operating mode, bounded task, `heartbeat_age_ms` / `heartbeat_ttl_ms`, and
+    `needs_heartbeat` (recommended after half the TTL; computed only — the
+    preflight never heartbeats by itself);
+  - `server` — the LIVE MCP server identity (reuses the Phase 2D follow-up
+    `server_identity`: name, version, canonical `tool_count`, `started_at`,
+    repo root). Filled by the MCP adapter only; the core/CLI value is `null`
+    because the CLI always runs the current build. A `tool_count` differing
+    from `vibecode mcp tools --json` on the current build means the MCP server
+    session is stale — restart/reconnect it or use the CLI fallback;
+  - `workspace` — git availability (fails closed when git status is
+    unreadable), dirty flag, `shared_tree_dirty`, and full-tree claim-aware
+    counts including the new `staged_unclaimed` count (see below);
+  - `commit_guard` — `can_edit` (valid fresh build session), `finalize_ready`
+    (finalize stays conservative and is NOT weakened: any unclaimed or
+    stale-overlap dirty file blocks readiness), `commit_guard_ready`,
+    `isolated_commit_possible` (Phase 3A policy mirrored: claimed files
+    committable, finalize blocked only by unclaimed dirty files, none staged),
+    `staged_unclaimed_blockers`, and `committable_count`. The distinction is
+    explicit: finalize readiness may be blocked while the guard can still make
+    an isolated claimed-files-only commit; skipped unclaimed files stay dirty
+    and are never declared "safe";
+  - `coordination` — own active intents, releasable intents (clean-tree
+    condition), conflicts involving the agent (from Phase 2D triage, total and
+    still-blocking), and stale coordination presence (Phase 2C summary);
+  - `recommended_next_tools` / `recommended_cli_commands` — exact, safe,
+    state-dependent next commands (register / heartbeat+re-bootstrap / claims
+    plan via `build_pre_edit` / git changes + finalize check + commit guard
+    dry-run / own-intent dry-run release / conflict_resolution /
+    coordination_housekeeping). Never raw `git add/commit`, never a cross-agent
+    release, never a force cleanup, never `.vibecode` editing;
+  - `warnings` / `blockers` — e.g. `AGENT_STALE`, `HEARTBEAT_RECOMMENDED`,
+    `ISOLATED_COMMIT_LIKELY`, `STAGED_UNCLAIMED_FILES_PRESENT`,
+    `GIT_UNAVAILABLE` (fail closed), `AGENT_TERMINATED` / `AGENT_NOT_FOUND` /
+    `INVALID_AGENT_SESSION` (block).
+- `GitChangesSummaryCounts` gains `staged_unclaimed`: full-tree count of
+  unclaimed/stale-overlap changed files already staged in the git index (these
+  hard-block the commit guard with `STAGED_UNCLAIMED_FILES_BLOCKED`). Counts
+  are computed over ALL changed files, never the capped sample.
+- New tool profile `runtime_preflight` (profiles 8→9; static, deterministic,
+  listed automatically by `vibecode_workspace_info`): teaches bootstrap/
+  preflight at start, heartbeat during long work, the stale-MCP-server check
+  (live `tool_count` vs `vibecode mcp tools --json`), the CLI fallback, and the
+  commit-guard dry-run preview. `vibecode_workspace_info` itself is unchanged —
+  it already exposes `server_identity` and the profile list.
+- Fix: the bootstrap read_only recommendation previously pointed at a
+  nonexistent `vibecode workspace info` CLI command; it now recommends the real
+  `vibecode tools profile --profile read_only_orientation --json`.
+- MCP/CLI text output gains one `preflight:` line (can_edit / finalize_ready /
+  commit_guard_ready / isolated_commit_possible / needs_heartbeat).
+
+How agents handle the dogfood failure modes:
+
+- **Stale MCP server**: compare `runtime_awareness.server.tool_count` (or
+  `server_identity`) with the current build's `vibecode mcp tools --json`;
+  on drift, restart/reconnect the MCP server or use the CLI fallback.
+- **Stale heartbeat/session**: `needs_heartbeat` fires after half the TTL;
+  a stale agent gets `AGENT_STALE` plus exact heartbeat / re-bootstrap
+  commands; a terminated agent is blocked and told to register a new agent.
+- **Shared dirty tree**: `shared_tree_dirty` plus per-classification counts
+  say whose the dirty files are; unclaimed dirty files are never hidden and
+  never committed; staged unclaimed files block.
+
+Out of scope, confirmed not added: auto-orchestration, handoff, ownership
+transfer, branch management, auto cleanup/release/reap/resolve, force cleanup,
+background heartbeat daemon/worker, UI, automatic file selection,
+scanner-based suggestions, LLM relevance scoring, directory/glob claims, MCP
+commit tool. Conflict records remain advisory, not authoritative commit
+blockers.
+
+Tests: `tests/core/agent_session/runtime_awareness.test.ts` (pure lifecycle /
+shared-tree readiness / coordination / safe-recommendation matrix),
+`tests/core/agent_session/bootstrap_runtime_awareness.test.ts` (real-tree
+integration incl. staged-unclaimed and isolated-commit scenarios),
+`tests/core/workspace/git_changes_summary.test.ts` (`staged_unclaimed`),
+`tests/app/mcp/session_bootstrap_tool.test.ts` (MCP fills the `server`
+section; agreement with `server_identity`),
+`tests/app/cli/session_git_changes_commands.test.ts` (CLI carries the
+preflight with `server: null`; CLI/MCP structural parity), and
+`tests/core/agent_guidance/tool_profiles.test.ts` (`runtime_preflight`).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

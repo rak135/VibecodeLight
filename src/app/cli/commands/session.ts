@@ -182,6 +182,14 @@ function printHuman(result: SessionBootstrapResult): void {
         + ` claimless_intents=${stale.active_intents_with_no_active_claims_count}`,
     );
   }
+  const preflight = result.runtime_awareness;
+  console.log(
+    `preflight: can_edit=${preflight.commit_guard.can_edit ? 'yes' : 'no'}`
+      + ` finalize_ready=${preflight.commit_guard.finalize_ready ? 'yes' : 'no'}`
+      + ` commit_guard_ready=${preflight.commit_guard.commit_guard_ready ? 'yes' : 'no'}`
+      + ` isolated_commit_possible=${preflight.commit_guard.isolated_commit_possible ? 'yes' : 'no'}`
+      + ` needs_heartbeat=${preflight.agent.needs_heartbeat ? 'yes' : 'no'}`,
+  );
   console.log(`current_run: ${result.current_run.run_id ?? '(none)'} scan_available=${result.scan.current_run_scan_available ? 'yes' : 'no'}`);
   console.log(`codegraph: available=${result.codegraph.available ? 'yes' : 'no'} initialized=${result.codegraph.initialized ? 'yes' : 'no'}`);
   if (result.blockers.length > 0) {
