@@ -315,17 +315,46 @@
           <div class="codebase-map-controls">
             <div class="codebase-map-filters" id="codebase-map-filters"></div>
             <div class="codebase-map-search-row">
-              <input type="text" class="codebase-map-search" id="codebase-map-search" placeholder="Filter by path…" />
+              <input type="text" class="codebase-map-search" id="codebase-map-search" placeholder="Search files…" />
               <label class="codebase-map-edges-label">
                 <input type="checkbox" id="codebase-map-edges-toggle" checked />
                 <span>Edges</span>
               </label>
             </div>
           </div>
-          <div class="codebase-map-body">
-            <div class="codebase-map-empty" id="codebase-map-empty">No codebase map data yet. Run a scan/prompt or open a workspace with scan artifacts.</div>
-            <div class="codebase-map-svg" id="codebase-map-svg" style="display:none"></div>
+          <div class="codebase-map-layout">
+            <div class="codebase-map-body">
+              <div class="codebase-map-empty" id="codebase-map-empty">No codebase map data yet. Run a scan/prompt or open a workspace with scan artifacts.</div>
+              <div class="codebase-map-svg" id="codebase-map-svg" style="display:none"></div>
+            </div>
+            <!-- Legend: always visible -->
+            <div class="cmap-legend" id="cmap-legend">
+              <div class="cmap-legend-section">
+                <div class="cmap-legend-title">Node Types</div>
+                <div class="cmap-legend-items" id="cmap-legend-nodes"></div>
+              </div>
+              <div class="cmap-legend-section">
+                <div class="cmap-legend-title">Edge Types</div>
+                <div class="cmap-legend-items" id="cmap-legend-edges"></div>
+              </div>
+              <div class="cmap-legend-section">
+                <div class="cmap-legend-title">Status</div>
+                <div class="cmap-legend-items" id="cmap-legend-status"></div>
+              </div>
+            </div>
+            <!-- Detail panel: shown when a node is selected -->
+            <div class="cmap-detail" id="cmap-detail" style="display:none">
+              <div class="cmap-detail-head">
+                <span class="cmap-detail-title" id="cmap-detail-title"></span>
+                <button class="cmap-detail-close" id="cmap-detail-close" type="button" title="Close detail panel">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+              <div class="cmap-detail-body" id="cmap-detail-body"></div>
+            </div>
           </div>
+          <!-- Hover tooltip -->
+          <div class="cmap-tooltip" id="cmap-tooltip" style="display:none"></div>
         </div>
       </div>
 

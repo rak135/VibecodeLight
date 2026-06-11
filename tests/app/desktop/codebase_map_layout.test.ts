@@ -40,6 +40,32 @@ describe('desktop renderer codebase map layout', () => {
     expect(html).toMatch(/id="codebase-map-reset"/);
   });
 
+  test('Codebase Map legend DOM exists', () => {
+    const html = readHtml();
+    expect(html).toMatch(/id="cmap-legend"/);
+    expect(html).toMatch(/id="cmap-legend-nodes"/);
+    expect(html).toMatch(/id="cmap-legend-edges"/);
+    expect(html).toMatch(/id="cmap-legend-status"/);
+  });
+
+  test('Codebase Map tooltip DOM exists', () => {
+    const html = readHtml();
+    expect(html).toMatch(/id="cmap-tooltip"/);
+  });
+
+  test('Codebase Map detail panel DOM exists', () => {
+    const html = readHtml();
+    expect(html).toMatch(/id="cmap-detail"/);
+    expect(html).toMatch(/id="cmap-detail-title"/);
+    expect(html).toMatch(/id="cmap-detail-body"/);
+    expect(html).toMatch(/id="cmap-detail-close"/);
+  });
+
+  test('Codebase Map layout container exists', () => {
+    const html = readHtml();
+    expect(html).toMatch(/class="codebase-map-layout"/);
+  });
+
   test('Codebase Map panel script is loaded', () => {
     const html = readHtml();
     expect(html).toMatch(/codebase_map_panel\.js/);
@@ -56,16 +82,51 @@ describe('desktop renderer codebase map layout', () => {
     expect(css).toMatch(/\.codebase-map-viewport/);
   });
 
+  test('Codebase Map legend CSS exists', () => {
+    const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
+    expect(css).toMatch(/\.cmap-legend/);
+    expect(css).toMatch(/\.cmap-legend-section/);
+    expect(css).toMatch(/\.cmap-legend-title/);
+    expect(css).toMatch(/\.cmap-legend-items/);
+    expect(css).toMatch(/\.cmap-legend-item/);
+    expect(css).toMatch(/\.cmap-legend-dot/);
+    expect(css).toMatch(/\.cmap-legend-line/);
+    expect(css).toMatch(/\.cmap-legend-badge/);
+  });
+
+  test('Codebase Map tooltip CSS exists', () => {
+    const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
+    expect(css).toMatch(/\.cmap-tooltip/);
+    expect(css).toMatch(/\.tt-path/);
+    expect(css).toMatch(/\.tt-row/);
+    expect(css).toMatch(/\.tt-badge/);
+  });
+
+  test('Codebase Map detail panel CSS exists', () => {
+    const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
+    expect(css).toMatch(/\.cmap-detail/);
+    expect(css).toMatch(/\.cmap-detail-head/);
+    expect(css).toMatch(/\.cmap-detail-title/);
+    expect(css).toMatch(/\.cmap-detail-close/);
+    expect(css).toMatch(/\.cmap-detail-body/);
+    expect(css).toMatch(/\.cmap-detail-section/);
+    expect(css).toMatch(/\.cmap-detail-row/);
+    expect(css).toMatch(/\.cmap-detail-list/);
+    expect(css).toMatch(/\.cmap-detail-empty/);
+  });
+
+  test('Codebase Map layout CSS exists', () => {
+    const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
+    expect(css).toMatch(/\.codebase-map-layout/);
+  });
+
   test('SVG container uses absolute positioning to fill parent (viewport clip fix)', () => {
     const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
-    // The SVG container must use absolute positioning to get explicit dimensions
-    // from its parent, preventing the height="100%" circular dependency bug.
     const svgContainerMatch = css.match(/\.codebase-map-svg\s*\{[^}]*\}/);
     expect(svgContainerMatch).toBeTruthy();
     const svgContainerCss = svgContainerMatch![0];
     expect(svgContainerCss).toMatch(/position:\s*absolute/);
     expect(svgContainerCss).toMatch(/inset:\s*0/);
-    // Must NOT have min-height (was the root cause of the clip bug)
     expect(svgContainerCss).not.toMatch(/min-height/);
   });
 

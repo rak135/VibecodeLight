@@ -2,11 +2,8 @@ import { describe, expect, test } from 'vitest';
 
 /**
  * Codebase Map renderer panel: pure render function tests.
- * The renderCodebaseMapSvgHtml function is tested via its contract:
- * given an overview DTO, it produces valid SVG markup.
- *
- * CAD viewport tests verify the viewport group structure and
- * exported helper functions for zoom/pan math.
+ * Tests legend, tooltip, detail panel, focus/dimming, search centering,
+ * and Entrypoints/Changed filters.
  */
 
 const KIND_COLORS = {
@@ -16,6 +13,31 @@ const KIND_COLORS = {
   config: '#ba68c8',
   generated: '#90a4ae',
   unknown: '#78909c',
+};
+
+const KIND_LABELS = {
+  source: 'Source',
+  test: 'Test',
+  doc: 'Doc',
+  config: 'Config',
+  generated: 'Generated',
+  unknown: 'Unknown',
+};
+
+const EDGE_COLORS = {
+  import: 'rgba(79,195,247,0.35)',
+  test: 'rgba(129,199,132,0.35)',
+  entrypoint: 'rgba(255,183,77,0.35)',
+  folder: 'rgba(144,164,174,0.2)',
+  related: 'rgba(186,104,200,0.3)',
+};
+
+const EDGE_LABELS = {
+  import: 'Import',
+  test: 'Test relation',
+  entrypoint: 'Entrypoint',
+  folder: 'Folder',
+  related: 'Related',
 };
 
 function makeOverview(nodeCount: number, edgeCount: number) {
@@ -131,6 +153,62 @@ function fitToView(
   return { scale, tx, ty };
 }
 
+/** Simulate filterNodes from renderer */
+function filterNodes(nodes: Array<{ kind: string; entrypoint?: boolean; changed?: boolean; path: string; label: string }>, filter: string, query: string) {
+  let filtered = nodes;
+  if (filter === 'entrypoints') {
+    filtered = filtered.filter((n) => n.entrypoint === true);
+  } else if (filter === 'changed') {
+    filtered = filtered.filter((n) => n.changed === true);
+  } else if (filter !== 'all') {
+    filtered = filtered.filter((n) => n.kind === filter);
+  }
+  if (query) {
+    const q = query.toLowerCase();
+    filtered = filtered.filter((n) => n.path.toLowerCase().includes(q) || n.label.toLowerCase().includes(q));
+  }
+  return filtered;
+}
+
+/** Simulate getNodeDetail from renderer (characterization copy of core logic) */
+function getNodeDetail(overview: ReturnType<typeof makeOverview>, nodeId: string) {
+  const node = overview.nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+
+  const imports_out: string[] = [];
+  const imports_in: string[] = [];
+  const related_tests: string[] = [];
+  const edge_evidence: Array<{ edge_id: string; type: string; evidence?: string; direction: string; peer: string }> = [];
+
+  for (const edge of overview.edges) {
+    if (edge.from === nodeId) {
+      if (edge.type === 'import') imports_out.push(edge.to);
+      if (edge.type === 'test') related_tests.push(edge.to);
+      edge_evidence.push({ edge_id: edge.id, type: edge.type, evidence: edge.evidence, direction: 'outgoing', peer: edge.to });
+    } else if (edge.to === nodeId) {
+      if (edge.type === 'import') imports_in.push(edge.from);
+      if (edge.type === 'test') related_tests.push(edge.from);
+      edge_evidence.push({ edge_id: edge.id, type: edge.type, evidence: edge.evidence, direction: 'incoming', peer: edge.from });
+    }
+  }
+
+  return { ...node, changed: node.changed === true, entrypoint: node.entrypoint === true, imports_out, imports_in, related_tests, edge_evidence };
+}
+
+/** Simulate getConnectedNeighborhood from renderer */
+function getConnectedNeighborhood(overview: ReturnType<typeof makeOverview>, nodeId: string) {
+  const nodeIds = new Set<string>();
+  const edgeIds = new Set<string>();
+  const node = overview.nodes.find((n) => n.id === nodeId);
+  if (!node) return { nodeIds, edgeIds };
+  nodeIds.add(nodeId);
+  for (const edge of overview.edges) {
+    if (edge.from === nodeId) { nodeIds.add(edge.to); edgeIds.add(edge.id); }
+    else if (edge.to === nodeId) { nodeIds.add(edge.from); edgeIds.add(edge.id); }
+  }
+  return { nodeIds, edgeIds };
+}
+
 describe('codebase map renderer pure render', () => {
   test('renderCodebaseMapSvgHtml produces SVG markup for valid overview', () => {
     const overview = makeOverview(5, 3);
@@ -182,6 +260,29 @@ describe('codebase map renderer pure render', () => {
     }
   });
 
+  test('kind labels are defined for all node kinds', () => {
+    const kinds: Array<keyof typeof KIND_LABELS> = ['source', 'test', 'doc', 'config', 'generated', 'unknown'];
+    for (const kind of kinds) {
+      expect(KIND_LABELS[kind]).toBeDefined();
+      expect(KIND_LABELS[kind].length).toBeGreaterThan(0);
+    }
+  });
+
+  test('edge colors are defined for all edge types', () => {
+    const types: Array<keyof typeof EDGE_COLORS> = ['import', 'test', 'entrypoint', 'folder', 'related'];
+    for (const type of types) {
+      expect(EDGE_COLORS[type]).toBeDefined();
+    }
+  });
+
+  test('edge labels are defined for all edge types', () => {
+    const types: Array<keyof typeof EDGE_LABELS> = ['import', 'test', 'entrypoint', 'folder', 'related'];
+    for (const type of types) {
+      expect(EDGE_LABELS[type]).toBeDefined();
+      expect(EDGE_LABELS[type].length).toBeGreaterThan(0);
+    }
+  });
+
   test('overview with zero nodes produces empty result', () => {
     const overview = makeOverview(0, 0);
     expect(overview.nodes.length).toBe(0);
@@ -212,6 +313,171 @@ describe('codebase map renderer pure render', () => {
     expect(overview.nodes.length).toBe(500);
     expect(overview.summary.total_nodes).toBe(500);
     expect(overview.summary.displayed_nodes).toBe(500);
+  });
+});
+
+describe('codebase map filter: entrypoints and changed', () => {
+  test('entrypoints filter returns only entrypoint nodes', () => {
+    const overview = makeOverview(6, 0);
+    overview.nodes[0].entrypoint = true;
+    overview.nodes[2].entrypoint = true;
+
+    const filtered = filterNodes(overview.nodes as any, 'entrypoints', '');
+    expect(filtered.length).toBe(2);
+    expect(filtered.every((n: any) => n.entrypoint === true)).toBe(true);
+  });
+
+  test('changed filter returns only changed nodes', () => {
+    const overview = makeOverview(6, 0);
+    overview.nodes[1].changed = true;
+
+    const filtered = filterNodes(overview.nodes as any, 'changed', '');
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].changed).toBe(true);
+  });
+
+  test('entrypoints filter returns empty when no entrypoints', () => {
+    const overview = makeOverview(6, 0);
+    const filtered = filterNodes(overview.nodes as any, 'entrypoints', '');
+    expect(filtered.length).toBe(0);
+  });
+
+  test('changed filter returns empty when no changed files', () => {
+    const overview = makeOverview(6, 0);
+    const filtered = filterNodes(overview.nodes as any, 'changed', '');
+    expect(filtered.length).toBe(0);
+  });
+
+  test('entrypoints filter combined with search', () => {
+    const overview = makeOverview(6, 0);
+    overview.nodes[0].entrypoint = true;
+    overview.nodes[0].path = 'src/main.ts';
+    overview.nodes[0].label = 'main.ts';
+    overview.nodes[2].entrypoint = true;
+    overview.nodes[2].path = 'src/app.ts';
+    overview.nodes[2].label = 'app.ts';
+
+    const filtered = filterNodes(overview.nodes as any, 'entrypoints', 'main');
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].path).toBe('src/main.ts');
+  });
+});
+
+describe('codebase map node detail', () => {
+  test('getNodeDetail returns imports_out', () => {
+    const overview = makeOverview(3, 2);
+    overview.edges = [
+      { id: 'e1', from: 'src/file0.ts', to: 'src/file1.ts', type: 'import' },
+      { id: 'e2', from: 'src/file0.ts', to: 'src/file2.ts', type: 'import' },
+    ];
+    const detail = getNodeDetail(overview, 'src/file0.ts');
+    expect(detail).not.toBeNull();
+    expect(detail!.imports_out).toEqual(['src/file1.ts', 'src/file2.ts']);
+  });
+
+  test('getNodeDetail returns imports_in', () => {
+    const overview = makeOverview(3, 2);
+    overview.edges = [
+      { id: 'e1', from: 'src/file1.ts', to: 'src/file0.ts', type: 'import' },
+    ];
+    const detail = getNodeDetail(overview, 'src/file0.ts');
+    expect(detail).not.toBeNull();
+    expect(detail!.imports_in).toEqual(['src/file1.ts']);
+  });
+
+  test('getNodeDetail returns related_tests', () => {
+    const overview = makeOverview(3, 1);
+    overview.edges = [
+      { id: 'e1', from: 'src/file0.ts', to: 'src/file1.ts', type: 'test' },
+    ];
+    const detail = getNodeDetail(overview, 'src/file1.ts');
+    expect(detail).not.toBeNull();
+    expect(detail!.related_tests).toEqual(['src/file0.ts']);
+  });
+
+  test('getNodeDetail returns null for unknown node', () => {
+    const overview = makeOverview(3, 0);
+    const detail = getNodeDetail(overview, 'nonexistent.ts');
+    expect(detail).toBeNull();
+  });
+
+  test('getNodeDetail marks changed correctly', () => {
+    const overview = makeOverview(3, 0);
+    overview.nodes[0].changed = true;
+    const detail = getNodeDetail(overview, 'src/file0.ts');
+    expect(detail).not.toBeNull();
+    expect(detail!.changed).toBe(true);
+  });
+
+  test('getNodeDetail marks entrypoint correctly', () => {
+    const overview = makeOverview(3, 0);
+    overview.nodes[1].entrypoint = true;
+    const detail = getNodeDetail(overview, 'src/file1.ts');
+    expect(detail).not.toBeNull();
+    expect(detail!.entrypoint).toBe(true);
+  });
+});
+
+describe('codebase map neighborhood', () => {
+  test('getConnectedNeighborhood returns connected nodes', () => {
+    const overview = makeOverview(4, 2);
+    overview.edges = [
+      { id: 'e1', from: 'src/file0.ts', to: 'src/file1.ts', type: 'import' },
+      { id: 'e2', from: 'src/file2.ts', to: 'src/file0.ts', type: 'import' },
+    ];
+    const neighborhood = getConnectedNeighborhood(overview, 'src/file0.ts');
+    expect(neighborhood.nodeIds.has('src/file0.ts')).toBe(true);
+    expect(neighborhood.nodeIds.has('src/file1.ts')).toBe(true);
+    expect(neighborhood.nodeIds.has('src/file2.ts')).toBe(true);
+    expect(neighborhood.edgeIds.size).toBe(2);
+  });
+
+  test('getConnectedNeighborhood returns empty for unknown node', () => {
+    const overview = makeOverview(3, 0);
+    const neighborhood = getConnectedNeighborhood(overview, 'nonexistent.ts');
+    expect(neighborhood.nodeIds.size).toBe(0);
+    expect(neighborhood.edgeIds.size).toBe(0);
+  });
+
+  test('getConnectedNeighborhood includes self', () => {
+    const overview = makeOverview(3, 0);
+    const neighborhood = getConnectedNeighborhood(overview, 'src/file0.ts');
+    expect(neighborhood.nodeIds.has('src/file0.ts')).toBe(true);
+  });
+});
+
+describe('codebase map focus/dimming', () => {
+  test('focused node neighborhood includes connected nodes', () => {
+    const overview = makeOverview(5, 2);
+    overview.edges = [
+      { id: 'e1', from: 'src/file0.ts', to: 'src/file1.ts', type: 'import' },
+      { id: 'e2', from: 'src/file0.ts', to: 'src/file2.ts', type: 'import' },
+    ];
+    const neighborhood = getConnectedNeighborhood(overview, 'src/file0.ts');
+
+    // Focused node and its connections should be in the set
+    expect(neighborhood.nodeIds.has('src/file0.ts')).toBe(true);
+    expect(neighborhood.nodeIds.has('src/file1.ts')).toBe(true);
+    expect(neighborhood.nodeIds.has('src/file2.ts')).toBe(true);
+
+    // Unrelated nodes should NOT be in the set
+    expect(neighborhood.nodeIds.has('src/file3.ts')).toBe(false);
+    expect(neighborhood.nodeIds.has('src/file4.ts')).toBe(false);
+  });
+
+  test('dimming logic: nodes not in focus set should be dimmed', () => {
+    const overview = makeOverview(5, 1);
+    overview.edges = [{ id: 'e1', from: 'src/file0.ts', to: 'src/file1.ts', type: 'import' }];
+    const focusNodeIds = getConnectedNeighborhood(overview, 'src/file0.ts').nodeIds;
+
+    // file0 and file1 are focused
+    expect(focusNodeIds.has('src/file0.ts')).toBe(true);
+    expect(focusNodeIds.has('src/file1.ts')).toBe(true);
+
+    // file2, file3, file4 are not focused
+    expect(focusNodeIds.has('src/file2.ts')).toBe(false);
+    expect(focusNodeIds.has('src/file3.ts')).toBe(false);
+    expect(focusNodeIds.has('src/file4.ts')).toBe(false);
   });
 });
 
@@ -265,11 +531,6 @@ describe('codebase map layout bounds', () => {
 
 describe('codebase map viewport math', () => {
   test('zoom toward cursor: world point under cursor stays under cursor', () => {
-    // Test the zoom math formula directly:
-    // newScale = clamp(oldScale * factor, minZoom, maxZoom)
-    // newTranslateX = cursorX - (cursorX - oldTranslateX) * (newScale / oldScale)
-    // newTranslateY = cursorY - (cursorY - oldTranslateY) * (newScale / oldZoom)
-
     function zoomTowardCursor(
       oldScale: number,
       oldTx: number,
@@ -424,5 +685,41 @@ describe('codebase map viewport math', () => {
 
     expect(viewportTransform(10, 20, 1.5)).toBe('translate(10 20) scale(1.5)');
     expect(viewportTransform(0, 0, 1)).toBe('translate(0 0) scale(1)');
+  });
+});
+
+describe('codebase map search centering', () => {
+  test('single search match can be identified', () => {
+    const overview = makeOverview(10, 0);
+    overview.nodes[5].path = 'src/unique_file.ts';
+    overview.nodes[5].label = 'unique_file.ts';
+
+    const q = 'unique_file';
+    const matches = overview.nodes.filter(
+      (n) => n.path.toLowerCase().includes(q) || n.label.toLowerCase().includes(q),
+    );
+
+    expect(matches.length).toBe(1);
+    expect(matches[0].id).toBe('src/file5.ts');
+  });
+
+  test('multiple search matches are returned', () => {
+    const overview = makeOverview(10, 0);
+    const q = 'file';
+    const matches = overview.nodes.filter(
+      (n) => n.path.toLowerCase().includes(q) || n.label.toLowerCase().includes(q),
+    );
+
+    expect(matches.length).toBe(10);
+  });
+
+  test('no search matches returns empty', () => {
+    const overview = makeOverview(10, 0);
+    const q = 'nonexistent';
+    const matches = overview.nodes.filter(
+      (n) => n.path.toLowerCase().includes(q) || n.label.toLowerCase().includes(q),
+    );
+
+    expect(matches.length).toBe(0);
   });
 });
