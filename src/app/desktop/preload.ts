@@ -546,6 +546,18 @@ export interface VibecodePreloadApi {
     /** Read-only: fetch the compact coordination overview. No mutation channel exists. */
     getOverview(): Promise<CoordinationOverviewResultIpc>;
   };
+  codebaseMap: {
+    getOverview(): Promise<{
+      ok: boolean;
+      repo_root: string;
+      generated_at: string;
+      source: { kind: string; run_id?: string };
+      summary: { total_nodes: number; displayed_nodes: number; total_edges: number; displayed_edges: number; truncated: boolean };
+      nodes: Array<{ id: string; path: string; label: string; kind: string; group: string; language?: string; lines?: number; changed?: boolean; entrypoint?: boolean }>;
+      edges: Array<{ id: string; from: string; to: string; type: string; evidence?: string }>;
+      warnings: string[];
+    }>;
+  };
   mcp: {
     getOverview(): Promise<{
       ok: boolean;
@@ -797,6 +809,20 @@ export function createVibecodeApi(): VibecodePreloadApi {
     coordination: {
       getOverview() {
         return ipcRenderer.invoke('coordination:getOverview') as Promise<CoordinationOverviewResultIpc>;
+      },
+    },
+    codebaseMap: {
+      getOverview() {
+        return ipcRenderer.invoke('codebaseMap:getOverview') as Promise<{
+          ok: boolean;
+          repo_root: string;
+          generated_at: string;
+          source: { kind: string; run_id?: string };
+          summary: { total_nodes: number; displayed_nodes: number; total_edges: number; displayed_edges: number; truncated: boolean };
+          nodes: Array<{ id: string; path: string; label: string; kind: string; group: string; language?: string; lines?: number; changed?: boolean; entrypoint?: boolean }>;
+          edges: Array<{ id: string; from: string; to: string; type: string; evidence?: string }>;
+          warnings: string[];
+        }>;
       },
     },
     mcp: {

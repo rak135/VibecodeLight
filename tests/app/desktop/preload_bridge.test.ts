@@ -44,7 +44,7 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codegraph', 'composer', 'config', 'coordination', 'mcp', 'runs', 'skills', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codebaseMap', 'codegraph', 'composer', 'config', 'coordination', 'mcp', 'runs', 'skills', 'terminal', 'workspace']);
     expect(Object.keys(api.coordination).sort()).toEqual(['getOverview']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'getPtyInfo', 'list', 'onData', 'onExit', 'onPreflight', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
