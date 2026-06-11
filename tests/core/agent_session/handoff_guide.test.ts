@@ -220,6 +220,32 @@ describe('handoff guide — previous-agent-side onboarding states', () => {
     expectSafeCommands(g.next_agent_cli_commands);
   });
 
+  test('claim-only ready_after_release: previous agent gets claim-release guidance, not intent-release guidance', () => {
+    const g = guide({
+      packet: packet({
+        ownActiveClaims: [claim()],
+        ownActiveIntents: [],
+        releasableIntentsCount: 0,
+      }),
+      forAgentRequested: true,
+      forAgentId: 'agent-b',
+      forAgent: nextAgent(),
+    });
+    expect(g.onboarding.onboarding_state).toBe('previous_agent_ready_after_release');
+    expect(g.onboarding.can_continue_now).toBe(false);
+    expect(g.onboarding.ownership_transferred).toBe(false);
+    expect(g.onboarding.must_claim_explicitly).toBe(true);
+    expect(g.required_before_continue).toContain('previous_agent_release_claims');
+    expect(g.required_before_continue).not.toContain('previous_agent_release_intents');
+    const prev = g.previous_agent_cli_commands.join(' ');
+    expect(prev).toContain('claims list --agent agent-a');
+    expect(prev).toContain('claims release --claim <claim_id> --json');
+    expect(prev).not.toContain('intent-release');
+    expect(prev).not.toContain('previous_agent_release_intents');
+    expect(g.paths_requiring_new_claim_after_release).toContain('src/alpha.ts');
+    expectSafeCommands(g.previous_agent_cli_commands);
+  });
+
   test('commit_before_handoff: previous_agent_not_ready with guard dry-run for the FROM agent', () => {
     const g = guide({
       packet: packet({
@@ -416,8 +442,20 @@ describe('handoff guide — next-agent-side onboarding states', () => {
       forAgent: agent(),
     });
     expect(g.onboarding.same_agent_resume).toBe(true);
+    expect(g.onboarding.onboarding_state).toBe('same_agent_resume');
+    expect(g.onboarding.can_continue_now).toBe(false);
+    expect(g.onboarding.can_register_and_plan).toBe(false);
+    expect(g.onboarding.ownership_transferred).toBe(false);
+    expect(g.onboarding.must_claim_explicitly).toBe(true);
     expect(g.warnings.some((w) => w.code === 'SAME_AGENT_RESUME')).toBe(true);
-    expect(g.next_agent_cli_commands.join(' ')).toContain('session_recovery');
+    expect(g.onboarding.summary).toMatch(/same-agent resume/i);
+    expect(g.onboarding.summary).not.toMatch(/ready for new agent/i);
+    const next = g.next_agent_cli_commands.join(' ');
+    expect(next).toContain('session_recovery');
+    expect(next).toContain('session bootstrap --agent agent-a');
+    expect(next).not.toContain('claims plan');
+    expect(next).not.toContain('build_pre_edit');
+    expect(g.required_before_continue).toContain('resume_same_agent_with_session_recovery');
   });
 
   test('cross-agent guide is not flagged as same-agent resume', () => {
@@ -501,6 +539,7 @@ describe('handoff guide — paths, boundaries, and bounded output', () => {
     expect(HANDOFF_ONBOARDING_STATES).toContain('next_agent_not_registered');
     expect(HANDOFF_ONBOARDING_STATES).toContain('next_agent_read_only');
     expect(HANDOFF_ONBOARDING_STATES).toContain('next_agent_stale_or_terminated');
+    expect(HANDOFF_ONBOARDING_STATES).toContain('same_agent_resume');
     expect(HANDOFF_ONBOARDING_STATES).toContain('blocked_by_active_claims');
     expect(HANDOFF_ONBOARDING_STATES).toContain('blocked_by_conflict');
     expect(HANDOFF_ONBOARDING_STATES).toContain('stale_coordination_requires_housekeeping');

@@ -3600,14 +3600,16 @@ claims exact files itself.
 - New static tool profile `team_handoff` (profiles 10→11, listed automatically
   by `vibecode_workspace_info`): prepare before ending a session with active
   work, commit/revert dirty claimed files first, dry-run-then-release own
-  clean intents, next agent registers separately and claims exact files,
+  clean intents or release own clean active claims, next agent registers
+  separately and claims exact files,
   `session_recovery` for same-agent resume, `runtime_preflight` at start,
   `conflict_resolution` when blocked — and the hard prohibitions (no ownership
   transfer, no cross-agent release, no raw git bypass, no `.vibecode` edits).
 
 Current agent responsibilities before handoff: run `handoff prepare`, satisfy
 `required_before_handoff` (commit/revert via the guard, release own clean
-intents dry-run-first), and re-run prepare until `handoff_ready`. Next agent
+intents dry-run-first, or release own clean active claims when no intent
+exists), and re-run prepare until `handoff_ready`. Next agent
 responsibilities after handoff: register via session bootstrap, read
 `do_not_do`, run `build_pre_edit`, and claim the exact files it needs after
 the previous agent released them.
@@ -3705,13 +3707,22 @@ exact files explicitly.
   `next_agent_read_only` (observe/report only),
   `next_agent_not_registered` (no/unknown `for_agent_id`, or invalid session
   metadata → session bootstrap --register; still no transfer),
+  `same_agent_resume` (`for_agent_id == from_agent_id` → session_recovery and
+  session bootstrap for that agent; no cross-agent onboarding, no
+  build_pre_edit/claims plan commands),
   `ready_for_new_agent` (previous agent ready → bootstrap, build_pre_edit,
   claims plan with explicit paths),
   `uncertain_state` (uncertain source, or terminated previous agent with
   unowned staged blockers — inspect only).
 - Same-agent resume detection: `for_agent_id == from_agent_id` sets
-  `same_agent_resume`, warns `SAME_AGENT_RESUME`, and points to the
-  `session_recovery` profile instead of cross-agent onboarding.
+  onboarding_state `same_agent_resume`, warns `SAME_AGENT_RESUME`,
+  `can_continue_now=false`, and points to the `session_recovery` profile
+  instead of cross-agent onboarding.
+- Claim-only ready-after-release guidance branches from intent release: when
+  `active_intents_count > 0`, the previous agent gets `intent-release`
+  dry-run/release guidance; when `active_intents_count == 0` and active
+  claims remain, it gets claim-list/claim-release guidance and no invented
+  intent id.
 - Readiness rules: `can_continue_now` only in `ready_for_new_agent`;
   registering/planning stays allowed in waiting states but never editing or
   claiming the previous agent's still-claimed paths; unclaimed dirty
@@ -3726,7 +3737,9 @@ exact files explicitly.
 - `team_handoff` profile enhanced (no new profile): producer runs prepare
   before ending; consumer runs handoff guide before continuing; if the
   previous agent is not ready, do not proceed; next agent registers separately
-  and claims exact files; session_recovery for same-agent resume;
+  and claims exact files; claim-only previous ownership is cleared through the
+  safe claim-release path by the owning agent; session_recovery for same-agent
+  resume;
   runtime_preflight after registering; conflict_resolution /
   coordination_housekeeping when indicated.
 - Bootstrap stays lean: no handoff-guide output added to session bootstrap.

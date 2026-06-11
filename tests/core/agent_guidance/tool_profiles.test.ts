@@ -324,11 +324,13 @@ describe('tool profiles — team_handoff (Phase 4A)', () => {
     expect(toolNames).toContain('vibecode_git_changes');
     expect(toolNames).toContain('vibecode_finalize_check');
     expect(toolNames).toContain('vibecode_claim_intent_release');
+    expect(toolNames).toContain('vibecode_claim_release');
 
     const commands = profile!.cli_commands.map((c) => c.command);
     expect(commands.some((c) => c.includes('handoff prepare --agent <agent_id>'))).toBe(true);
     expect(commands.some((c) => c.includes('commit guard --agent <agent_id> --dry-run'))).toBe(true);
     expect(commands.some((c) => c.includes('intent-release') && c.includes('--dry-run'))).toBe(true);
+    expect(commands.some((c) => c.includes('claims release --claim <claim_id> --json'))).toBe(true);
     expect(commands.some((c) => c.includes('--register'))).toBe(true);
   });
 
@@ -349,6 +351,9 @@ describe('tool profiles — team_handoff (Phase 4A)', () => {
     expect(text).toMatch(/handoff guide/);
     expect(text).toMatch(/before continuing|before starting/);
     expect(text).toMatch(/not ready.*(do not|wait)|do not proceed/);
+    expect(text).toMatch(/different next agent|different agent/);
+    expect(text).toMatch(/same-agent|same agent/);
+    expect(text).toContain('session_recovery');
   });
 
   test('team_handoff teaches the boundary rules: no transfer, no cross-agent release, no raw bypass', () => {
@@ -367,6 +372,8 @@ describe('tool profiles — team_handoff (Phase 4A)', () => {
     expect(text).toMatch(/commit|revert/);
     expect(text).toMatch(/session_recovery|same agent/);
     expect(text).toMatch(/conflict_resolution|runtime_preflight/);
+    expect(text).toMatch(/active claims/);
+    expect(text).toMatch(/claim-release|claims release|release.*claims/);
   });
 
   test('team_handoff guard/release examples are dry-run-first and never forced', () => {

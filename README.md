@@ -1478,17 +1478,21 @@ vibecode_handoff_guide
 onboarding guidance for the NEXT agent: one explicit `onboarding_state`
 (e.g. `ready_for_new_agent`, `previous_agent_ready_after_release`,
 `previous_agent_not_ready`, `next_agent_not_registered`,
-`blocked_by_conflict`, `stale_coordination_requires_housekeeping`), whether
-the previous agent's work is still claimed (`blocked_paths`), whether the next
-agent may register/continue, exact safe next commands separated by which agent
-runs them (`previous_agent_cli_commands` vs `next_agent_cli_commands`), and a
+`blocked_by_conflict`, `stale_coordination_requires_housekeeping`,
+`same_agent_resume`), whether the previous agent's work is still claimed
+(`blocked_paths`), whether the next agent may register/continue, exact safe
+next commands separated by which agent runs them
+(`previous_agent_cli_commands` vs `next_agent_cli_commands`), and a
 `do_not_do` boundary list. It is onboarding GUIDANCE only: ownership is never
 transferred, nothing is auto-claimed or auto-released, and the next agent
 always registers separately (session bootstrap) and claims exact files itself
 (claims plan → claims add-bulk). Path lists come from the previous agent's
 packet — Vibecode never selects the next agent's task scope. Passing the same
-agent as `from` and `for` is flagged as a same-agent resume (use
-`session_recovery` instead). The equivalent CLI command is
+agent as `from` and `for` returns `same_agent_resume`, `can_continue_now=false`,
+and session recovery/bootstrap guidance instead of cross-agent continuation.
+When the previous agent has active claims but no active intents, the guide uses
+claim-list/claim-release guidance, not intent-release. The equivalent CLI
+command is
 `vibecode handoff guide --repo <path> --from-agent <agent_id>
 [--for-agent <agent_id>] [--max-items <n>] --json`.
 

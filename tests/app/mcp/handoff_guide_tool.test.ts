@@ -11,6 +11,7 @@ import type { McpServerContext } from '../../../src/app/mcp/index.js';
 import type { NextAgentHandoffGuide } from '../../../src/core/agent_session/handoff_guide.js';
 import { registerAgent, markAgentTerminated } from '../../../src/core/coordination/agents.js';
 import { addBulkClaims } from '../../../src/core/coordination/bulk_claims.js';
+import { addFileClaim } from '../../../src/core/coordination/claims.js';
 
 /**
  * Phase 4B — `vibecode_handoff_guide` MCP tool contract.
@@ -156,6 +157,29 @@ describe('VibecodeMCP handoff_guide tool', () => {
     expect(data.next_agent_cli_commands.join(' ')).toContain(forId);
   });
 
+  test('same-agent guide routes to session recovery, not cross-agent continuation', async () => {
+    const fromId = registerBuildAgent(repo.repoRoot, 'A');
+    const result = await buildHandoffGuideTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { from_agent_id: fromId, for_agent_id: fromId },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as NextAgentHandoffGuide;
+    expect(data.onboarding.same_agent_resume).toBe(true);
+    expect(data.onboarding.onboarding_state).toBe('same_agent_resume');
+    expect(data.onboarding.can_continue_now).toBe(false);
+    expect(data.onboarding.ownership_transferred).toBe(false);
+    expect(data.onboarding.must_claim_explicitly).toBe(true);
+    const next = data.next_agent_cli_commands.join(' ');
+    expect(next).toContain('session_recovery');
+    expect(next).not.toContain('claims plan');
+    expect(next).not.toContain('build_pre_edit');
+    const text = result.content[0].text;
+    expect(text).toMatch(/same-agent resume/i);
+    expect(text).not.toMatch(/ready_for_new_agent|ready for new agent/i);
+  });
+
   test('previous agent with active claims: previous_agent_ready_after_release, no mutation of state or tree', async () => {
     const fromId = registerBuildAgent(repo.repoRoot);
     addBulkClaims({ repoRoot: repo.repoRoot, agent_id: fromId, intent: 'work', paths: ['src/mine.ts'] });
@@ -176,6 +200,27 @@ describe('VibecodeMCP handoff_guide tool', () => {
     // Strictly read-only: coordination state and working tree untouched.
     expect(fs.readFileSync(statePath, 'utf8')).toBe(stateBefore);
     expect(git(['status', '--porcelain'], repo.repoRoot).stdout).toBe(treeBefore);
+  });
+
+  test('claim-only previous agent uses claim-release guidance, not intent-release guidance', async () => {
+    const fromId = registerBuildAgent(repo.repoRoot);
+    addFileClaim(repo.repoRoot, { agent_id: fromId, path: 'src/claim-only.ts', mode: 'exclusive' });
+
+    const result = await buildHandoffGuideTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { from_agent_id: fromId },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as NextAgentHandoffGuide;
+    expect(data.onboarding.onboarding_state).toBe('previous_agent_ready_after_release');
+    expect(data.onboarding.can_continue_now).toBe(false);
+    expect(data.required_before_continue).toContain('previous_agent_release_claims');
+    expect(data.required_before_continue).not.toContain('previous_agent_release_intents');
+    const prev = data.previous_agent_cli_commands.join(' ');
+    expect(prev).toContain('claims release --claim <claim_id> --json');
+    expect(prev).not.toContain('intent-release');
+    expect(result.content[0].text).not.toContain('intent-release');
   });
 
   test('dirty claimed file: previous_agent_not_ready guidance', async () => {

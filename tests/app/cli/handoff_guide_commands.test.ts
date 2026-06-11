@@ -102,6 +102,35 @@ describe('vibecode handoff guide (CLI)', () => {
     expect(envWithout.data.next_agent_cli_commands.join(' ')).toContain('session bootstrap --register');
   });
 
+  test('same-agent --for-agent routes to session recovery and suppresses cross-agent continuation', async () => {
+    const fromId = await register('phase 4b same-agent resume');
+
+    const json = await runCli([
+      'handoff', 'guide', '--repo', repo.repoRoot, '--from-agent', fromId, '--for-agent', fromId, '--json',
+    ]);
+    expect(json.exitCode).toBe(0);
+    const env = JSON.parse(json.logs[0]) as SuccessEnvelope;
+    expect(env.data.onboarding.same_agent_resume).toBe(true);
+    expect(env.data.onboarding.onboarding_state).toBe('same_agent_resume');
+    expect(env.data.onboarding.can_continue_now).toBe(false);
+    expect(env.data.onboarding.ownership_transferred).toBe(false);
+    expect(env.data.onboarding.must_claim_explicitly).toBe(true);
+    const next = env.data.next_agent_cli_commands.join(' ');
+    expect(next).toContain('session_recovery');
+    expect(next).not.toContain('claims plan');
+    expect(next).not.toContain('build_pre_edit');
+
+    const human = await runCli([
+      'handoff', 'guide', '--repo', repo.repoRoot, '--from-agent', fromId, '--for-agent', fromId,
+    ]);
+    const out = human.logs.join('\n');
+    expect(out).toMatch(/same-agent resume/i);
+    expect(out).toContain('session_recovery');
+    expect(out).not.toMatch(/ready_for_new_agent|ready for new agent/i);
+    expect(out).not.toContain('- vibecode claims plan');
+    expect(out).not.toContain('build_pre_edit');
+  });
+
   test('missing --from-agent is a structured MISSING_REQUIRED_OPTION error', async () => {
     const res = await runCli(['handoff', 'guide', '--repo', repo.repoRoot, '--json']);
     expect(res.exitCode).not.toBe(0);
@@ -144,6 +173,34 @@ describe('vibecode handoff guide (CLI)', () => {
     expect(env.data.next_agent_cli_commands.join(' ')).not.toContain('intent-release');
     expect(env.data.blocked_paths).toContain('src/mine.ts');
     expect(git(['status', '--porcelain'], repo.repoRoot).stdout).toBe(before);
+  });
+
+  test('claim-only release-needed flow uses claim release, not intent release', async () => {
+    const fromId = await register('phase 4b claim-only producer');
+    const added = await runCli([
+      'claims', 'add', '--repo', repo.repoRoot, '--agent', fromId, '--path', 'src/claim-only.ts', '--json',
+    ]);
+    expect(added.exitCode).toBe(0);
+
+    const json = await runCli(['handoff', 'guide', '--repo', repo.repoRoot, '--from-agent', fromId, '--json']);
+    expect(json.exitCode).toBe(0);
+    const env = JSON.parse(json.logs[0]) as SuccessEnvelope;
+    expect(env.data.onboarding.onboarding_state).toBe('previous_agent_ready_after_release');
+    expect(env.data.onboarding.can_continue_now).toBe(false);
+    expect(env.data.onboarding.ownership_transferred).toBe(false);
+    expect(env.data.onboarding.must_claim_explicitly).toBe(true);
+    expect(env.data.required_before_continue).toContain('previous_agent_release_claims');
+    expect(env.data.required_before_continue).not.toContain('previous_agent_release_intents');
+    const prev = env.data.previous_agent_cli_commands.join(' ');
+    expect(prev).toContain('claims list');
+    expect(prev).toContain('claims release --claim <claim_id> --json');
+    expect(prev).not.toContain('intent-release');
+
+    const human = await runCli(['handoff', 'guide', '--repo', repo.repoRoot, '--from-agent', fromId]);
+    const out = human.logs.join('\n');
+    expect(out).toContain('previous_agent_release_claims');
+    expect(out).toMatch(/active claims/i);
+    expect(out).not.toContain('intent-release');
   });
 
   test('human output is compact with the onboarding summary and do_not_do', async () => {

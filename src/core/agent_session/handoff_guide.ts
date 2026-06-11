@@ -54,6 +54,7 @@ export const HANDOFF_ONBOARDING_STATES = [
   'next_agent_stale_or_terminated',
   'next_agent_read_only',
   'next_agent_not_registered',
+  'same_agent_resume',
   'ready_for_new_agent',
   'uncertain_state',
 ] as const;
@@ -64,12 +65,14 @@ export type HandoffOnboardingState = (typeof HANDOFF_ONBOARDING_STATES)[number];
 export const HANDOFF_GUIDE_REQUIRED_ACTIONS = [
   'previous_agent_commit_or_revert',
   'previous_agent_release_intents',
+  'previous_agent_release_claims',
   'previous_agent_heartbeat_and_rerun_prepare',
   'inspect_staged_blockers',
   'triage_blocking_conflict',
   'run_coordination_housekeeping_dry_run',
   'register_next_agent',
   'heartbeat_or_reregister_next_agent',
+  'resume_same_agent_with_session_recovery',
   'plan_and_claim_explicit_files',
   'inspect_only',
 ] as const;
@@ -85,6 +88,7 @@ export const HANDOFF_ONBOARDING_ACTIONS = [
   'heartbeat_or_reregister',
   'observe_read_only',
   'register_and_plan',
+  'resume_same_agent',
   'plan_and_claim_explicitly',
   'inspect_only',
 ] as const;
@@ -250,6 +254,8 @@ const SUMMARY_HINT_BY_STATE: Readonly<Record<HandoffOnboardingState, string>> = 
     'your agent is read_only — observe and report only; no claim, edit, or commit guidance applies.',
   next_agent_not_registered:
     'register your own agent via session bootstrap first — the previous agent\'s registration and claims are never yours.',
+  same_agent_resume:
+    'same-agent resume is not a cross-agent handoff — use session_recovery and session bootstrap for this agent; do not run next-agent claim planning from the handoff guide.',
   ready_for_new_agent:
     'the previous agent is ready — bootstrap, then plan and claim the exact files YOU need; nothing is transferred.',
   uncertain_state:
@@ -265,6 +271,7 @@ const ACTION_BY_STATE: Readonly<Record<HandoffOnboardingState, HandoffOnboarding
   next_agent_stale_or_terminated: 'heartbeat_or_reregister',
   next_agent_read_only: 'observe_read_only',
   next_agent_not_registered: 'register_and_plan',
+  same_agent_resume: 'resume_same_agent',
   ready_for_new_agent: 'plan_and_claim_explicitly',
   uncertain_state: 'inspect_only',
 });
@@ -346,6 +353,11 @@ export function buildNextAgentHandoffGuide(
     // ready_to_handoff or read_only_report: the previous agent side is clear.
     nextAgentSideOk = true;
     state = 'ready_for_new_agent';
+  }
+
+  if (sameAgentResume) {
+    state = 'same_agent_resume';
+    nextAgentSideOk = false;
   }
 
   if (nextAgentSideOk) {
@@ -434,7 +446,6 @@ export function buildNextAgentHandoffGuide(
       break;
     }
     case 'previous_agent_ready_after_release': {
-      required.push('previous_agent_release_intents');
       warnings.push(
         notice(
           'WAIT_FOR_RELEASE',
@@ -442,12 +453,22 @@ export function buildNextAgentHandoffGuide(
           `Previous agent ${fromAgentId} still owns ${previousActiveClaims} active claim(s) / ${previousActiveIntents} active intent(s). Wait for it to release them; you may register and plan, but do not edit or claim those paths yet.`,
         ),
       );
-      rec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
-      rec.previousCommand(
-        `vibecode claims intents list --agent ${fromAgentId} --status active --json`,
-        `vibecode claims intent-release --agent ${fromAgentId} --intent-id <intent_id> --dry-run --json`,
-        `vibecode claims intent-release --agent ${fromAgentId} --intent-id <intent_id> --json`,
-      );
+      if (previousActiveIntents > 0) {
+        required.push('previous_agent_release_intents');
+        rec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+        rec.previousCommand(
+          `vibecode claims intents list --agent ${fromAgentId} --status active --json`,
+          `vibecode claims intent-release --agent ${fromAgentId} --intent-id <intent_id> --dry-run --json`,
+          `vibecode claims intent-release --agent ${fromAgentId} --intent-id <intent_id> --json`,
+        );
+      } else {
+        required.push('previous_agent_release_claims');
+        rec.tool('vibecode_claims_list', 'vibecode_claim_release');
+        rec.previousCommand(
+          `vibecode claims list --agent ${fromAgentId} --json`,
+          'vibecode claims release --claim <claim_id> --json',
+        );
+      }
       break;
     }
     case 'blocked_by_active_claims': {
@@ -539,6 +560,16 @@ export function buildNextAgentHandoffGuide(
       rec.nextCommand(
         REGISTER_COMMAND,
         'vibecode tools profile --profile team_handoff --json',
+      );
+      break;
+    }
+    case 'same_agent_resume': {
+      required.push('resume_same_agent_with_session_recovery');
+      rec.tool('vibecode_session_bootstrap', 'vibecode_tool_profile');
+      rec.nextCommand(
+        'vibecode tools profile --profile session_recovery --json',
+        `vibecode session bootstrap --agent ${fromAgentId} --json`,
+        'vibecode tools profile --profile runtime_preflight --json',
       );
       break;
     }
