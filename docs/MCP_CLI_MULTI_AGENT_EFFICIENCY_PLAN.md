@@ -3460,6 +3460,75 @@ session_git_changes_commands.test.ts` (CLI recovery JSON + human Recovery
 line; CLI/MCP parity), and `tests/core/agent_guidance/tool_profiles.test.ts`
 (`session_recovery`).
 
+## 14L. Phase 3 closure — integrated review + dogfood (Closed 2026-06-11)
+
+Phase 3 (3A shared-tree commit isolation, 3B runtime preflight awareness,
+3C safe resume guidance) is **closed** after an end-of-phase integrated review
+of commits `1b54eae`, `171e43e`, and `b05c9ea` against the pre-Phase-3
+baseline `0363e33`, one correctness fix, and one integrated live dogfood.
+
+Review verdict: **PASS AFTER FIXES**. The three batches form one coherent
+read-only runtime model: `git_changes` is the counting source of truth,
+finalize stays conservative, the commit guard is the only mutation point
+(CLI-only), runtime awareness mirrors those policies without weakening them,
+and recovery classifies a single safe resume state over the awareness.
+
+Fix made during closure (commit `cb62700`,
+`fix(agent-session): harden Phase 3 runtime guidance`, TDD):
+
+- The awareness previously gated commit readiness only on `staged_unclaimed`,
+  so a file claimed by ANOTHER active agent that was already staged could make
+  `commit_guard_ready` / `isolated_commit_possible` read true while the real
+  guard blocks with `GIT_INDEX_NOT_CLEAN` (the guard blocks on ANY staged file
+  outside the committable set; finalize only warns about other-agent files).
+  `GitChangesSummaryCounts` / `RuntimeWorkspaceCounts` gain
+  `staged_claimed_by_other_agent`; readiness and the isolated-commit
+  prediction now require it to be zero, and a high-visibility
+  `STAGED_OTHER_AGENT_FILES_PRESENT` warning explains that the owner must
+  commit/unstage — never stage, unstage, or commit another agent's files.
+  Recovery consequently never classifies `ready_to_commit` /
+  `isolated_commit_possible` in that state (it falls back to the safe
+  `ready_to_continue`). No unsafe mutation was ever possible — the guard
+  itself always blocked; this fixes guidance overstating readiness.
+
+Integrated dogfood (live, this repo): registered a build agent, bootstrap
+classified `ready_to_claim`; claimed the 7 fix files via `claims plan` /
+`claims add-bulk` (one intent); created an unrelated unclaimed dirty file;
+bootstrap then reported `finalize_ready=false`, `isolated_commit_possible=true`
+and recovery `isolated_commit_possible` (confidence medium); `git changes`,
+`finalize check` (blocked only by `UNCLAIMED_CHANGED_FILE`), guard dry-run
+(7 staged, 1 skipped `unclaimed`), then the real guard commit committed
+exactly the 7 claimed files with `isolated_commit: true` and
+`UNCLAIMED_DIRTY_FILES_SKIPPED`; the skipped file stayed dirty and
+byte-identical and was removed manually afterwards; recovery then reported
+`ready_to_release`, the intent was released dry-run-first, recovery returned
+to `ready_to_claim`, and the agent was terminated with a clean tree. The live
+MCP server session was observed to be stale during the dogfood (it predated
+Phase 3B and returned no `runtime_awareness` despite a matching
+`tool_count=42`), so the dogfood used the documented CLI fallback — exactly
+the Phase 3B/3C stale-server guidance.
+
+Confirmed boundaries (nothing added): no orchestration, no handoff, no
+ownership transfer, no auto-claim/release/reap/resolve, no force cleanup, no
+branch management, no background heartbeat daemon/worker, no UI, no automatic
+file selection, no directory/glob claims, no MCP commit tool. MCP tool count
+stays **42**; profiles stay 10.
+
+Known limitations at closure:
+
+- the end-of-phase integrated review was deferred until this pass (now done);
+- conflict records remain advisory for the commit guard — they inform triage
+  and recovery but do not hard-block a commit;
+- `tool_count` equality does NOT prove the MCP server is fresh (a stale server
+  with the same count was observed live); missing sections/fields in responses
+  are the practical signal, and the CLI fallback is always authoritative;
+- a staged generated/ignored file (only possible via `git add -f`) is not
+  counted by the readiness mirror; the guard itself still blocks on it;
+- `stale_needs_heartbeat` remains mostly classifier-level because
+  `session bootstrap --agent <id>` revives a stale-but-valid agent on the
+  first call;
+- no background heartbeat daemon, no branch management, no agent handoff.
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

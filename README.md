@@ -1164,7 +1164,12 @@ counts), commit readiness (`finalize_ready`, `commit_guard_ready`,
 counts (own intents, releasable intents, conflicts involving the agent, stale
 coordination), and exact safe next commands. Finalize stays conservative;
 unclaimed dirty files are never committed; staged unclaimed files still
-hard-block the guard. The preflight is read-only and never heartbeats,
+hard-block the guard. Commit readiness also mirrors the guard's index check:
+a staged file claimed by another active agent (counted as
+`staged_claimed_by_other_agent`) removes `commit_guard_ready` /
+`isolated_commit_possible` and raises `STAGED_OTHER_AGENT_FILES_PRESENT`,
+because the guard blocks with `GIT_INDEX_NOT_CLEAN` on any staged file
+outside the committable set. The preflight is read-only and never heartbeats,
 releases, reaps, resolves, or commits by itself. The `runtime_preflight` tool
 profile (`vibecode tools profile --profile runtime_preflight --json`) teaches
 the stale-MCP-server check (compare the live server `tool_count` with
