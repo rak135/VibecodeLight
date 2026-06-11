@@ -222,6 +222,35 @@ describe('getGitChangesSummary — classification', () => {
     expect(summary.summary.staged_unclaimed).toBe(0);
   });
 
+  test('staged_claimed_by_other_agent counts other-agent claimed files already staged (commit guard GIT_INDEX_NOT_CLEAN mirror)', () => {
+    const repo = makeRepo('vibecode-gcs-stagedother-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    const b = registerAgent(repo, { agent_name: 'B', agent_type: 'codex', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: b.agent_id, path: 'src/theirs.ts', mode: 'exclusive' });
+    write(repo, 'src/mine.ts');
+    write(repo, 'src/theirs.ts');
+    git(['add', '--', 'src/theirs.ts'], repo);
+
+    const summary = getGitChangesSummary(repo, { agent_id: a.agent_id });
+    expect(summary.summary.claimed_by_other_active_agent).toBe(1);
+    // The other agent's staged file is not unclaimed, but the commit guard
+    // still blocks on it at index verification (GIT_INDEX_NOT_CLEAN).
+    expect(summary.summary.staged_unclaimed).toBe(0);
+    expect(summary.summary.staged_claimed_by_other_agent).toBe(1);
+  });
+
+  test('staged_claimed_by_other_agent is zero when only own claimed files are staged', () => {
+    const repo = makeRepo('vibecode-gcs-stagedown-');
+    const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });
+    addFileClaim(repo, { agent_id: a.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
+    write(repo, 'src/mine.ts');
+    git(['add', '--', 'src/mine.ts'], repo);
+
+    const summary = getGitChangesSummary(repo, { agent_id: a.agent_id });
+    expect(summary.summary.staged_claimed_by_other_agent).toBe(0);
+  });
+
   test('unclaimed dirty source files produce a HIGH warning when an agent is supplied', () => {
     const repo = makeRepo('vibecode-gcs-unclaimed-');
     const a = registerAgent(repo, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'test' } });

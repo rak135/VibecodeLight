@@ -905,6 +905,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
         stale_claim_overlap: changes.summary.stale_claim_overlap,
         generated_or_ignored: changes.summary.generated_or_ignored,
         staged_unclaimed: changes.summary.staged_unclaimed,
+        staged_claimed_by_other_agent: changes.summary.staged_claimed_by_other_agent,
       },
     },
     activeIntentsCount: ownActiveIntentsCount,

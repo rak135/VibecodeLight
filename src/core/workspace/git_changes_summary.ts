@@ -112,6 +112,13 @@ export interface GitChangesSummaryCounts {
    * so the runtime preflight needs the full-tree count, not a capped sample.
    */
   staged_unclaimed: number;
+  /**
+   * Phase 3 close: changed files claimed by ANOTHER active agent that are
+   * already STAGED in the git index. The commit guard blocks on ANY staged file
+   * outside the agent's committable set (GIT_INDEX_NOT_CLEAN), so the runtime
+   * preflight must not report commit readiness while these exist.
+   */
+  staged_claimed_by_other_agent: number;
 }
 
 export type GitChangesWarningSeverity = 'info' | 'warning' | 'high';
@@ -177,6 +184,7 @@ function emptyCounts(): GitChangesSummaryCounts {
     stale_claim_overlap: 0,
     unknown_without_agent_id: 0,
     staged_unclaimed: 0,
+    staged_claimed_by_other_agent: 0,
   };
 }
 
@@ -371,6 +379,12 @@ export function getGitChangesSummary(
     // treats stale_claim_overlap as unclaimed, so it is included here.
     if ((classification === 'unclaimed' || classification === 'stale_claim_overlap') && changed.staged) {
       counts.staged_unclaimed += 1;
+    }
+    // A staged file claimed by another active agent also blocks the commit
+    // guard (GIT_INDEX_NOT_CLEAN at index verification) even though finalize
+    // only warns about it.
+    if (classification === 'claimed_by_other_active_agent' && changed.staged) {
+      counts.staged_claimed_by_other_agent += 1;
     }
   }
   counts.changed_count = files.length;

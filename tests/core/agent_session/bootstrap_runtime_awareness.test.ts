@@ -128,6 +128,28 @@ describe('session bootstrap — runtime_awareness (Phase 3B)', () => {
     expect(ra.warnings.some((w) => w.code === 'STAGED_UNCLAIMED_FILES_PRESENT')).toBe(true);
   });
 
+  test('claimed + STAGED other-agent claimed file: commit guard not ready (GIT_INDEX_NOT_CLEAN mirror)', async () => {
+    const repo = makeRepo('vibecode-ra-staged-other-');
+    registerBuild(repo, 'agent-me');
+    registerBuild(repo, 'agent-other');
+    addFileClaim(repo, { agent_id: 'agent-me', path: 'src/mine.ts', mode: 'exclusive' });
+    addFileClaim(repo, { agent_id: 'agent-other', path: 'src/theirs.ts', mode: 'exclusive' });
+    write(repo, 'src/mine.ts');
+    write(repo, 'src/theirs.ts');
+    git(['add', '--', 'src/theirs.ts'], repo);
+
+    const result = await getSessionBootstrap({ repoRoot: repo, agent_id: 'agent-me', ...baseOpts });
+    const ra = result.runtime_awareness;
+    expect(ra.workspace.changed_counts.staged_claimed_by_other_agent).toBe(1);
+    // Finalize only warns on the other agent's claimed file, but the guard
+    // blocks on any staged file outside the committable set.
+    expect(ra.commit_guard.finalize_ready).toBe(true);
+    expect(ra.commit_guard.commit_guard_ready).toBe(false);
+    expect(ra.commit_guard.isolated_commit_possible).toBe(false);
+    expect(ra.warnings.some((w) => w.code === 'STAGED_OTHER_AGENT_FILES_PRESENT')).toBe(true);
+    expect(ra.recovery.resume_state).not.toBe('ready_to_commit');
+  });
+
   test('read_only agent: no edit/commit readiness or commands', async () => {
     const repo = makeRepo('vibecode-ra-readonly-');
     registerAgent(

@@ -51,6 +51,7 @@ function changes(
     stale_claim_overlap: 0,
     generated_or_ignored: 0,
     staged_unclaimed: 0,
+    staged_claimed_by_other_agent: 0,
     ...countsOver,
   };
   const nonGenerated = counts.total - counts.generated_or_ignored;
@@ -269,6 +270,43 @@ describe('runtime awareness — shared-tree commit readiness (Part D)', () => {
     expect(result.commit_guard.isolated_commit_possible).toBe(false);
     expect(result.commit_guard.staged_unclaimed_blockers).toBe(1);
     expect(result.warnings.some((w) => w.code === 'STAGED_UNCLAIMED_FILES_PRESENT')).toBe(true);
+  });
+
+  test('claimed dirty + STAGED other-agent claimed file: commit guard not ready (GIT_INDEX_NOT_CLEAN mirror)', () => {
+    const result = getAgentRuntimeAwareness(
+      baseInput({
+        changes: changes({
+          total: 2,
+          claimed_by_agent: 1,
+          claimed_by_other_agent: 1,
+          staged_claimed_by_other_agent: 1,
+        }),
+      }),
+    );
+    // Finalize only warns on other-agent claimed files, but the real guard
+    // blocks on ANY staged file outside the committable set — readiness must
+    // mirror that, never overstate it.
+    expect(result.commit_guard.finalize_ready).toBe(true);
+    expect(result.commit_guard.commit_guard_ready).toBe(false);
+    expect(result.commit_guard.isolated_commit_possible).toBe(false);
+    expect(result.warnings.some((w) => w.code === 'STAGED_OTHER_AGENT_FILES_PRESENT')).toBe(true);
+    expectSafeCommands(result.recommended_cli_commands);
+  });
+
+  test('isolated commit is not reported possible while an other-agent claimed file is staged', () => {
+    const result = getAgentRuntimeAwareness(
+      baseInput({
+        changes: changes({
+          total: 3,
+          claimed_by_agent: 1,
+          unclaimed: 1,
+          claimed_by_other_agent: 1,
+          staged_claimed_by_other_agent: 1,
+        }),
+      }),
+    );
+    expect(result.commit_guard.isolated_commit_possible).toBe(false);
+    expect(result.warnings.some((w) => w.code === 'ISOLATED_COMMIT_LIKELY')).toBe(false);
   });
 
   test('unclaimed dirty only: nothing committable by this agent', () => {

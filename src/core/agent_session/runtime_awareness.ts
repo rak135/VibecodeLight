@@ -62,6 +62,12 @@ export interface RuntimeWorkspaceCounts {
   generated_or_ignored: number;
   /** Unclaimed/stale-overlap changed files already staged in the git index. */
   staged_unclaimed: number;
+  /**
+   * Other-agent claimed changed files already staged in the git index. The
+   * commit guard blocks on ANY staged file outside the committable set
+   * (GIT_INDEX_NOT_CLEAN), even though finalize only warns about these.
+   */
+  staged_claimed_by_other_agent: number;
 }
 
 /** Narrow view of the shared git changes summary used as preflight input. */
@@ -319,11 +325,17 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
   } else if (isActiveBuild) {
     stagedUnclaimedBlockers = counts.staged_unclaimed;
     finalizeReady = unclaimedForFinalize === 0;
-    commitGuardReady = finalizeReady && counts.claimed_by_agent > 0;
+    // The guard blocks on ANY staged file outside the committable set
+    // (GIT_INDEX_NOT_CLEAN), so a staged other-agent claimed file removes
+    // readiness even though finalize only warns about it.
+    const stagedOtherAgent = counts.staged_claimed_by_other_agent;
+    commitGuardReady =
+      finalizeReady && counts.claimed_by_agent > 0 && stagedOtherAgent === 0;
     isolatedCommitPossible =
       counts.claimed_by_agent > 0 &&
       unclaimedForFinalize > 0 &&
-      counts.staged_unclaimed === 0;
+      counts.staged_unclaimed === 0 &&
+      stagedOtherAgent === 0;
 
     if (commitGuardReady) {
       rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
@@ -352,6 +364,19 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
           'STAGED_UNCLAIMED_FILES_PRESENT',
           'high',
           `${counts.staged_unclaimed} unclaimed dirty file(s) are already STAGED in the git index. The commit guard will block (STAGED_UNCLAIMED_FILES_BLOCKED); unstage and review them yourself — never commit them.`,
+        ),
+      );
+      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.command(
+        `vibecode git changes --agent ${agentId} --json`,
+        `vibecode finalize check --agent ${agentId} --json`,
+      );
+    } else if (counts.staged_claimed_by_other_agent > 0) {
+      warnings.push(
+        notice(
+          'STAGED_OTHER_AGENT_FILES_PRESENT',
+          'high',
+          `${counts.staged_claimed_by_other_agent} file(s) claimed by another active agent are already STAGED in the git index. The commit guard will block (GIT_INDEX_NOT_CLEAN) until their owner commits or unstages them — never stage, unstage, or commit another agent's files yourself.`,
         ),
       );
       rec.tool('vibecode_git_changes', 'vibecode_finalize_check');

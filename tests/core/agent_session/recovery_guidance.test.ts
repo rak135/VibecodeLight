@@ -58,6 +58,7 @@ function changes(
     stale_claim_overlap: 0,
     generated_or_ignored: 0,
     staged_unclaimed: 0,
+    staged_claimed_by_other_agent: 0,
     ...countsOver,
   };
   const nonGenerated = counts.total - counts.generated_or_ignored;
@@ -288,6 +289,24 @@ describe('recovery guidance — build agent workspace states', () => {
     const all = r.recommended_cli_commands.join(' ');
     // No commit recommendation and no raw-git unstage automation.
     expect(all).not.toContain('commit guard');
+    expectSafeCommands(r.recommended_cli_commands);
+  });
+
+  test('staged other-agent claimed file: never ready_to_commit or isolated (guard would block GIT_INDEX_NOT_CLEAN)', () => {
+    const r = recovery({
+      changes: changes({
+        total: 2,
+        claimed_by_agent: 1,
+        claimed_by_other_agent: 1,
+        staged_claimed_by_other_agent: 1,
+      }),
+      activeClaimsCount: 1,
+    });
+    expect(r.resume_state).not.toBe('ready_to_commit');
+    expect(r.resume_state).not.toBe('isolated_commit_possible');
+    // Continuing is the safe primary action; the other agent resolves its own
+    // staged file — never unstage or commit another agent's files.
+    expect(r.resume_state).toBe('ready_to_continue');
     expectSafeCommands(r.recommended_cli_commands);
   });
 
