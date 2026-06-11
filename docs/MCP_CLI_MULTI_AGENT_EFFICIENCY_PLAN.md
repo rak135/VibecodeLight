@@ -3529,6 +3529,122 @@ Known limitations at closure:
   first call;
 - no background heartbeat daemon, no branch management, no agent handoff.
 
+## 14M. Phase 4A — read-only handoff packets and team workflow boundaries (Implemented)
+
+Trigger: when one agent stops and a human (or another agent) must decide who
+continues, the open questions are always the same — what was this agent doing,
+what does it still own, is the shared tree safe, and what must happen BEFORE
+anyone else edits? Phase 4A answers those questions with one bounded, read-only
+handoff packet. **New MCP tool `vibecode_handoff_prepare`; tool count 42 →
+43.** Profiles grow 10→11 (`team_handoff`).
+
+What a handoff packet IS: visibility plus boundary guidance — who is handing
+off, the agent's task/mode/lifecycle, owned active claims/intents (bounded
+samples), dirty claimed files, unclaimed dirty shared-tree files, staged
+blockers, releasable clean intents, conflicts involving the agent, stale
+coordination, one explicit `handoff_state`, `handoff_ready` /
+`next_agent_may_continue` / `requires_current_agent_action` flags,
+`required_before_handoff` prerequisite tokens, exact safe commands for the
+current agent, registration commands for the next agent, and a `do_not_do`
+boundary list.
+
+What it is NOT: handoff execution. Prepare never transfers claims, never
+assigns or schedules the next agent, never releases/claims/reaps/resolves/
+cleans anything, never heartbeats (unlike `session bootstrap --agent`), and
+never mutates git, source, or coordination state. A human or external process
+still chooses who continues; the next agent always registers separately and
+claims exact files itself.
+
+- New core module `src/core/agent_session/handoff_packet.ts`:
+  - `buildAgentHandoffPacket` — pure classifier over already-loaded
+    coordination data (fixture-testable, mirrors the runtime-awareness input
+    shape);
+  - `getAgentHandoffPacket` — strictly read-only loader (agents, claim-aware
+    git changes, claims, intents, conflict triage, stale coordination) with no
+    writes at all.
+- One primary `handoff_state` (lifecycle first, fail safe):
+  `terminated_or_missing_agent` (no reliable handoff; register a NEW agent;
+  old claims are coordination state, never authorization),
+  `stale_agent_needs_heartbeat` (heartbeat + re-run prepare; never hand off on
+  stale state),
+  `read_only_report` (read-only agent → report only; trivially ready),
+  `blocked_by_staged_files` (staged unclaimed/other-agent files —
+  inspect/unstage safely; never commit them),
+  `commit_before_handoff` (dirty claimed files → git changes / finalize /
+  guard dry-run; commit or revert first),
+  `isolated_commit_before_handoff` (dirty claimed + unrelated unclaimed dirty —
+  guard may isolate; skipped files are not safe and not owned),
+  `blocked_by_conflict` (still-blocking conflict involving the agent →
+  conflict_resolution; no auto-resolve),
+  `ready_after_release` (clean active own intents/claims → dry-run then
+  release before the next agent claims those files),
+  `ready_to_handoff` (no dirty claimed files, no blockers, nothing unreleased —
+  next agent may register and plan claims normally),
+  `uncertain_state` (git unavailable / invalid session metadata — inspect
+  only).
+- Readiness rule: `handoff_ready` only for `ready_to_handoff` and
+  `read_only_report`. Unclaimed dirty files with clean own work WARN
+  (`UNCLAIMED_DIRTY_FILES_PRESENT`) but do not block; staged files block;
+  conflicts not involving the agent do not block; stale coordination warns
+  (`STALE_COORDINATION_PRESENT` → coordination_housekeeping, dry-run reap)
+  without blocking.
+- `do_not_do` (static, bounded): no editing files claimed by another active
+  agent, released claims authorize nothing, no cross-agent intent release, no
+  claim transfer/reuse, no `.vibecode` hand-edits, no raw git add/commit
+  bypass, skipped/unclaimed files are not safe, no directory/glob claims.
+- MCP `vibecode_handoff_prepare` (input: required `agent_id`, optional
+  bounded `max_items` ≤ 50; unknown fields rejected) and CLI parity
+  `vibecode handoff prepare --repo <path> --agent <agent_id> [--max-items <n>]
+  --json`. Terminated/missing agents return a handoff state inside an ok
+  envelope, never a tool error and never a mutation.
+- New static tool profile `team_handoff` (profiles 10→11, listed automatically
+  by `vibecode_workspace_info`): prepare before ending a session with active
+  work, commit/revert dirty claimed files first, dry-run-then-release own
+  clean intents, next agent registers separately and claims exact files,
+  `session_recovery` for same-agent resume, `runtime_preflight` at start,
+  `conflict_resolution` when blocked — and the hard prohibitions (no ownership
+  transfer, no cross-agent release, no raw git bypass, no `.vibecode` edits).
+
+Current agent responsibilities before handoff: run `handoff prepare`, satisfy
+`required_before_handoff` (commit/revert via the guard, release own clean
+intents dry-run-first), and re-run prepare until `handoff_ready`. Next agent
+responsibilities after handoff: register via session bootstrap, read
+`do_not_do`, run `build_pre_edit`, and claim the exact files it needs after
+the previous agent released them.
+
+Example handoff workflow:
+
+```powershell
+vibecode handoff prepare --agent <agent_id> --json
+vibecode commit guard --agent <agent_id> --dry-run --json
+vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --dry-run --json
+vibecode handoff prepare --agent <agent_id> --json
+# next agent (separate registration; no transfer):
+vibecode session bootstrap --register --agent-mode build --task "<task>" --json
+vibecode tools profile --profile build_pre_edit --json
+```
+
+Out of scope, confirmed not added: handoff execution, ownership transfer,
+auto handoff, auto-claim/release/reap/resolve, force cleanup, orchestration,
+agent scheduling/assignment, branch management, background worker/heartbeat
+daemon, UI, chat/notice board, `.vibecode` editing workflows, automatic file
+selection, scanner-based suggestions, LLM relevance scoring, directory/glob
+claims, MCP commit tool.
+
+Known limitations: no handoff execution or assignment — a human or external
+process chooses who continues; the packet is point-in-time (re-run prepare
+after every prerequisite step); staged generated/ignored files remain the
+Phase 3 closure limitation (guard blocks, prediction does not count them); no
+shared chat/notice board.
+
+Tests: `tests/core/agent_session/handoff_packet.test.ts` (pure state matrix,
+readiness rules, bounded samples, do_not_do, safe-command safety),
+`tests/app/mcp/handoff_tool.test.ts` (registration, schema, validation,
+terminated/missing-as-state, no-mutation, canonical envelope),
+`tests/app/cli/handoff_commands.test.ts` (CLI parity, validation, compact
+human output, no mutation), and
+`tests/core/agent_guidance/tool_profiles.test.ts` (`team_handoff`).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

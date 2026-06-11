@@ -58,6 +58,7 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_conflicts_list',
     'vibecode_conflict_resolve',
     'vibecode_conflict_detail',
+    'vibecode_handoff_prepare',
   ]),
 });
 
@@ -104,6 +105,7 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_conflicts_list: 'List recorded coordination conflicts (claim_denied, stale_claim). Read-only.',
   vibecode_conflict_resolve: 'Mark a coordination conflict as resolved (writes only generated coordination state).',
   vibecode_conflict_detail: 'Get intent-aware triage detail for one conflict: blocking claim/intent, owner lifecycle status, warning codes, and safe next-step recommendations. Read-only.',
+  vibecode_handoff_prepare: 'Build a bounded read-only handoff packet for one agent: handoff state, owned claims/intents, shared-tree blockers, safe next commands, and do_not_do boundaries. Visibility only — never transfers claims or assigns the next agent.',
 });
 
 /**

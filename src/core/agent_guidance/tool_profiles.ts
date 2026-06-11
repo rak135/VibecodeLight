@@ -38,6 +38,7 @@ export const TOOL_PROFILE_IDS = [
   'coordination_housekeeping',
   'runtime_preflight',
   'session_recovery',
+  'team_handoff',
 ] as const;
 
 export type ToolProfileId = (typeof TOOL_PROFILE_IDS)[number];
@@ -435,6 +436,47 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       'Never hand-edit .vibecode coordination state — use the commands above.',
       'No force cleanup, no automatic release/reap/resolve, no ownership transfer, and never release another agent’s intent — recovery is explicit, never automatic.',
       'read_only agents observe only: no claim, edit, finalize, or commit during recovery either.',
+    ],
+  },
+  team_handoff: {
+    profile_id: 'team_handoff',
+    title: 'Team handoff / cross-agent transition',
+    purpose: 'Prepare and consume a read-only handoff packet when one agent stops and another (or a human) decides who continues.',
+    when_to_use: [
+      'You are ending a session while active claims, intents, or dirty claimed files still exist.',
+      'A human or another agent needs to know whether it is safe to continue this work.',
+      'You are the NEXT agent consuming a handoff packet before starting.',
+    ],
+    mcp_tools: [
+      { name: 'vibecode_handoff_prepare', reason: 'Build the read-only handoff packet: one handoff_state, what must happen before another agent continues, exact safe commands, and do_not_do boundaries.' },
+      { name: 'vibecode_session_bootstrap', reason: 'The NEXT agent registers separately here (register=true) — there is no ownership transfer, ever.' },
+      { name: 'vibecode_git_changes', reason: 'Inspect claim-aware shared-tree state before handing off or continuing.' },
+      { name: 'vibecode_finalize_check', reason: 'Check commit readiness for dirty claimed files before handoff.' },
+      { name: 'vibecode_claim_intents_list', reason: 'See which of your own intents are still active before releasing.' },
+      { name: 'vibecode_claim_intent_release', reason: 'Release YOUR OWN clean intent before the next agent claims those files (dry-run first; same-agent only).' },
+    ],
+    cli_commands: [
+      { command: 'vibecode handoff prepare --agent <agent_id> --json', reason: 'Run handoff prepare BEFORE ending a session with active work; re-run it after each prerequisite step.' },
+      { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback for the claim-aware shared-tree check.' },
+      { command: 'vibecode finalize check --agent <agent_id> --json', reason: 'CLI fallback for the commit-readiness gate.' },
+      { command: 'vibecode commit guard --agent <agent_id> --dry-run --json', reason: 'If dirty claimed files exist: preview the guarded commit (commit or revert before handoff).' },
+      { command: 'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --dry-run --json', reason: 'If a clean own intent exists: preview the release before the next agent may edit those files.' },
+      { command: 'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --json', reason: 'Release your own clean intent after reviewing the dry-run.' },
+      { command: 'vibecode session bootstrap --register --agent-mode build --task "<task>" --json', reason: 'The NEXT agent registers itself and claims exact files independently — never reuses the previous agent’s claims.' },
+      { command: 'vibecode tools profile --profile build_pre_edit --json', reason: 'The NEXT agent follows the normal pre-edit claim workflow after registering.' },
+    ],
+    next_steps: [
+      'Current agent: commit or revert dirty claimed files (commit guard dry-run first), then release your own clean intents, then re-run handoff prepare until handoff_ready.',
+      'Next agent: register separately, read the packet’s do_not_do list, then plan and claim the exact files you need after the previous agent released them.',
+      'Resuming the SAME agent is not a handoff — use session_recovery instead.',
+      'Start any new session with runtime_preflight; if the packet reports a blocking conflict, switch to conflict_resolution.',
+    ],
+    warnings: [
+      'Handoff is visibility only: no ownership transfer, no handoff execution, no auto-release, no auto-claim — Vibecode never assigns the next agent.',
+      'Never release another agent’s intent — intent release is same-agent only.',
+      'Never bypass the commit guard with raw git add/commit, and never hand-edit .vibecode coordination state.',
+      'Skipped or unclaimed dirty files in the packet are not safe — inspect them; handoff does not transfer or clean them.',
+      'Released claims authorize nothing: the next agent must register and claim explicit files itself.',
     ],
   },
 });

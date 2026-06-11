@@ -18,6 +18,7 @@
 import { AGENT_TYPES } from '../../core/coordination/types.js';
 import { AGENT_OPERATING_MODES } from '../../core/agent_session/bootstrap.js';
 import { SESSION_BOOTSTRAP_MAX_ITEMS } from '../../core/agent_session/bootstrap.js';
+import { HANDOFF_MAX_ITEMS } from '../../core/agent_session/handoff_packet.js';
 import { GIT_CHANGES_MAX_FILES } from '../../core/workspace/git_changes_summary.js';
 import { HARD_MAX_ARTIFACT_CHUNK_BYTES } from '../../core/runs/artifact_pagination.js';
 import { SCAN_ARTIFACT_KEYS } from '../../core/runs/scan_artifacts.js';
@@ -510,6 +511,26 @@ export const SESSION_BOOTSTRAP_INPUT_SCHEMA: JsonSchema = {
     max_items: { ...POSITIVE_INT, maximum: HARD_MAX_BOOTSTRAP_ITEMS, description: `Cap on per-section item lists (positive integer, max ${HARD_MAX_BOOTSTRAP_ITEMS}).` },
     include_instructions: { type: 'boolean', description: 'Include a bounded project-instruction excerpt (default true).' },
   },
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4A: read-only handoff packet
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard cap for handoff_prepare max_items. Re-exported from core to avoid drift.
+ * @deprecated Import directly from `core/agent_session/handoff_packet.js` instead.
+ */
+export const HARD_MAX_HANDOFF_ITEMS = HANDOFF_MAX_ITEMS;
+
+export const HANDOFF_PREPARE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent_id: { type: 'string', description: 'Agent id to prepare the read-only handoff packet for.' },
+    max_items: { ...POSITIVE_INT, maximum: HANDOFF_MAX_ITEMS, description: `Cap on sample lists in the packet (positive integer, max ${HANDOFF_MAX_ITEMS}).` },
+  },
+  required: ['agent_id'],
 };
 
 export const GIT_CHANGES_INPUT_SCHEMA: JsonSchema = {

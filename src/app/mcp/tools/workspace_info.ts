@@ -93,6 +93,7 @@ const COORDINATION_TOOL_NAMES = Object.freeze([
   'vibecode_conflicts_list',
   'vibecode_conflict_resolve',
   'vibecode_conflict_detail',
+  'vibecode_handoff_prepare',
 ]);
 
 export interface WorkspaceInfoToolDeps {

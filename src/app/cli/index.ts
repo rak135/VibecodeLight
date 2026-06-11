@@ -61,6 +61,7 @@ import { registerDoctorCommand } from './commands/doctor.js';
 import { registerEvidenceCommands } from './commands/evidence.js';
 import { registerFinalizeCommands } from './commands/finalize.js';
 import { registerGitChangesCommands } from './commands/git_changes.js';
+import { registerHandoffCommands } from './commands/handoff.js';
 import { registerMcpCommands } from './commands/mcp.js';
 import { registerScanReadCommands } from './commands/scan.js';
 import { registerSessionCommands } from './commands/session.js';
@@ -302,6 +303,7 @@ export function createCli(): Command {
   registerConfigCommands(program);
   registerCoordinationCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerSessionCommands(program, { makeCliStructuredError, emitCliStructuredError });
+  registerHandoffCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerToolsCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerGitChangesCommands(program, { makeCliStructuredError, emitCliStructuredError });
   registerAgentsCommands(program, { makeCliStructuredError, emitCliStructuredError });

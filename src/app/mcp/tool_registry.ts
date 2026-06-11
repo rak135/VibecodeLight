@@ -39,6 +39,7 @@ import { buildGitChangesTool } from './tools/git_changes.js';
 import { buildScanSummaryTool } from './tools/scan_summary.js';
 import { buildScanArtifactReadTool } from './tools/scan_artifact_read.js';
 import { buildSessionBootstrapTool } from './tools/session_bootstrap.js';
+import { buildHandoffPrepareTool } from './tools/handoff_prepare.js';
 import { buildToolProfileTool } from './tools/tool_profile.js';
 import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from './tools/project_instructions.js';
@@ -167,6 +168,8 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildConflictResolveTool(),
     // Phase 2D: intent-aware conflict triage detail.
     buildConflictDetailTool(),
+    // Phase 4A: read-only handoff packet (visibility only; no ownership transfer).
+    buildHandoffPrepareTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -234,4 +237,6 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_conflict_resolve',
   // Phase 2D
   'vibecode_conflict_detail',
+  // Phase 4A
+  'vibecode_handoff_prepare',
 ]);

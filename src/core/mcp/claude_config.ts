@@ -93,6 +93,8 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_conflict_resolve',
   // Phase 2D: intent-aware conflict triage detail (read-only).
   'vibecode_conflict_detail',
+  // Phase 4A: read-only handoff packet (visibility only; no ownership transfer).
+  'vibecode_handoff_prepare',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

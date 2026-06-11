@@ -1448,6 +1448,26 @@ equivalent CLI commands are `vibecode claims reap --repo <path> --json`,
 the requesting agent so cleared conflicts recommend requester-specific
 `claims plan` / `claims add-bulk` follow-ups; it is advisory and read-only).
 
+Read-only handoff packet (Phase 4A):
+
+```text
+vibecode_handoff_prepare
+```
+
+`vibecode_handoff_prepare` builds a bounded, read-only handoff packet for one
+agent: who is handing off, owned claims/intents, dirty/staged shared-tree
+state, conflicts, one explicit `handoff_state` (e.g. `ready_to_handoff`,
+`ready_after_release`, `commit_before_handoff`, `blocked_by_staged_files`),
+what must happen before another agent continues, exact safe next commands, and
+a `do_not_do` boundary list. It is handoff VISIBILITY only: it never transfers
+claims, never assigns the next agent, and never releases, claims, reaps,
+resolves, or cleans anything — the next agent always registers separately and
+claims exact files itself. The equivalent CLI command is
+`vibecode handoff prepare --repo <path> --agent <agent_id> --json`. The
+`team_handoff` tool profile (`vibecode tools profile --profile team_handoff
+--json`) teaches the cross-agent transition workflow; use `session_recovery`
+when the SAME agent resumes.
+
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
 not add a permission profile, an allow/deny list, or any approval mutation. MCP-2

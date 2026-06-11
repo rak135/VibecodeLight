@@ -32,6 +32,7 @@ const KEY_PROFILES = [
   'coordination_housekeeping',
   'runtime_preflight',
   'session_recovery',
+  'team_handoff',
 ];
 
 describe('tool profiles — structure', () => {
@@ -310,6 +311,52 @@ describe('tool profiles — session_recovery (Phase 3C)', () => {
     for (const c of guardCommands) expect(c.command).toContain('--dry-run');
     const releaseCommands = (profile?.cli_commands ?? []).filter((c) => c.command.includes('intent-release'));
     for (const c of releaseCommands) expect(c.command).toContain('--dry-run');
+  });
+});
+
+describe('tool profiles — team_handoff (Phase 4A)', () => {
+  test('team_handoff exists with handoff-prepare-first guidance and real commands', () => {
+    const profile = getToolProfile('team_handoff');
+    expect(profile).not.toBeNull();
+    const toolNames = profile!.mcp_tools.map((t) => t.name);
+    expect(toolNames).toContain('vibecode_handoff_prepare');
+    expect(toolNames).toContain('vibecode_session_bootstrap');
+    expect(toolNames).toContain('vibecode_git_changes');
+    expect(toolNames).toContain('vibecode_finalize_check');
+    expect(toolNames).toContain('vibecode_claim_intent_release');
+
+    const commands = profile!.cli_commands.map((c) => c.command);
+    expect(commands.some((c) => c.includes('handoff prepare --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('commit guard --agent <agent_id> --dry-run'))).toBe(true);
+    expect(commands.some((c) => c.includes('intent-release') && c.includes('--dry-run'))).toBe(true);
+    expect(commands.some((c) => c.includes('--register'))).toBe(true);
+  });
+
+  test('team_handoff teaches the boundary rules: no transfer, no cross-agent release, no raw bypass', () => {
+    const profile = getToolProfile('team_handoff');
+    const text = [
+      ...(profile?.when_to_use ?? []),
+      ...(profile?.next_steps ?? []),
+      ...(profile?.warnings ?? []),
+      ...(profile?.mcp_tools.map((t) => t.reason) ?? []),
+      ...(profile?.cli_commands.map((c) => c.reason) ?? []),
+    ].join(' ').toLowerCase();
+    expect(text).toMatch(/ownership transfer/);
+    expect(text).toMatch(/another agent/);
+    expect(text).toContain('.vibecode');
+    expect(text).toMatch(/register/);
+    expect(text).toMatch(/commit|revert/);
+    expect(text).toMatch(/session_recovery|same agent/);
+    expect(text).toMatch(/conflict_resolution|runtime_preflight/);
+  });
+
+  test('team_handoff guard/release examples are dry-run-first and never forced', () => {
+    const profile = getToolProfile('team_handoff');
+    const commands = (profile?.cli_commands ?? []).map((c) => c.command).join(' ');
+    expect(commands).not.toMatch(/--force/);
+    const guardCommands = (profile?.cli_commands ?? []).filter((c) => c.command.includes('commit guard'));
+    expect(guardCommands.length).toBeGreaterThan(0);
+    for (const c of guardCommands) expect(c.command).toContain('--dry-run');
   });
 });
 

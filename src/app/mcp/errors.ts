@@ -87,7 +87,9 @@ export type McpErrorCode =
   | 'SCAN_SUMMARY_FAILED'
   | 'SCAN_ARTIFACT_READ_FAILED'
   // Phase 1B-3: tool profiles / recommended tool sets.
-  | 'TOOL_PROFILE_FAILED';
+  | 'TOOL_PROFILE_FAILED'
+  // Phase 4A: read-only handoff packet.
+  | 'HANDOFF_PREPARE_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -362,6 +364,11 @@ const ERROR_DEFAULTS: Record<
     retryable: false,
     suggestion:
       'tool_profile is static and read-only. Omit profile to list profiles, or pass a known profile id (see the list response). This error indicates an unexpected internal failure, not a bad argument.',
+  },
+  HANDOFF_PREPARE_FAILED: {
+    retryable: true,
+    suggestion:
+      'handoff_prepare is read-only (it never transfers, releases, or claims anything). Terminated/missing agents are reported inside the packet, not as this error. Verify the agent_id and retry only if the failure is transient.',
   },
 };
 
