@@ -56,6 +56,28 @@ describe('desktop renderer codebase map layout', () => {
     expect(css).toMatch(/\.codebase-map-viewport/);
   });
 
+  test('SVG container uses absolute positioning to fill parent (viewport clip fix)', () => {
+    const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
+    // The SVG container must use absolute positioning to get explicit dimensions
+    // from its parent, preventing the height="100%" circular dependency bug.
+    const svgContainerMatch = css.match(/\.codebase-map-svg\s*\{[^}]*\}/);
+    expect(svgContainerMatch).toBeTruthy();
+    const svgContainerCss = svgContainerMatch![0];
+    expect(svgContainerCss).toMatch(/position:\s*absolute/);
+    expect(svgContainerCss).toMatch(/inset:\s*0/);
+    // Must NOT have min-height (was the root cause of the clip bug)
+    expect(svgContainerCss).not.toMatch(/min-height/);
+  });
+
+  test('SVG element CSS sets explicit width/height', () => {
+    const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
+    const svgElMatch = css.match(/\.codebase-map-svg\s+svg\s*\{[^}]*\}/);
+    expect(svgElMatch).toBeTruthy();
+    const svgElCss = svgElMatch![0];
+    expect(svgElCss).toMatch(/width:\s*100%/);
+    expect(svgElCss).toMatch(/height:\s*100%/);
+  });
+
   test('sidebar click handler includes codebasemap case', () => {
     const html = readHtml();
     expect(html).toMatch(/nav === 'codebasemap'/);

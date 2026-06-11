@@ -1645,9 +1645,9 @@ input, textarea, select { font: inherit; color: inherit; }
   padding: 40px 20px;
 }
 .codebase-map-svg {
-  min-height: 200px;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
-  position: relative;
   cursor: grab;
 }
 .codebase-map-svg.panning {
@@ -1655,6 +1655,8 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .codebase-map-svg svg {
   display: block;
+  width: 100%;
+  height: 100%;
   pointer-events: all;
 }
 .codebase-map-viewport {

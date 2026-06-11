@@ -166,6 +166,9 @@ window.CodebaseMapPanel = undefined;
     // Viewport group for pan/zoom
     svg += `<g class="codebase-map-viewport" transform="translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})">`;
 
+    // Content bounds background (subtle visual feedback for canvas extent)
+    svg += `<rect x="0" y="0" width="${totalW}" height="${totalH}" fill="rgba(255,255,255,0.015)" stroke="rgba(255,255,255,0.04)" stroke-width="1" rx="4" />`;
+
     // Render edges
     if (edgesVisible) {
       const visibleEdges = overview.edges.filter(
@@ -219,9 +222,9 @@ window.CodebaseMapPanel = undefined;
 
   function fitToView() {
     if (!mapSvg) return;
-    const container = mapSvg;
-    const viewW = container.clientWidth || 800;
-    const viewH = container.clientHeight || 600;
+    const rect = mapSvg.getBoundingClientRect();
+    const viewW = rect.width || mapSvg.clientWidth || 800;
+    const viewH = rect.height || mapSvg.clientHeight || 600;
     const padding = 20;
 
     const { x: cx, y: cy, w: cw, h: ch } = contentBounds;
@@ -364,8 +367,8 @@ window.CodebaseMapPanel = undefined;
       renderFilterChips(overview);
       attachViewportEvents();
 
-      // Auto-fit after first render
-      requestAnimationFrame(() => fitToView());
+      // Auto-fit after first render (double-rAF ensures layout is computed)
+      requestAnimationFrame(() => requestAnimationFrame(() => fitToView()));
     } catch (error) {
       showEmpty(error instanceof Error ? error.message : String(error));
     }
