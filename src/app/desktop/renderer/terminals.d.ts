@@ -66,6 +66,7 @@ export interface MultiTerminalController {
   addTerminal(): Promise<TerminalTileInfo>;
   closeTerminal(sessionId: string): Promise<void>;
   focusTile(sessionId: string): void;
+  unfocusAll(): void;
   getFocusedInfo(): TerminalTileInfo | null;
   getTileElement(sessionId: string): unknown;
   setStatus(sessionId: string, status: string): void;

@@ -109,6 +109,13 @@
       }
     }
 
+    function unfocusAll() {
+      focusedSessionId = null;
+      for (const entry of tiles.values()) {
+        entry.tile.classList.remove('focus');
+      }
+    }
+
     function setTileStatus(sessionId, status) {
       const entry = tiles.get(sessionId);
       if (!entry) return;
@@ -376,10 +383,18 @@
 
     ensurePlaceholder();
 
+    // Remove terminal focus when clicking outside any terminal tile.
+    document.addEventListener('mousedown', (e) => {
+      if (!e.target.closest('.tile')) {
+        unfocusAll();
+      }
+    });
+
     return {
       addTerminal,
       closeTerminal,
       focusTile,
+      unfocusAll,
       getFocusedInfo,
       getTileElement,
       setStatus,
