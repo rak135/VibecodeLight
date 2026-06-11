@@ -5,6 +5,10 @@ import {
 } from '../coordination/agent_operating_mode.js';
 import { HEARTBEAT_TTL_MS } from '../coordination/heartbeat.js';
 import type { AgentSession, AgentStatus } from '../coordination/types.js';
+import {
+  getAgentRecoveryGuidance,
+  type AgentRecoveryGuidance,
+} from './recovery_guidance.js';
 
 /**
  * Phase 3B — agent runtime awareness / preflight (read-only, pure).
@@ -85,6 +89,8 @@ export interface AgentRuntimeAwarenessInput {
   activeIntentsCount: number;
   /** Count of intents releasable right now (clean-tree condition already applied). */
   releasableIntentsCount: number;
+  /** Phase 3C: count of the agent's own ACTIVE claims (dirty or clean). Default 0. */
+  activeClaimsCount?: number;
   /** Triage summaries of unresolved conflicts. */
   conflictTriages?: readonly RuntimeConflictTriage[];
   staleCoordinationPresent: boolean;
@@ -146,6 +152,12 @@ export interface AgentRuntimeAwareness {
   warnings: RuntimeNotice[];
   blockers: RuntimeNotice[];
   checked_at: string;
+  /**
+   * Phase 3C: session continuity / safe resume guidance — one primary
+   * resume_state plus explicit flags and exact safe next commands. Read-only;
+   * never auto-resumes, auto-claims, auto-releases, or cleans up.
+   */
+  recovery: AgentRecoveryGuidance;
 }
 
 function notice(code: string, severity: RuntimeNoticeSeverity, message: string): RuntimeNotice {
@@ -407,7 +419,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
     );
   }
 
-  return {
+  const base: Omit<AgentRuntimeAwareness, 'recovery'> = {
     agent: {
       registered: agent !== null,
       agent_id: agentId,
@@ -446,5 +458,14 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
     warnings,
     blockers,
     checked_at: input.now,
+  };
+
+  // Phase 3C: classify the resume/recovery state over the awareness just built.
+  return {
+    ...base,
+    recovery: getAgentRecoveryGuidance({
+      awareness: base,
+      activeClaimsCount: input.activeClaimsCount ?? 0,
+    }),
   };
 }

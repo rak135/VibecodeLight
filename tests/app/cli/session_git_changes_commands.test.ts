@@ -92,6 +92,25 @@ describe('vibecode session bootstrap --json', () => {
     expect(ra.server).toBeNull();
   });
 
+  test('carries the Phase 3C recovery guidance in JSON and a compact Recovery line in human output', async () => {
+    const agent = registerAgent(repo.repoRoot, { agent_name: 'A', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'recovery' } });
+    addFileClaim(repo.repoRoot, { agent_id: agent.agent_id, path: 'src/mine.ts', mode: 'exclusive' });
+    write(repo.repoRoot, 'src/mine.ts');
+
+    const json = await runCli(['session', 'bootstrap', '--repo', repo.repoRoot, '--agent', agent.agent_id, '--json']);
+    expect(json.exitCode).toBe(0);
+    const envelope = JSON.parse(json.logs[0]) as { data: SessionBootstrapResult };
+    const recovery = envelope.data.runtime_awareness.recovery;
+    expect(recovery.resume_state).toBe('ready_to_commit');
+    expect(recovery.recommended_cli_commands.some((c) => c.includes('commit guard') && c.includes('--dry-run'))).toBe(true);
+
+    const human = await runCli(['session', 'bootstrap', '--repo', repo.repoRoot, '--agent', agent.agent_id]);
+    expect(human.exitCode).toBe(0);
+    const recoveryLines = human.logs.filter((l) => l.startsWith('Recovery: '));
+    expect(recoveryLines).toHaveLength(1);
+    expect(recoveryLines[0]).toContain('ready_to_commit');
+  });
+
   test('--register --agent-mode build --task creates an agent', async () => {
     const result = await runCli([
       'session', 'bootstrap', '--repo', repo.repoRoot,

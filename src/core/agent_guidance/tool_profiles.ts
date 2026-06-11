@@ -37,6 +37,7 @@ export const TOOL_PROFILE_IDS = [
   'conflict_resolution',
   'coordination_housekeeping',
   'runtime_preflight',
+  'session_recovery',
 ] as const;
 
 export type ToolProfileId = (typeof TOOL_PROFILE_IDS)[number];
@@ -388,6 +389,52 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       'read_only agents must not edit, claim, finalize, or commit.',
       'Staged unclaimed files hard-block the commit guard — unstage and review them yourself; never commit them.',
       'Use the CLI fallback when the MCP server is stale or missing tools.',
+    ],
+  },
+  session_recovery: {
+    profile_id: 'session_recovery',
+    title: 'Session recovery / resume',
+    purpose: 'Safely resume after an interruption, stale heartbeat, MCP restart, crash, or a partially completed workflow.',
+    when_to_use: [
+      'You are resuming after an interruption, model crash, long test run, or MCP server restart.',
+      'You are unsure whether your agent, claims, or intents are still valid.',
+      'session_bootstrap reports a stale or terminated agent, or a recovery state you did not expect.',
+    ],
+    mcp_tools: [
+      { name: 'vibecode_session_bootstrap', reason: 'Start every resume here: runtime_awareness.recovery classifies your resume state and lists the exact safe next commands.' },
+      { name: 'vibecode_agent_heartbeat', reason: 'Heartbeat a STALE (never a terminated) agent before continuing; then re-run session bootstrap.' },
+      { name: 'vibecode_git_changes', reason: 'Re-inspect the claim-aware dirty state before touching anything you left behind.' },
+      { name: 'vibecode_finalize_check', reason: 'Check commit readiness for dirty claimed work from before the interruption.' },
+      { name: 'vibecode_claim_intents_list', reason: 'See which of your work intents are still active and whether they are releasable.' },
+      { name: 'vibecode_claim_intent_release', reason: 'Release YOUR OWN completed clean intent (dry-run first; same-agent only).' },
+      { name: 'vibecode_conflicts_list', reason: 'Inspect conflicts that may still block your previous scope.' },
+      { name: 'vibecode_workspace_info', reason: 'Live MCP server identity — detect a stale server session after a restart.' },
+    ],
+    cli_commands: [
+      { command: 'vibecode session bootstrap --agent <agent_id> --json', reason: 'Heartbeat + full re-orientation including the recovery resume state in one call.' },
+      { command: 'vibecode agents heartbeat --agent <agent_id> --json', reason: 'Revive a stale agent before resuming work.' },
+      { command: 'vibecode session bootstrap --register --agent-mode <read_only|build> --task "<task>" --json', reason: 'Register a NEW agent when yours is terminated or missing — never reuse the old one.' },
+      { command: 'vibecode git changes --agent <agent_id> --json', reason: 'CLI fallback for the claim-aware dirty-state check.' },
+      { command: 'vibecode finalize check --agent <agent_id> --json', reason: 'CLI fallback for the conservative commit-readiness gate.' },
+      { command: 'vibecode commit guard --agent <agent_id> --dry-run --json', reason: 'Preview committing the dirty claimed work you left behind (inspect skipped-file warnings).' },
+      { command: 'vibecode claims intents list --agent <agent_id> --status active --json', reason: 'See your own active intents and their claim counts.' },
+      { command: 'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --dry-run --json', reason: 'Preview releasing one of your OWN clean intents.' },
+      { command: 'vibecode mcp tools --json', reason: 'Current build tool list — compare with the live server tool_count to detect a stale MCP server.' },
+    ],
+    next_steps: [
+      'Start with session bootstrap and read runtime_awareness.recovery before anything else.',
+      'Stale agent: heartbeat first, then re-run session bootstrap. Terminated or missing agent: register a NEW agent.',
+      'Dirty claimed files: git changes → finalize check → commit guard dry-run; inspect skipped-file warnings before an isolated commit.',
+      'Own clean intent: dry-run the intent release first, then release it.',
+      'Conflicts: switch to conflict_resolution. Stale coordination: switch to coordination_housekeeping.',
+      'If expected MCP tools are missing or stale, use the CLI fallback and restart/reconnect the MCP server.',
+    ],
+    warnings: [
+      'Never reuse released claims and never edit without an active claim — re-plan and re-claim instead.',
+      'Never heartbeat or resume a terminated agent; register a new one.',
+      'Never hand-edit .vibecode coordination state — use the commands above.',
+      'No force cleanup, no automatic release/reap/resolve, no ownership transfer, and never release another agent’s intent — recovery is explicit, never automatic.',
+      'read_only agents observe only: no claim, edit, finalize, or commit during recovery either.',
     ],
   },
 });

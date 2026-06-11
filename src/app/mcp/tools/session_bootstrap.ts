@@ -113,6 +113,7 @@ function renderText(result: SessionBootstrapResult, serverIdentity: McpServerIde
       + ` isolated_commit_possible=${preflight.commit_guard.isolated_commit_possible ? 'yes' : 'no'}`
       + ` needs_heartbeat=${preflight.agent.needs_heartbeat ? 'yes' : 'no'}`,
   );
+  lines.push(`Recovery: ${preflight.recovery.summary}`);
   if (result.blockers.length > 0) {
     lines.push('', 'blockers:');
     for (const b of result.blockers) lines.push(`  - [${b.code}] ${b.message}`);

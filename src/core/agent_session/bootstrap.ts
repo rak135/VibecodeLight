@@ -909,6 +909,8 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
     },
     activeIntentsCount: ownActiveIntentsCount,
     releasableIntentsCount: hasReleasableIntents ? ownActiveIntentsCount : 0,
+    // Phase 3C: own ACTIVE claims (dirty or clean) for resume classification.
+    activeClaimsCount: ownClaims.length,
     conflictTriages: triageResult.conflicts,
     staleCoordinationPresent: staleCoordination.has_stale_state,
     now: checkedAt,

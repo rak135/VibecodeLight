@@ -190,6 +190,7 @@ function printHuman(result: SessionBootstrapResult): void {
       + ` isolated_commit_possible=${preflight.commit_guard.isolated_commit_possible ? 'yes' : 'no'}`
       + ` needs_heartbeat=${preflight.agent.needs_heartbeat ? 'yes' : 'no'}`,
   );
+  console.log(`Recovery: ${preflight.recovery.summary}`);
   console.log(`current_run: ${result.current_run.run_id ?? '(none)'} scan_available=${result.scan.current_run_scan_available ? 'yes' : 'no'}`);
   console.log(`codegraph: available=${result.codegraph.available ? 'yes' : 'no'} initialized=${result.codegraph.initialized ? 'yes' : 'no'}`);
   if (result.blockers.length > 0) {

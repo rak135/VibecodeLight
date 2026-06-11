@@ -3351,6 +3351,115 @@ section; agreement with `server_identity`),
 preflight with `server: null`; CLI/MCP structural parity), and
 `tests/core/agent_guidance/tool_profiles.test.ts` (`runtime_preflight`).
 
+## 14K. Phase 3C — session continuity and safe recovery guidance (Implemented)
+
+Trigger: an agent resuming after an interruption (model crash, MCP server
+restart, long test run, stale heartbeat, half-finished workflow) had all the
+Phase 3B preflight data but still had to derive its own answer to "should I
+continue, heartbeat, commit, release, re-plan, re-register, or stop?". Phase 3C
+adds that answer as a compact classification. **No new MCP tool; the tool count
+stays 42.** Profiles grow 9→10 (`session_recovery`).
+
+- New pure core module `src/core/agent_session/recovery_guidance.ts`
+  (`getAgentRecoveryGuidance`): consumes the already-computed runtime awareness
+  (plus the agent's own active-claim count) — no filesystem, no git, no writes,
+  no mutation. `getAgentRuntimeAwareness` embeds its result as
+  `runtime_awareness.recovery` in both MCP `vibecode_session_bootstrap` and CLI
+  `vibecode session bootstrap` (full parity; the `server` block remains the
+  only MCP-filled section).
+- One primary `resume_state` (canonical order):
+  `not_registered` (no/missing agent → register; old claims grant nothing),
+  `terminated` (blocked; register a NEW agent; never heartbeat/reuse),
+  `stale_needs_heartbeat` (heartbeat, then re-run session bootstrap),
+  `read_only_observe_only` (observe only; no claim/edit/commit guidance),
+  `ready_to_claim` (active build agent, no active claims/intents — re-plan and
+  claim explicit files; this is also the released-claims case: a released claim
+  never authorizes resuming an edit),
+  `ready_to_continue` (own claims/intents still active, nothing committable),
+  `ready_to_commit` (dirty claimed files, finalize-ready → git changes,
+  finalize check, commit guard dry-run),
+  `isolated_commit_possible` (claimed files committable, finalize blocked only
+  by unrelated unstaged unclaimed dirty files — guard dry-run with explicit
+  warning; skipped files stay untouched and are never called safe; confidence
+  `medium`),
+  `blocked_by_staged_unclaimed` (staged unclaimed file(s) — inspect/unstage
+  yourself; never raw git commit, never auto-unstage),
+  `ready_to_release` (own clean intent releasable — dry-run first; own intents
+  only, never another agent's),
+  `blocked_by_conflict` (still-blocking conflict involving the agent →
+  conflict_resolution profile; no auto-resolve),
+  `uncertain_state` (git unavailable / invalid session metadata / ambiguous —
+  fail safe: inspect-only guidance, never commit/release/cleanup; confidence
+  `low`).
+- Secondary conditions never compete with the primary state: stale
+  coordination (`STALE_COORDINATION_PRESENT` → coordination_housekeeping +
+  dry-run reap), an overdue heartbeat on an alive agent
+  (`HEARTBEAT_RECOMMENDED`), a conflict that does not block the primary action
+  (`CONFLICTS_STILL_BLOCKING`), and unclaimed dirty files whose ownership is
+  unclear (`UNCLAIMED_DIRTY_FILES_PRESENT` — do not touch them) surface as
+  notices with appended commands.
+- DTO (bounded; lists deduped, capped at 12): `resume_state`, `confidence`
+  (high/medium/low), one-line `summary`, `recommended_resume_action` token,
+  boolean flags (`can_continue_existing_agent`, `requires_new_agent`,
+  `requires_heartbeat`, `requires_rebootstrap`, `has_active_claims`,
+  `has_active_intents`, `has_dirty_claimed_files`,
+  `has_releasable_clean_intents`, `has_unclaimed_dirty_files`,
+  `has_staged_blockers`), `recommended_next_tools` /
+  `recommended_cli_commands` (real, safe commands only), static
+  `mcp_stale_guidance`, and `warnings` / `blockers`.
+- MCP stale-server fallback: the recovery section carries static, deterministic
+  guidance — if an expected `vibecode_*` tool is missing or
+  `runtime_awareness.server.tool_count` differs from the current build
+  (`vibecode mcp tools --json`), restart/reconnect the MCP server and use the
+  CLI fallback (every recovery command is a CLI command). The core never
+  asserts a live mismatch itself (it cannot reliably know the expected build),
+  so there are no false-positive stale-server warnings.
+- New static tool profile `session_recovery` (profiles 9→10, listed
+  automatically by `vibecode_workspace_info`): bootstrap-first resume flow,
+  heartbeat-before-resume, terminated/missing → new registration, dirty
+  claimed work → finalize/guard dry-run, own clean intent → dry-run release,
+  conflict_resolution / coordination_housekeeping handoffs, MCP stale →
+  CLI fallback + restart, and the hard prohibitions (no released-claim reuse,
+  no editing without an active claim, no `.vibecode` hand-edits, no force
+  cleanup/ownership transfer/cross-agent release).
+- MCP/CLI human output gains exactly one compact line, e.g.
+  `Recovery: ready_to_commit — run git changes, finalize check, then commit
+  guard dry-run.`
+
+Example resume workflow (stale heartbeat after a long pause):
+
+```powershell
+vibecode session bootstrap --agent <agent_id> --json
+vibecode agents heartbeat --agent <agent_id> --json
+vibecode session bootstrap --agent <agent_id> --json
+vibecode git changes --agent <agent_id> --json
+vibecode finalize check --agent <agent_id> --json
+vibecode commit guard --agent <agent_id> --dry-run --json
+```
+
+(Note: `vibecode session bootstrap --agent <id>` itself heartbeats the agent,
+so a stale-but-valid session is revived by the first call; the explicit
+heartbeat command is the no-rebootstrap fallback during long-running work.)
+
+Out of scope, confirmed not added: auto-resume, auto-claim, auto-release,
+auto-reap, auto-resolve, force cleanup, ownership transfer, handoff, branch
+management, background heartbeat daemon/worker, UI, subagent model, automatic
+file selection, scanner-based suggestions, LLM relevance scoring,
+directory/glob claims, MCP commit tool, `.vibecode` editing workflows.
+Vibecode tells the agent what state it is in and which explicit safe commands
+exist next; it never decides what the agent works on and never recovers,
+transfers, or cleans state itself.
+
+Tests: `tests/core/agent_session/recovery_guidance.test.ts` (pure
+classification of every resume state, safety/bounds matrix, purity),
+`tests/core/agent_session/bootstrap_recovery_guidance.test.ts` (real-tree
+integration incl. staged-unclaimed, isolated-commit, terminated, releasable
+intent), `tests/app/mcp/session_bootstrap_tool.test.ts` (recovery + server
+identity + compact Recovery text line), `tests/app/cli/
+session_git_changes_commands.test.ts` (CLI recovery JSON + human Recovery
+line; CLI/MCP parity), and `tests/core/agent_guidance/tool_profiles.test.ts`
+(`session_recovery`).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

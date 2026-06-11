@@ -31,6 +31,7 @@ const KEY_PROFILES = [
   'conflict_resolution',
   'coordination_housekeeping',
   'runtime_preflight',
+  'session_recovery',
 ];
 
 describe('tool profiles — structure', () => {
@@ -254,6 +255,61 @@ describe('tool profiles — runtime_preflight (Phase 3B)', () => {
     // The only commit-guard reference is the dry-run preview.
     const guardCommands = (profile?.cli_commands ?? []).filter((c) => c.command.includes('commit guard'));
     for (const c of guardCommands) expect(c.command).toContain('--dry-run');
+  });
+});
+
+describe('tool profiles — session_recovery (Phase 3C)', () => {
+  test('session_recovery exists with bootstrap-first resume guidance and real commands', () => {
+    const profile = getToolProfile('session_recovery');
+    expect(profile).not.toBeNull();
+    const toolNames = profile!.mcp_tools.map((t) => t.name);
+    expect(toolNames).toContain('vibecode_session_bootstrap');
+    expect(toolNames).toContain('vibecode_agent_heartbeat');
+    expect(toolNames).toContain('vibecode_git_changes');
+    expect(toolNames).toContain('vibecode_finalize_check');
+    expect(toolNames).toContain('vibecode_claim_intents_list');
+
+    const commands = profile!.cli_commands.map((c) => c.command);
+    expect(commands.some((c) => c.includes('session bootstrap --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('agents heartbeat --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('--register'))).toBe(true);
+    expect(commands.some((c) => c.includes('git changes --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('finalize check --agent <agent_id>'))).toBe(true);
+    expect(commands.some((c) => c.includes('commit guard --agent <agent_id> --dry-run'))).toBe(true);
+    expect(commands.some((c) => c.includes('mcp tools'))).toBe(true);
+  });
+
+  test('session_recovery teaches the resume rules: heartbeat-first, no terminated reuse, no released-claim reuse', () => {
+    const profile = getToolProfile('session_recovery');
+    const text = [
+      ...(profile?.when_to_use ?? []),
+      ...(profile?.next_steps ?? []),
+      ...(profile?.warnings ?? []),
+      ...(profile?.mcp_tools.map((t) => t.reason) ?? []),
+      ...(profile?.cli_commands.map((c) => c.reason) ?? []),
+    ].join(' ').toLowerCase();
+    expect(text).toContain('heartbeat');
+    expect(text).toContain('terminated');
+    expect(text).toMatch(/released claim|re-claim|reuse/);
+    expect(text).toMatch(/new agent|register/);
+    expect(text).toContain('cli fallback');
+    expect(text).toMatch(/restart|reconnect/);
+    expect(text).toContain('.vibecode');
+  });
+
+  test('session_recovery forbids automatic recovery: no force, no cross-agent release, no auto cleanup', () => {
+    const profile = getToolProfile('session_recovery');
+    const warnings = (profile?.warnings ?? []).join(' ').toLowerCase();
+    expect(warnings).toMatch(/never|no /);
+    expect(warnings).toMatch(/ownership transfer|another agent/);
+    expect(warnings).toMatch(/force|automatic/);
+    const commands = (profile?.cli_commands ?? []).map((c) => c.command).join(' ');
+    expect(commands).not.toMatch(/--force/);
+    // Releases and guard runs are dry-run-first in the recovery flow.
+    const guardCommands = (profile?.cli_commands ?? []).filter((c) => c.command.includes('commit guard'));
+    for (const c of guardCommands) expect(c.command).toContain('--dry-run');
+    const releaseCommands = (profile?.cli_commands ?? []).filter((c) => c.command.includes('intent-release'));
+    for (const c of releaseCommands) expect(c.command).toContain('--dry-run');
   });
 });
 

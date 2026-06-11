@@ -1084,7 +1084,7 @@ common agent situations so an agent does not have to reason over every tool.
 Omit `profile` to list the profiles; pass a profile id
 (`read_only_orientation`, `build_pre_edit`, `build_post_edit`, `scan_inspection`,
 `artifact_continuation`, `safe_commit`, `conflict_resolution`,
-`coordination_housekeeping`, `runtime_preflight`) to get its
+`coordination_housekeeping`, `runtime_preflight`, `session_recovery`) to get its
 recommended MCP tools, CLI fallbacks, when-to-use notes, next steps, and
 warnings. Profiles are **static/deterministic** — no LLM ranking, no task-aware
 relevance scoring, and no tool execution. CLI parity:
@@ -1169,6 +1169,22 @@ releases, reaps, resolves, or commits by itself. The `runtime_preflight` tool
 profile (`vibecode tools profile --profile runtime_preflight --json`) teaches
 the stale-MCP-server check (compare the live server `tool_count` with
 `vibecode mcp tools --json`) and the CLI fallback path.
+
+Session recovery guidance (Phase 3C): `runtime_awareness` additionally carries
+a compact `recovery` section that classifies one primary resume state
+(`not_registered`, `terminated`, `stale_needs_heartbeat`,
+`read_only_observe_only`, `ready_to_claim`, `ready_to_continue`,
+`ready_to_commit`, `isolated_commit_possible`, `blocked_by_staged_unclaimed`,
+`ready_to_release`, `blocked_by_conflict`, `uncertain_state`) with explicit
+flags and exact safe next commands, so an agent resuming after an
+interruption, stale heartbeat, or MCP restart knows whether to continue,
+heartbeat + re-bootstrap, commit via the guard, release its own clean intent,
+re-plan (released claims grant nothing), or register a new agent. Ambiguous
+state fails safe (`uncertain_state`: inspect-only). Recovery is advisory and
+explicit — no auto-resume, no auto-claim/release/reap/resolve, no ownership
+transfer, no background heartbeat. The `session_recovery` tool profile
+(`vibecode tools profile --profile session_recovery --json`) teaches the full
+resume flow, and the bootstrap human output shows one `Recovery:` line.
 
 Multi-agent coordination tool (Phase Coordination-1 — read-only):
 

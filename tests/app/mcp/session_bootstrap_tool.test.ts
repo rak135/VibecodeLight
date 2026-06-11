@@ -153,6 +153,35 @@ describe('VibecodeMCP session_bootstrap tool', () => {
     expect(ra.server?.started_at).toBe(data.server_identity.started_at);
   });
 
+  test('runtime_awareness.recovery is present with a compact Recovery line in the text (Phase 3C)', async () => {
+    registerAgent(
+      repo.repoRoot,
+      { agent_name: 'Me', agent_type: 'claude', metadata: { operating_mode: 'build', task: 'phase 3c' } },
+      { agentId: 'agent-me' },
+    );
+    const result = await tool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'agent-me' },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as SessionBootstrapResult & {
+      server_identity: { tool_count: number };
+    };
+    const recovery = data.runtime_awareness.recovery;
+    expect(recovery.resume_state).toBe('ready_to_claim');
+    expect(recovery.summary).toContain('ready_to_claim');
+    // MCP responses carry the live server identity alongside the recovery
+    // guidance, so a resuming agent can detect a stale server in one call.
+    expect(data.server_identity.tool_count).toBeGreaterThan(0);
+    expect(recovery.mcp_stale_guidance.join(' ')).toContain('vibecode mcp tools --json');
+    // The human text output gets exactly one compact recovery line.
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : '';
+    const recoveryLines = text.split('\n').filter((l) => l.startsWith('Recovery: '));
+    expect(recoveryLines).toHaveLength(1);
+    expect(recoveryLines[0]).toContain('ready_to_claim');
+  });
+
   test('register=true writes only generated coordination state and returns identity', async () => {
     const result = await tool().handler({
       context: ctx(repo.repoRoot),
