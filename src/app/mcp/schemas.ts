@@ -19,6 +19,7 @@ import { AGENT_TYPES } from '../../core/coordination/types.js';
 import { AGENT_OPERATING_MODES } from '../../core/agent_session/bootstrap.js';
 import { SESSION_BOOTSTRAP_MAX_ITEMS } from '../../core/agent_session/bootstrap.js';
 import { HANDOFF_MAX_ITEMS } from '../../core/agent_session/handoff_packet.js';
+import { TEAM_STATUS_MAX_AGENTS, TEAM_STATUS_MAX_ITEMS } from '../../core/agent_session/team_status.js';
 import { GIT_CHANGES_MAX_FILES } from '../../core/workspace/git_changes_summary.js';
 import { HARD_MAX_ARTIFACT_CHUNK_BYTES } from '../../core/runs/artifact_pagination.js';
 import { SCAN_ARTIFACT_KEYS } from '../../core/runs/scan_artifacts.js';
@@ -546,6 +547,19 @@ export const HANDOFF_GUIDE_INPUT_SCHEMA: JsonSchema = {
     max_items: { ...POSITIVE_INT, maximum: HANDOFF_MAX_ITEMS, description: `Cap on path sample lists in the guide (positive integer, max ${HANDOFF_MAX_ITEMS}).` },
   },
   required: ['from_agent_id'],
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4C: read-only team status / team overview
+// ---------------------------------------------------------------------------
+
+export const TEAM_STATUS_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    max_agents: { ...POSITIVE_INT, maximum: TEAM_STATUS_MAX_AGENTS, description: `Cap on number of agents in the overview (positive integer, max ${TEAM_STATUS_MAX_AGENTS}).` },
+    max_items: { ...POSITIVE_INT, maximum: TEAM_STATUS_MAX_ITEMS, description: `Cap on sample lists (positive integer, max ${TEAM_STATUS_MAX_ITEMS}).` },
+  },
 };
 
 export const GIT_CHANGES_INPUT_SCHEMA: JsonSchema = {

@@ -91,7 +91,9 @@ export type McpErrorCode =
   // Phase 4A: read-only handoff packet.
   | 'HANDOFF_PREPARE_FAILED'
   // Phase 4B: read-only next-agent onboarding guide.
-  | 'HANDOFF_GUIDE_FAILED';
+  | 'HANDOFF_GUIDE_FAILED'
+  // Phase 4C: read-only team status / team overview.
+  | 'TEAM_STATUS_FAILED';
 
 export interface McpStructuredError {
   code: McpErrorCode;
@@ -376,6 +378,11 @@ const ERROR_DEFAULTS: Record<
     retryable: true,
     suggestion:
       'handoff_guide is read-only (it never transfers ownership, registers, releases, or claims anything). Missing previous/next agents are reported inside the guide as safe onboarding states, not as this error. Verify from_agent_id and retry only if the failure is transient.',
+  },
+  TEAM_STATUS_FAILED: {
+    retryable: true,
+    suggestion:
+      'team_status is read-only and degrades to an empty overview on a missing coordination state. Verify the repo root is correct and retry only if the failure is transient.',
   },
 };
 

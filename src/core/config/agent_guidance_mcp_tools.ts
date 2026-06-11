@@ -60,6 +60,7 @@ export const AGENT_GUIDANCE_MCP_TOOL_GROUPS: Readonly<
     'vibecode_conflict_detail',
     'vibecode_handoff_prepare',
     'vibecode_handoff_guide',
+    'vibecode_team_status',
   ]),
 });
 
@@ -108,6 +109,7 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
   vibecode_conflict_detail: 'Get intent-aware triage detail for one conflict: blocking claim/intent, owner lifecycle status, warning codes, and safe next-step recommendations. Read-only.',
   vibecode_handoff_prepare: 'Build a bounded read-only handoff packet for one agent: handoff state, owned claims/intents, shared-tree blockers, safe next commands, and do_not_do boundaries. Visibility only — never transfers claims or assigns the next agent.',
   vibecode_handoff_guide: 'Read-only next-agent onboarding guidance from a previous agent\'s handoff packet: one onboarding state, blocked paths still claimed by the previous agent, safe commands per agent, and do_not_do boundaries. Guidance only — never transfers ownership or auto-claims/releases.',
+  vibecode_team_status: 'Read-only team status / team overview for multi-agent coordination: all agents with status, claims, intents, conflicts, and safe next commands. Observability and guidance only — never assigns work or transfers ownership.',
 });
 
 /**

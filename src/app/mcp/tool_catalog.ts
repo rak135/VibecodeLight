@@ -474,6 +474,21 @@ export const MCP_TOOL_CONTRACTS: Readonly<Record<string, McpToolContractMetadata
       tests: ['tests/app/mcp/handoff_guide_tool.test.ts', 'tests/core/agent_session/handoff_guide.test.ts'],
     },
   ),
+  vibecode_team_status: contract(
+    'Team status',
+    'Read-only team overview for multi-agent coordination: all agents with status, claims, intents, conflicts, and safe next commands.',
+    'read_only',
+    output('Returns a bounded team status overview with summary counts, per-agent recommended actions, workspace state, claims/intents/conflict samples, stale coordination state, and safe next commands.', ['summary', 'agents', 'claims', 'intents', 'conflicts', 'stale_coordination', 'recommended_next_tools', 'recommended_cli_commands']),
+    {
+      cli: ['vibecode team status --json'],
+      safety: [
+        'Read-only observability and guidance only; never assigns work, transfers ownership, auto-claims, auto-releases, auto-reaps, auto-resolves, or mutates git/source/coordination state.',
+        'No assignment: team status does not choose which agent continues. The human or external process decides.',
+      ],
+      source: ['src/app/mcp/tools/team_status.ts', 'src/core/agent_session/team_status.ts'],
+      tests: ['tests/app/mcp/team_status_tool.test.ts', 'tests/core/agent_session/team_status.test.ts'],
+    },
+  ),
 });
 
 function buildToolToGroup(): Map<string, string> {

@@ -1496,6 +1496,23 @@ command is
 `vibecode handoff guide --repo <path> --from-agent <agent_id>
 [--for-agent <agent_id>] [--max-items <n>] --json`.
 
+Read-only team status / team overview (Phase 4C):
+
+```text
+vibecode_team_status
+```
+
+`vibecode_team_status` provides a read-only team overview for multi-agent
+coordination: all agents with their status, operating mode, claims, intents,
+conflicts, stale coordination state, and safe next commands. It answers who is
+active, stale, terminated, blocked, or ready for handoff in one bounded
+snapshot. The equivalent CLI command is `vibecode team status --json` (or
+`--max-agents <n> --max-items <n>`). Observability and guidance only — it
+never assigns work, transfers ownership, auto-claims, auto-releases, auto-reaps,
+auto-resolves, or mutates git/source/coordination state. No assignment: team
+status does not choose which agent continues; the human or external process
+decides.
+
 Approval / permission settings remain controlled by the MCP client / agent
 (Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
 not add a permission profile, an allow/deny list, or any approval mutation. MCP-2

@@ -159,6 +159,8 @@ describe('Codex MCP config generation', () => {
       'vibecode_handoff_prepare',
       // Phase 4B (read-only next-agent onboarding guide)
       'vibecode_handoff_guide',
+      // Phase 4C (read-only team status / team overview)
+      'vibecode_team_status',
     ]);
     const joined = result.toml_snippet.toLowerCase();
     // Tool names referencing destructive verbs must not appear.

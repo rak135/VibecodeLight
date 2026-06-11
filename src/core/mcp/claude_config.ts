@@ -97,6 +97,8 @@ export const CLAUDE_MCP_EXPECTED_TOOLS = [
   'vibecode_handoff_prepare',
   // Phase 4B: read-only next-agent onboarding guide (guidance only; no transfer).
   'vibecode_handoff_guide',
+  // Phase 4C: read-only team status / team overview (observability only; no assignment).
+  'vibecode_team_status',
 ] as const;
 
 export interface ClaudeMcpServerConfig {

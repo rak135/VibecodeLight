@@ -41,6 +41,7 @@ import { buildScanArtifactReadTool } from './tools/scan_artifact_read.js';
 import { buildSessionBootstrapTool } from './tools/session_bootstrap.js';
 import { buildHandoffPrepareTool } from './tools/handoff_prepare.js';
 import { buildHandoffGuideTool } from './tools/handoff_guide.js';
+import { buildTeamStatusTool } from './tools/team_status.js';
 import { buildToolProfileTool } from './tools/tool_profile.js';
 import { buildMcpGuidanceTool } from './tools/mcp_guidance.js';
 import { buildProjectInstructionsTool } from './tools/project_instructions.js';
@@ -173,6 +174,8 @@ export function buildVibecodeMcpTools(options: BuildVibecodeMcpToolsOptions = {}
     buildHandoffPrepareTool(),
     // Phase 4B: read-only next-agent onboarding guide (guidance only; no transfer).
     buildHandoffGuideTool(),
+    // Phase 4C: read-only team status / team overview (observability only; no assignment).
+    buildTeamStatusTool(),
   ];
   if (!runtime) return tools;
   return tools.map((tool) => ({
@@ -244,4 +247,6 @@ export const VIBECODE_MCP_TOOL_NAMES: readonly string[] = Object.freeze([
   'vibecode_handoff_prepare',
   // Phase 4B
   'vibecode_handoff_guide',
+  // Phase 4C
+  'vibecode_team_status',
 ]);

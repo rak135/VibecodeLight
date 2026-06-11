@@ -39,6 +39,7 @@ export const TOOL_PROFILE_IDS = [
   'runtime_preflight',
   'session_recovery',
   'team_handoff',
+  'team_status',
 ] as const;
 
 export type ToolProfileId = (typeof TOOL_PROFILE_IDS)[number];
@@ -484,6 +485,46 @@ const PROFILES: Readonly<Record<ToolProfileId, ToolProfile>> = Object.freeze({
       'Never bypass the commit guard with raw git add/commit, and never hand-edit .vibecode coordination state.',
       'Skipped or unclaimed dirty files in the packet are not safe — inspect them; handoff does not transfer or clean them.',
       'Released claims authorize nothing: the next agent must register and claim explicit files itself.',
+    ],
+  },
+  team_status: {
+    profile_id: 'team_status',
+    title: 'Team status / team overview',
+    purpose: 'Read-only overview of all agents, claims, intents, conflicts, and coordination state in a multi-agent session.',
+    when_to_use: [
+      'You are starting a multi-agent coordination session and need to see who is active, stale, or blocked.',
+      'A human or agent needs a quick overview of the team before deciding who continues work.',
+      'You want to see which agents have claims, intents, conflicts, or releasable work.',
+    ],
+    mcp_tools: [
+      { name: 'vibecode_team_status', reason: 'Read-only team overview: all agents with status, claims, intents, conflicts, and safe next commands.' },
+      { name: 'vibecode_session_bootstrap', reason: 'Detailed one-agent runtime awareness when you need to drill into a specific agent.' },
+      { name: 'vibecode_handoff_prepare', reason: 'Detailed handoff packet for one agent when preparing a transition.' },
+      { name: 'vibecode_handoff_guide', reason: 'Next-agent onboarding guidance from a previous agent handoff packet.' },
+      { name: 'vibecode_conflicts_list', reason: 'Detailed conflict listing when team status reports unresolved conflicts.' },
+      { name: 'vibecode_claims_list', reason: 'Detailed claims listing when team status reports active or stale claims.' },
+    ],
+    cli_commands: [
+      { command: 'vibecode team status --json', reason: 'CLI fallback for the read-only team overview.' },
+      { command: 'vibecode session bootstrap --agent <agent_id> --json', reason: 'Detailed one-agent runtime for a specific agent.' },
+      { command: 'vibecode handoff prepare --agent <agent_id> --json', reason: 'Detailed handoff packet for a specific agent.' },
+      { command: 'vibecode conflicts list --json', reason: 'CLI fallback for detailed conflict listing.' },
+      { command: 'vibecode claims list --json', reason: 'CLI fallback for detailed claims listing.' },
+      { command: 'vibecode claims reap --dry-run --json', reason: 'Preview stale-agent claim cleanup when stale coordination is present.' },
+    ],
+    next_steps: [
+      'Use session_bootstrap for detailed one-agent runtime awareness.',
+      'Use handoff_prepare / handoff_guide for the handoff workflow.',
+      'Use conflict_resolution for unresolved conflicts.',
+      'Use coordination_housekeeping for stale coordination state.',
+      'Team status does not assign work — the human or external process chooses who continues.',
+    ],
+    warnings: [
+      'Team status is observability and guidance only — it never assigns work, transfers ownership, or auto-cleans.',
+      'No auto-release, auto-claim, auto-reap, auto-resolve, or force cleanup.',
+      'Next agents must register and claim explicitly — team status does not transfer claims.',
+      'Use the detailed tools (session_bootstrap, handoff_prepare, conflict_detail) for per-agent deep dives.',
+      'Point-in-time snapshot: re-run team status after mutations to see updated state.',
     ],
   },
 });
