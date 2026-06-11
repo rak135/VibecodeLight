@@ -78,14 +78,13 @@ export interface CodebaseMapOverview {
 }
 
 export interface BuildCodebaseMapOptions {
-  /** Maximum number of nodes to include. Default 200. */
+  /** Maximum number of nodes to include. Default: no cap (all nodes). */
   maxNodes?: number;
-  /** Maximum number of edges to include. Default 300. */
+  /** Maximum number of edges to include. Default 1000. */
   maxEdges?: number;
 }
 
-const DEFAULT_MAX_NODES = 200;
-const DEFAULT_MAX_EDGES = 300;
+const DEFAULT_MAX_EDGES = 1000;
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -171,7 +170,7 @@ export function buildCodebaseMapOverview(
   runDir: string,
   options: BuildCodebaseMapOptions = {},
 ): CodebaseMapOverview {
-  const maxNodes = options.maxNodes ?? DEFAULT_MAX_NODES;
+  const maxNodes = options.maxNodes;
   const maxEdges = options.maxEdges ?? DEFAULT_MAX_EDGES;
 
   const warnings: string[] = [];
@@ -388,13 +387,20 @@ export function buildCodebaseMapOverview(
   // Apply caps
   const totalNodes = allNodes.length;
   const totalEdges = allEdges.length;
-  const displayedNodes = Math.min(totalNodes, maxNodes);
+  const nodeCapped = maxNodes !== undefined && totalNodes > maxNodes;
+  const edgeCapped = totalEdges > maxEdges;
+  const displayedNodes = nodeCapped ? maxNodes : totalNodes;
   const displayedEdges = Math.min(totalEdges, maxEdges);
-  const truncated = totalNodes > maxNodes || totalEdges > maxEdges;
+  const truncated = nodeCapped || edgeCapped;
 
-  if (truncated) {
+  if (nodeCapped) {
     warnings.push(
-      `Map truncated: showing ${displayedNodes}/${totalNodes} nodes and ${displayedEdges}/${totalEdges} edges.`,
+      `Node cap: showing ${displayedNodes}/${totalNodes} nodes. Increase maxNodes to see all.`,
+    );
+  }
+  if (edgeCapped) {
+    warnings.push(
+      `Edge cap: showing ${displayedEdges}/${totalEdges} edges. Increase maxEdges to see all.`,
     );
   }
 
@@ -410,7 +416,7 @@ export function buildCodebaseMapOverview(
       displayed_edges: displayedEdges,
       truncated,
     },
-    nodes: allNodes.slice(0, maxNodes),
+    nodes: nodeCapped ? allNodes.slice(0, maxNodes) : allNodes,
     edges: allEdges.slice(0, maxEdges),
     warnings,
   };

@@ -1,5 +1,6 @@
 /**
- * Codebase Map panel module: renders a read-only 2D SVG map of the codebase.
+ * Codebase Map panel module: renders a read-only 2D SVG map of the codebase
+ * with CAD-like viewport controls (zoom toward cursor, pan, fit, reset).
  * Pure render function + DOM integration, following the VibecodeMcpPanel pattern.
  */
 
@@ -21,11 +22,31 @@ window.CodebaseMapPanel = undefined;
   const mapFilterChips = $('codebase-map-filters');
   const mapSearchInput = $('codebase-map-search');
   const mapEdgesToggle = $('codebase-map-edges-toggle');
+  const mapFitBtn = $('codebase-map-fit');
+  const mapResetBtn = $('codebase-map-reset');
 
   let lastOverview = null;
   let activeFilter = 'all';
   let searchQuery = '';
   let showEdges = true;
+
+  // CAD viewport state
+  const MIN_ZOOM = 0.05;
+  const MAX_ZOOM = 20;
+  const ZOOM_FACTOR = 1.15;
+
+  const viewport = {
+    scale: 1,
+    tx: 0,
+    ty: 0,
+    isPanning: false,
+    lastPointerX: 0,
+    lastPointerY: 0,
+    panButton: -1,
+  };
+
+  // Store content bounds for fitToView
+  let contentBounds = { x: 0, y: 0, w: 100, h: 100 };
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -63,6 +84,7 @@ window.CodebaseMapPanel = undefined;
     panel.classList.remove('open');
     const workspace = $('workspace');
     if (workspace) workspace.style.display = '';
+    detachViewportEvents();
   }
 
   function filterNodes(nodes, filter, query) {
@@ -87,7 +109,7 @@ window.CodebaseMapPanel = undefined;
 
   /**
    * Pure render function: produces SVG HTML from an overview DTO.
-   * Can be unit-tested without DOM.
+   * Includes a viewport group for CAD-like pan/zoom transforms.
    */
   function renderCodebaseMapSvgHtml(overview, filter, query, edgesVisible) {
     if (!overview || !overview.ok || overview.nodes.length === 0) {
@@ -135,7 +157,14 @@ window.CodebaseMapPanel = undefined;
     const maxGroupSize = Math.max(...Array.from(groups.values()).map((g) => g.length));
     const totalH = PADDING + GROUP_HEADER_H + maxGroupSize * (NODE_H + NODE_GAP) + PADDING;
 
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}" style="background:transparent">`;
+    // Store content bounds for fitToView
+    contentBounds = { x: 0, y: 0, w: totalW, h: totalH };
+
+    // SVG canvas is sized to the container; the viewport group handles transforms
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" style="background:transparent">`;
+
+    // Viewport group for pan/zoom
+    svg += `<g class="codebase-map-viewport" transform="translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})">`;
 
     // Render edges
     if (edgesVisible) {
@@ -171,13 +200,129 @@ window.CodebaseMapPanel = undefined;
       const strokeColor = node.changed ? '#ff9800' : node.entrypoint ? '#4fc3f7' : 'rgba(255,255,255,0.1)';
       const strokeWidth = node.changed || node.entrypoint ? 2 : 1;
 
-      svg += `<rect x="${pos.x}" y="${pos.y}" width="${NODE_W}" height="${NODE_H}" rx="4" fill="rgba(30,30,30,0.8)" stroke="${strokeColor}" stroke-width="${strokeWidth}" />`;
+      svg += `<rect x="${pos.x}" y="${pos.y}" width="${NODE_W}" height="${NODE_H}" rx="4" fill="rgba(30,30,30,0.8)" stroke="${strokeColor}" stroke-width="${strokeWidth}" data-node-id="${escapeHtml(node.id)}" />`;
       svg += `<circle cx="${pos.x + 12}" cy="${pos.y + NODE_H / 2}" r="4" fill="${color}" />`;
       svg += `<text x="${pos.x + 22}" y="${pos.y + NODE_H / 2 + 4}" fill="var(--text, #e0e0e0)" font-size="11" font-family="system-ui">${escapeHtml(node.label)}</text>`;
     }
 
-    svg += '</svg>';
+    svg += '</g></svg>';
     return svg;
+  }
+
+  function applyViewportTransform() {
+    const svgEl = mapSvg ? mapSvg.querySelector('svg') : null;
+    const vpGroup = svgEl ? svgEl.querySelector('.codebase-map-viewport') : null;
+    if (vpGroup) {
+      vpGroup.setAttribute('transform', `translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})`);
+    }
+  }
+
+  function fitToView() {
+    if (!mapSvg) return;
+    const container = mapSvg;
+    const viewW = container.clientWidth || 800;
+    const viewH = container.clientHeight || 600;
+    const padding = 20;
+
+    const { x: cx, y: cy, w: cw, h: ch } = contentBounds;
+    if (cw <= 0 || ch <= 0) return;
+
+    const scaleX = (viewW - 2 * padding) / cw;
+    const scaleY = (viewH - 2 * padding) / ch;
+    viewport.scale = Math.min(scaleX, scaleY);
+    viewport.scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, viewport.scale));
+
+    viewport.tx = padding + (viewW - 2 * padding - cw * viewport.scale) / 2 - cx * viewport.scale;
+    viewport.ty = padding + (viewH - 2 * padding - ch * viewport.scale) / 2 - cy * viewport.scale;
+
+    applyViewportTransform();
+  }
+
+  function resetViewport() {
+    viewport.scale = 1;
+    viewport.tx = 0;
+    viewport.ty = 0;
+    applyViewportTransform();
+  }
+
+  function handleWheel(e) {
+    e.preventDefault();
+    const rect = mapSvg.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+
+    const factor = e.deltaY < 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR;
+    const oldScale = viewport.scale;
+    const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, oldScale * factor));
+    const ratio = newScale / oldScale;
+
+    viewport.tx = cursorX - (cursorX - viewport.tx) * ratio;
+    viewport.ty = cursorY - (cursorY - viewport.ty) * ratio;
+    viewport.scale = newScale;
+
+    applyViewportTransform();
+  }
+
+  function handlePointerDown(e) {
+    // Middle mouse button (1) always pans
+    // Left mouse button (0) pans only on empty canvas (not on nodes)
+    if (e.button === 1 || (e.button === 0 && !isNodeTarget(e.target))) {
+      viewport.isPanning = true;
+      viewport.panButton = e.button;
+      viewport.lastPointerX = e.clientX;
+      viewport.lastPointerY = e.clientY;
+      if (mapSvg) mapSvg.classList.add('panning');
+      e.preventDefault();
+    }
+  }
+
+  function handlePointerMove(e) {
+    if (!viewport.isPanning) return;
+    const dx = e.clientX - viewport.lastPointerX;
+    const dy = e.clientY - viewport.lastPointerY;
+    viewport.tx += dx;
+    viewport.ty += dy;
+    viewport.lastPointerX = e.clientX;
+    viewport.lastPointerY = e.clientY;
+    applyViewportTransform();
+  }
+
+  function handlePointerUp(e) {
+    if (viewport.isPanning && e.button === viewport.panButton) {
+      viewport.isPanning = false;
+      viewport.panButton = -1;
+      if (mapSvg) mapSvg.classList.remove('panning');
+    }
+  }
+
+  function isNodeTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName;
+    return tag === 'rect' || tag === 'text' || tag === 'circle';
+  }
+
+  let viewportEventsAttached = false;
+
+  function attachViewportEvents() {
+    if (viewportEventsAttached || !mapSvg) return;
+    viewportEventsAttached = true;
+
+    mapSvg.addEventListener('wheel', handleWheel, { passive: false });
+    mapSvg.addEventListener('pointerdown', handlePointerDown);
+    mapSvg.addEventListener('pointermove', handlePointerMove);
+    mapSvg.addEventListener('pointerup', handlePointerUp);
+    mapSvg.addEventListener('pointerleave', handlePointerUp);
+  }
+
+  function detachViewportEvents() {
+    if (!viewportEventsAttached || !mapSvg) return;
+    viewportEventsAttached = false;
+
+    mapSvg.removeEventListener('wheel', handleWheel);
+    mapSvg.removeEventListener('pointerdown', handlePointerDown);
+    mapSvg.removeEventListener('pointermove', handlePointerMove);
+    mapSvg.removeEventListener('pointerup', handlePointerUp);
+    mapSvg.removeEventListener('pointerleave', handlePointerUp);
   }
 
   async function renderCodebaseMapPanel() {
@@ -213,8 +358,14 @@ window.CodebaseMapPanel = undefined;
       if (mapEmpty) mapEmpty.style.display = 'none';
       if (mapSvg) mapSvg.style.display = '';
 
+      // Reset viewport on new data
+      resetViewport();
       updateSvg();
       renderFilterChips(overview);
+      attachViewportEvents();
+
+      // Auto-fit after first render
+      requestAnimationFrame(() => fitToView());
     } catch (error) {
       showEmpty(error instanceof Error ? error.message : String(error));
     }
@@ -234,6 +385,7 @@ window.CodebaseMapPanel = undefined;
     if (mapEmpty) mapEmpty.style.display = 'none';
     if (mapSvg) mapSvg.style.display = '';
     mapSvg.innerHTML = svgHtml;
+    applyViewportTransform();
   }
 
   function showEmpty(msg) {
@@ -303,6 +455,17 @@ window.CodebaseMapPanel = undefined;
 
   if (mapRefreshBtn) {
     mapRefreshBtn.addEventListener('click', () => void renderCodebaseMapPanel());
+  }
+
+  if (mapFitBtn) {
+    mapFitBtn.addEventListener('click', () => fitToView());
+  }
+
+  if (mapResetBtn) {
+    mapResetBtn.addEventListener('click', () => {
+      resetViewport();
+      fitToView();
+    });
   }
 
   if (mapCloseBtn) {

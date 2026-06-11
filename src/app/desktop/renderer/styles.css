@@ -1646,8 +1646,17 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .codebase-map-svg {
   min-height: 200px;
-  overflow: auto;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+}
+.codebase-map-svg.panning {
+  cursor: grabbing;
 }
 .codebase-map-svg svg {
   display: block;
+  pointer-events: all;
+}
+.codebase-map-viewport {
+  /* Viewport group for CAD-like pan/zoom transforms */
 }

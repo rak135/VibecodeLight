@@ -183,7 +183,7 @@ describe('codebase map overview builder', () => {
     expect(result.summary.total_nodes).toBe(5);
     expect(result.summary.displayed_nodes).toBe(3);
     expect(result.summary.truncated).toBe(true);
-    expect(result.warnings.some((w) => w.includes('truncated'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('Node cap'))).toBe(true);
   });
 
   test('respects maxEdges cap', () => {
@@ -193,6 +193,86 @@ describe('codebase map overview builder', () => {
     expect(result.summary.total_edges).toBeGreaterThanOrEqual(1);
     expect(result.summary.displayed_edges).toBe(1);
     expect(result.summary.truncated).toBe(true);
+  });
+
+  test('default behavior includes all nodes without a hard 200-node cap', () => {
+    // Generate a large inventory with 300 files
+    const largeInventory = Array.from({ length: 300 }, (_, i) => ({
+      path: `src/module${i}.ts`,
+      extension: '.ts',
+      kind: 'source',
+      bytes: 100,
+      lines: 10,
+    }));
+    const largeRunDir = makeRunDir(repoRoot, {
+      'file_inventory.json': largeInventory,
+      'imports.json': { imports: [], warnings: [] },
+      'entrypoints.json': { entrypoints: [], warnings: [] },
+      'tests.json': { tests: [], test_configs: [], warnings: [] },
+      'git_status.json': { git_available: false, branch: '', head_commit: '', dirty: false, modified: [], untracked: [], staged: [] },
+    });
+
+    try {
+      const result = buildCodebaseMapOverview(repoRoot, largeRunDir);
+
+      expect(result.nodes.length).toBe(300);
+      expect(result.summary.total_nodes).toBe(300);
+      expect(result.summary.displayed_nodes).toBe(300);
+      // No node truncation warning
+      expect(result.warnings.some((w) => w.includes('nodes'))).toBe(false);
+    } finally {
+      fs.rmSync(largeRunDir, { recursive: true, force: true });
+    }
+  });
+
+  test('summary reports displayed_nodes == total_nodes when no maxNodes cap', () => {
+    const result = buildCodebaseMapOverview(repoRoot, runDir);
+
+    expect(result.summary.displayed_nodes).toBe(result.summary.total_nodes);
+    expect(result.summary.truncated).toBe(false);
+  });
+
+  test('only edge truncation warning is emitted when edges are capped but nodes are not', () => {
+    // Create inventory with many import edges possible
+    const manyImports = Array.from({ length: 5 }, (_, i) => ({
+      from_path: `src/file${i}.ts`,
+      import_target: `./file${i + 1}`,
+      kind: 'local',
+      line: 1,
+    }));
+    const inventory = Array.from({ length: 7 }, (_, i) => ({
+      path: `src/file${i}.ts`,
+      extension: '.ts',
+      kind: 'source',
+      bytes: 100,
+      lines: 10,
+    }));
+    const edgeCapRunDir = makeRunDir(repoRoot, {
+      'file_inventory.json': inventory,
+      'imports.json': { imports: manyImports, warnings: [] },
+      'entrypoints.json': { entrypoints: [], warnings: [] },
+      'tests.json': { tests: [], test_configs: [], warnings: [] },
+      'git_status.json': { git_available: false, branch: '', head_commit: '', dirty: false, modified: [], untracked: [], staged: [] },
+    });
+
+    try {
+      const result = buildCodebaseMapOverview(repoRoot, edgeCapRunDir, { maxEdges: 2 });
+
+      // All nodes should be present
+      expect(result.nodes.length).toBe(7);
+      expect(result.summary.displayed_nodes).toBe(7);
+      // Edges should be capped
+      expect(result.edges.length).toBe(2);
+      expect(result.summary.displayed_edges).toBe(2);
+      // Warning should mention edges only
+      const edgeWarning = result.warnings.find((w) => w.includes('Edge cap'));
+      expect(edgeWarning).toBeDefined();
+      expect(edgeWarning).toContain('edges');
+      // Should NOT have a node cap warning
+      expect(result.warnings.some((w) => w.includes('Node cap'))).toBe(false);
+    } finally {
+      fs.rmSync(edgeCapRunDir, { recursive: true, force: true });
+    }
   });
 
   test('sets source kind to latest_scan when run_manifest exists', () => {

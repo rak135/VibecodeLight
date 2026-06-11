@@ -36,6 +36,8 @@ describe('desktop renderer codebase map layout', () => {
     expect(html).toMatch(/id="codebase-map-filters"/);
     expect(html).toMatch(/id="codebase-map-search"/);
     expect(html).toMatch(/id="codebase-map-edges-toggle"/);
+    expect(html).toMatch(/id="codebase-map-fit"/);
+    expect(html).toMatch(/id="codebase-map-reset"/);
   });
 
   test('Codebase Map panel script is loaded', () => {
@@ -51,6 +53,7 @@ describe('desktop renderer codebase map layout', () => {
     expect(css).toMatch(/\.cmap-chip/);
     expect(css).toMatch(/\.codebase-map-search/);
     expect(css).toMatch(/\.codebase-map-empty/);
+    expect(css).toMatch(/\.codebase-map-viewport/);
   });
 
   test('sidebar click handler includes codebasemap case', () => {
