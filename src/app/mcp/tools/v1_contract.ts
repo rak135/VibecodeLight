@@ -611,18 +611,61 @@ export function buildV1WorkspaceSnapshotTool(deps: WorkspaceStatusToolDeps = {})
         warnings,
       );
       const unsafe = safety.unclaimed_dirty_count > 0 || safety.staged_unclaimed_count > 0;
-      // CodeGraph freshness: no index-timestamp service exists yet, so the
-      // snapshot only reports a bounded honest enum — `not_indexed` until init,
-      // otherwise `unknown` (never a fabricated "fresh"). Exact string literals
-      // are explicitly out of CodeGraph scope.
+      // CodeGraph freshness: derive from `codegraph status --json` when available,
+      // otherwise fall back to bounded honest enums. Never fabricate "fresh".
       const oldCodegraph = (old?.codegraph as Record<string, unknown> | null | undefined) ?? null;
-      const codegraph = oldCodegraph
-        ? {
-            ...oldCodegraph,
-            index_freshness: oldCodegraph.available === true && oldCodegraph.initialized === true ? 'unknown' : 'not_indexed',
-            literal_search: 'CodeGraph search covers indexed symbols/files/structure and may lag recent edits. Use grep/rg for exact string literals, error messages, and config keys.',
+      let codegraph: Record<string, unknown> | null = null;
+      if (oldCodegraph) {
+        const available = oldCodegraph.available === true;
+        const initialized = oldCodegraph.initialized === true;
+        const statusJson = oldCodegraph.status_json as
+          | { pendingChanges?: { added?: number; modified?: number; removed?: number } }
+          | null
+          | undefined;
+
+        let indexFreshness: string;
+        let pendingSyncCount: number | null = null;
+        let freshnessSource: string;
+        let recommendedAction: string;
+
+        if (!available) {
+          indexFreshness = 'not_indexed';
+          freshnessSource = 'not_available';
+          recommendedAction = 'none';
+        } else if (!initialized) {
+          indexFreshness = 'not_indexed';
+          freshnessSource = 'no_index';
+          recommendedAction = 'run_codegraph_init';
+        } else if (statusJson?.pendingChanges) {
+          const pc = statusJson.pendingChanges;
+          pendingSyncCount = (pc.added ?? 0) + (pc.modified ?? 0) + (pc.removed ?? 0);
+          if (pendingSyncCount > 0) {
+            indexFreshness = 'stale';
+            freshnessSource = 'codegraph_status';
+            recommendedAction = 'run_codegraph_sync';
+          } else {
+            indexFreshness = 'fresh';
+            freshnessSource = 'codegraph_status';
+            recommendedAction = 'none';
           }
-        : null;
+        } else {
+          // status command failed or returned unexpected shape
+          indexFreshness = 'unknown';
+          freshnessSource = 'status_command_failed';
+          recommendedAction = 'run_codegraph_status';
+        }
+
+        codegraph = {
+          available,
+          initialized,
+          version: oldCodegraph.version ?? null,
+          index_freshness: indexFreshness,
+          pending_sync_count: pendingSyncCount,
+          freshness_source: freshnessSource,
+          recommended_action: recommendedAction,
+          literal_search: 'CodeGraph search covers indexed symbols/files/structure and may lag recent edits. Use grep/rg for exact string literals, error messages, and config keys.',
+        };
+      }
       const data = {
         repo: {
           root: input.context.repoRoot,

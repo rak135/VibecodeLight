@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { spawnSync } from 'child_process';
 
 import {
   getCodeGraphStatus,
@@ -34,6 +35,34 @@ import {
 const TOOL_NAME = 'vibecode_workspace_status';
 const ALLOWED_KEYS = new Set<string>();
 
+export interface CodeGraphStatusRunnerResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+}
+
+export type CodeGraphStatusRunner = (command: string, args: string[], cwd: string) => CodeGraphStatusRunnerResult;
+
+function defaultCodeGraphStatusRunner(command: string, args: string[], cwd: string): CodeGraphStatusRunnerResult {
+  try {
+    const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 10000 });
+    return {
+      ok: !result.error && result.status === 0,
+      stdout: typeof result.stdout === 'string' ? result.stdout : '',
+      stderr: typeof result.stderr === 'string' ? result.stderr : '',
+      exitCode: result.status ?? null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: err instanceof Error ? err.message : String(err),
+      exitCode: null,
+    };
+  }
+}
+
 export interface WorkspaceStatusToolDeps {
   /** Test seam: inject a read-only git runner. */
   gitRunner?: GitReadOnlyRunner;
@@ -45,6 +74,8 @@ export interface WorkspaceStatusToolDeps {
   binary?: CodeGraphBinaryResolution;
   /** Test seam: override Agent Guidance config environment. */
   env?: Record<string, string | undefined>;
+  /** Test seam: inject a runner for `codegraph status --json`. */
+  codegraphStatusRunner?: CodeGraphStatusRunner;
 }
 
 interface CurrentRunSummary {
@@ -185,6 +216,23 @@ export function buildWorkspaceStatusTool(deps: WorkspaceStatusToolDeps = {}): Mc
       }
       for (const w of status.warnings) warnings.push(w);
 
+      // Run `codegraph status --json` for freshness data when available+initialized.
+      let codegraphStatusJson: { pendingChanges?: { added?: number; modified?: number; removed?: number } } | null = null;
+      if (status.available && status.initialized) {
+        try {
+          const statusRunner = deps.codegraphStatusRunner ?? defaultCodeGraphStatusRunner;
+          const binary =
+            deps.binary ??
+            resolveCodeGraphBinary({ cliOption: input.context.codegraphBinary ?? null, env: process.env });
+          const statusResult = statusRunner(binary.command, ['status', '--json'], input.context.repoRoot);
+          if (statusResult.ok && statusResult.stdout) {
+            codegraphStatusJson = JSON.parse(statusResult.stdout) as typeof codegraphStatusJson;
+          }
+        } catch {
+          // Non-fatal: freshness will fall back to 'unknown'.
+        }
+      }
+
       const currentRun = currentRunSummary(input.context.repoRoot);
       if (!currentRun) warnings.push('NO_CURRENT_RUN: no .vibecode/current pointer — call vibecode prompt or vibecode context-build first.');
       const runtime = input.context.agentGuidance ?? buildAgentGuidanceRuntime({ env: deps.env });
@@ -205,6 +253,7 @@ export function buildWorkspaceStatusTool(deps: WorkspaceStatusToolDeps = {}): Mc
           available: status.available,
           initialized: status.initialized,
           version: status.version ?? null,
+          status_json: codegraphStatusJson,
         },
         guidance_status: guidanceStatus,
       };

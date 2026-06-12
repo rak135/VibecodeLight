@@ -787,11 +787,191 @@ describe('v1 codegraph literal-search boundary and freshness', () => {
       };
       expect(data.codegraph).toBeTruthy();
       expect(data.codegraph?.available).toBe(false);
-      // No index timestamp service exists yet, so freshness is a bounded enum,
-      // never a fabricated "fresh" claim.
       expect(['not_indexed', 'unknown']).toContain(data.codegraph?.index_freshness);
       expect(data.codegraph?.index_freshness).toBe('not_indexed');
       expect(data.codegraph?.literal_search).toMatch(/grep|rg/);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test('workspace_snapshot reports stale freshness when codegraph status shows pending changes', async () => {
+    const repo = makeRepo('vibecode-v1-cgstale-');
+    try {
+      const fakeStatus = async () => ({ ok: true, available: true, initialized: true, warnings: [] });
+      const fakeStatusRunner = () => ({
+        ok: true,
+        stdout: JSON.stringify({ initialized: true, pendingChanges: { added: 3, modified: 1, removed: 0 } }),
+        stderr: '',
+        exitCode: 0,
+      });
+      const result = await buildV1WorkspaceSnapshotTool({
+        codegraphStatus: fakeStatus,
+        codegraphStatusRunner: fakeStatusRunner,
+      }).handler({
+        context: ctx(repo.repoRoot),
+        arguments: {},
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as {
+        codegraph: {
+          available: boolean;
+          initialized: boolean;
+          index_freshness: string;
+          pending_sync_count: number;
+          freshness_source: string;
+          recommended_action: string;
+          literal_search: string;
+        } | null;
+      };
+      expect(data.codegraph).toBeTruthy();
+      expect(data.codegraph?.available).toBe(true);
+      expect(data.codegraph?.initialized).toBe(true);
+      expect(data.codegraph?.index_freshness).toBe('stale');
+      expect(data.codegraph?.pending_sync_count).toBe(4);
+      expect(data.codegraph?.freshness_source).toBe('codegraph_status');
+      expect(data.codegraph?.recommended_action).toBe('run_codegraph_sync');
+      expect(data.codegraph?.literal_search).toMatch(/grep|rg/);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test('workspace_snapshot reports fresh freshness when codegraph status shows no pending changes', async () => {
+    const repo = makeRepo('vibecode-v1-cgfreshok-');
+    try {
+      const fakeStatus = async () => ({ ok: true, available: true, initialized: true, warnings: [] });
+      const fakeStatusRunner = () => ({
+        ok: true,
+        stdout: JSON.stringify({ initialized: true, pendingChanges: { added: 0, modified: 0, removed: 0 } }),
+        stderr: '',
+        exitCode: 0,
+      });
+      const result = await buildV1WorkspaceSnapshotTool({
+        codegraphStatus: fakeStatus,
+        codegraphStatusRunner: fakeStatusRunner,
+      }).handler({
+        context: ctx(repo.repoRoot),
+        arguments: {},
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as {
+        codegraph: {
+          available: boolean;
+          initialized: boolean;
+          index_freshness: string;
+          pending_sync_count: number;
+          freshness_source: string;
+          recommended_action: string;
+        } | null;
+      };
+      expect(data.codegraph).toBeTruthy();
+      expect(data.codegraph?.index_freshness).toBe('fresh');
+      expect(data.codegraph?.pending_sync_count).toBe(0);
+      expect(data.codegraph?.freshness_source).toBe('codegraph_status');
+      expect(data.codegraph?.recommended_action).toBe('none');
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test('workspace_snapshot reports unknown freshness when codegraph status command fails', async () => {
+    const repo = makeRepo('vibecode-v1-cgfail-');
+    try {
+      const fakeStatus = async () => ({ ok: true, available: true, initialized: true, warnings: [] });
+      const fakeStatusRunner = () => ({
+        ok: false,
+        stdout: '',
+        stderr: 'status command failed',
+        exitCode: 1,
+      });
+      const result = await buildV1WorkspaceSnapshotTool({
+        codegraphStatus: fakeStatus,
+        codegraphStatusRunner: fakeStatusRunner,
+      }).handler({
+        context: ctx(repo.repoRoot),
+        arguments: {},
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as {
+        codegraph: {
+          available: boolean;
+          initialized: boolean;
+          index_freshness: string;
+          pending_sync_count: number | null;
+          freshness_source: string;
+          recommended_action: string;
+        } | null;
+      };
+      expect(data.codegraph).toBeTruthy();
+      expect(data.codegraph?.index_freshness).toBe('unknown');
+      expect(data.codegraph?.pending_sync_count).toBeNull();
+      expect(data.codegraph?.freshness_source).toBe('status_command_failed');
+      expect(data.codegraph?.recommended_action).toBe('run_codegraph_status');
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test('workspace_snapshot reports not_indexed when codegraph is not initialized', async () => {
+    const repo = makeRepo('vibecode-v1-cgnotinit-');
+    try {
+      const fakeStatus = async () => ({ ok: true, available: true, initialized: false, warnings: [] });
+      const result = await buildV1WorkspaceSnapshotTool({
+        codegraphStatus: fakeStatus,
+      }).handler({
+        context: ctx(repo.repoRoot),
+        arguments: {},
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as {
+        codegraph: {
+          available: boolean;
+          initialized: boolean;
+          index_freshness: string;
+          pending_sync_count: number | null;
+          freshness_source: string;
+          recommended_action: string;
+        } | null;
+      };
+      expect(data.codegraph).toBeTruthy();
+      expect(data.codegraph?.index_freshness).toBe('not_indexed');
+      expect(data.codegraph?.pending_sync_count).toBeNull();
+      expect(data.codegraph?.freshness_source).toBe('no_index');
+      expect(data.codegraph?.recommended_action).toBe('run_codegraph_init');
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test('workspace_snapshot does not trigger automatic sync', async () => {
+    const repo = makeRepo('vibecode-v1-cgnosync-');
+    try {
+      const syncCalls: string[][] = [];
+      const fakeStatus = async () => ({ ok: true, available: true, initialized: true, warnings: [] });
+      const fakeStatusRunner = (_cmd: string, args: string[]) => {
+        syncCalls.push(args);
+        return {
+          ok: true,
+          stdout: JSON.stringify({ initialized: true, pendingChanges: { added: 5, modified: 0, removed: 0 } }),
+          stderr: '',
+          exitCode: 0,
+        };
+      };
+      await buildV1WorkspaceSnapshotTool({
+        codegraphStatus: fakeStatus,
+        codegraphStatusRunner: fakeStatusRunner,
+      }).handler({
+        context: ctx(repo.repoRoot),
+        arguments: {},
+        requestId: null,
+      });
+      // Only 'status --json' should be called, never 'sync'
+      expect(syncCalls.every((args) => !args.includes('sync'))).toBe(true);
     } finally {
       repo.cleanup();
     }
