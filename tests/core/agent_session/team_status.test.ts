@@ -70,17 +70,24 @@ function intent(over: Partial<ClaimIntent> = {}): ClaimIntent {
   };
 }
 
+function changed(
+  filePath: string,
+  over: Partial<{ staged: boolean; unstaged: boolean; untracked: boolean }> = {},
+) {
+  return { path: filePath, staged: false, unstaged: true, untracked: false, ...over };
+}
+
 function baseInput(over: Partial<Parameters<typeof buildTeamStatusOverview>[0]> = {}) {
+  const changedFiles = over.changedFiles ?? [];
   return {
     agents: [agent()],
     claims: [],
     intents: [],
     conflicts: [],
     gitAvailable: true,
-    gitDirty: false,
-    gitChangedCount: 0,
-    stagedUnclaimed: 0,
-    stagedClaimedByOtherAgent: 0,
+    changedFiles,
+    changedFilesTruncated: false,
+    totalChangedCount: changedFiles.length,
     staleCoordinationPresent: false,
     maxAgents: 20,
     maxItems: 20,
@@ -179,18 +186,27 @@ describe('team status — agent recommended_action', () => {
     expect(o.agents[0].recommended_action).toBe('terminated');
   });
 
-  test('dirty claimed files → commit_claimed_work', () => {
+  test('dirty claimed files → commit_claimed_work with a real dirty count', () => {
     const o = overview({
       agents: [agent()],
       claims: [claim()],
       intents: [intent()],
-      gitDirty: true,
-      gitChangedCount: 1,
+      changedFiles: [changed('src/alpha.ts')],
     });
-    // Note: dirty_claimed_files_count is 0 in team status (approximation);
-    // the actual dirty count comes from session_bootstrap/git_changes.
-    // With no dirty claimed files but active claims, action is prepare_handoff.
-    expect(o.agents[0].active_claims_count).toBe(1);
+    expect(o.agents[0].recommended_action).toBe('commit_claimed_work');
+    expect(o.agents[0].dirty_claimed_files_count).toBe(1);
+  });
+
+  test('dirty claimed + unstaged unclaimed dirty files → isolated_commit_possible', () => {
+    const o = overview({
+      agents: [agent()],
+      claims: [claim()],
+      intents: [intent()],
+      changedFiles: [changed('src/alpha.ts'), changed('src/unrelated.ts')],
+    });
+    expect(o.agents[0].recommended_action).toBe('isolated_commit_possible');
+    expect(o.agents[0].dirty_claimed_files_count).toBe(1);
+    expect(o.agents[0].warnings.some((w) => w.code === 'ISOLATED_COMMIT_POSSIBLE')).toBe(true);
   });
 
   test('clean releasable intent → release_clean_work', () => {
@@ -203,23 +219,99 @@ describe('team status — agent recommended_action', () => {
     expect(o.agents[0].releasable_intents_count).toBe(1);
   });
 
-  test('active claims clean but not releasable → prepare_handoff', () => {
+  test('intent stays releasable when only unrelated unclaimed files are dirty (Phase 2B per-path semantics)', () => {
     const o = overview({
       agents: [agent()],
       claims: [claim()],
       intents: [intent()],
-      gitDirty: true,
+      changedFiles: [changed('docs/unrelated.md')],
     });
-    // With dirty tree, intents are not releasable
+    // Intent release blocks only on dirty CLAIMED paths, not a globally dirty
+    // tree — team status must mirror the canonical lifecycle, not over-block.
+    expect(o.agents[0].releasable_intents_count).toBe(1);
+    expect(o.agents[0].recommended_action).toBe('release_clean_work');
+  });
+
+  test('intent with a dirty claimed path is not releasable', () => {
+    const o = overview({
+      agents: [agent()],
+      claims: [claim()],
+      intents: [intent()],
+      changedFiles: [changed('src/alpha.ts')],
+    });
     expect(o.agents[0].releasable_intents_count).toBe(0);
   });
 
-  test('staged unclaimed files → housekeeping_needed', () => {
+  test('truncated changed-file list degrades releasability conservatively', () => {
     const o = overview({
       agents: [agent()],
-      stagedUnclaimed: 2,
+      claims: [claim()],
+      intents: [intent()],
+      changedFiles: [changed('docs/unrelated.md')],
+      changedFilesTruncated: true,
+      totalChangedCount: 300,
+    });
+    // Fail closed: an unverifiable dirty state never reports releasable work.
+    expect(o.agents[0].releasable_intents_count).toBe(0);
+    expect(o.warnings.some((w) => w.includes('truncated'))).toBe(true);
+  });
+
+  test('active claims clean but not releasable → continue_work (mirrors recovery ready_to_continue)', () => {
+    const o = overview({
+      agents: [agent()],
+      claims: [claim()],
+      intents: [],
+    });
+    expect(o.agents[0].recommended_action).toBe('continue_work');
+  });
+
+  test('staged unclaimed files → housekeeping_needed with a blocker', () => {
+    const o = overview({
+      agents: [agent()],
+      changedFiles: [changed('docs/x.md', { staged: true, unstaged: false })],
     });
     expect(o.agents[0].recommended_action).toBe('housekeeping_needed');
+    expect(o.agents[0].blockers.some((b) => b.code === 'STAGED_FILES_BLOCK')).toBe(true);
+    expect(o.summary.staged_blockers_present).toBe(true);
+  });
+
+  test('staged file claimed by another agent blocks this agent but not the owner', () => {
+    const o = overview({
+      agents: [agent({ agent_id: 'agent-a' }), agent({ agent_id: 'agent-b' })],
+      claims: [claim({ claim_id: 'claim-b', agent_id: 'agent-b', path: 'src/beta.ts' })],
+      changedFiles: [changed('src/beta.ts', { staged: true, unstaged: false })],
+    });
+    const a = o.agents.find((x) => x.agent_id === 'agent-a')!;
+    const b = o.agents.find((x) => x.agent_id === 'agent-b')!;
+    // agent-a cannot commit while agent-b's staged file sits in the shared index.
+    expect(a.recommended_action).toBe('housekeeping_needed');
+    expect(a.blockers.length).toBeGreaterThan(0);
+    // agent-b owns the staged file: that is its committable claimed work.
+    expect(b.recommended_action).toBe('commit_claimed_work');
+    expect(b.dirty_claimed_files_count).toBe(1);
+  });
+
+  test('generated/ignored changed paths never create dirty counts or blockers', () => {
+    const o = overview({
+      agents: [agent()],
+      claims: [claim()],
+      intents: [intent()],
+      changedFiles: [changed('.vibecode/runs/run-1/scan/repo_tree.txt', { staged: true })],
+    });
+    expect(o.agents[0].dirty_claimed_files_count).toBe(0);
+    expect(o.summary.staged_blockers_present).toBe(false);
+    expect(o.agents[0].recommended_action).toBe('release_clean_work');
+  });
+
+  test('git unavailable for a build agent → uncertain, never optimistic guidance', () => {
+    const o = overview({
+      agents: [agent()],
+      claims: [claim()],
+      intents: [intent()],
+      gitAvailable: false,
+    });
+    expect(o.agents[0].recommended_action).toBe('uncertain');
+    expect(o.agents[0].releasable_intents_count).toBe(0);
   });
 });
 
@@ -315,14 +407,20 @@ describe('team status — workspace', () => {
   });
 
   test('dirty workspace → summary reflects it', () => {
-    const o = overview({ gitDirty: true, gitChangedCount: 3 });
+    const o = overview({
+      changedFiles: [changed('a.ts'), changed('b.ts'), changed('c.ts')],
+    });
     expect(o.summary.workspace_dirty).toBe(true);
     expect(o.workspace.dirty).toBe(true);
+    expect(o.workspace.changed_counts.total).toBe(3);
   });
 
   test('staged blockers present → summary reflects it', () => {
-    const o = overview({ stagedUnclaimed: 1 });
+    const o = overview({
+      changedFiles: [changed('x.ts', { staged: true, unstaged: false })],
+    });
     expect(o.summary.staged_blockers_present).toBe(true);
+    expect(o.workspace.changed_counts.staged_unclaimed).toBe(1);
   });
 });
 
@@ -370,8 +468,8 @@ describe('team status — no mutation', () => {
     const intentsBefore = JSON.stringify(intents);
     buildTeamStatusOverview({
       agents, claims, intents, conflicts,
-      gitAvailable: true, gitDirty: false, gitChangedCount: 0,
-      stagedUnclaimed: 0, stagedClaimedByOtherAgent: 0,
+      gitAvailable: true, changedFiles: [], changedFilesTruncated: false,
+      totalChangedCount: 0,
       staleCoordinationPresent: false, maxAgents: 20, maxItems: 20, now: T0,
     });
     expect(JSON.stringify(agents)).toBe(agentsBefore);
@@ -384,11 +482,49 @@ describe('team status — actions enum', () => {
   test('all expected actions are in the enum', () => {
     expect(TEAM_STATUS_ACTIONS).toContain('observe_only');
     expect(TEAM_STATUS_ACTIONS).toContain('ready_to_claim');
+    expect(TEAM_STATUS_ACTIONS).toContain('continue_work');
     expect(TEAM_STATUS_ACTIONS).toContain('commit_claimed_work');
+    expect(TEAM_STATUS_ACTIONS).toContain('isolated_commit_possible');
     expect(TEAM_STATUS_ACTIONS).toContain('release_clean_work');
     expect(TEAM_STATUS_ACTIONS).toContain('blocked_by_conflict');
     expect(TEAM_STATUS_ACTIONS).toContain('heartbeat_needed');
+    expect(TEAM_STATUS_ACTIONS).toContain('housekeeping_needed');
     expect(TEAM_STATUS_ACTIONS).toContain('terminated');
     expect(TEAM_STATUS_ACTIONS).toContain('uncertain');
+  });
+
+  test('the enum declares no unreachable handoff actions', () => {
+    // Handoff readiness is intent-driven, not derivable from coordination
+    // state alone — team status points at `vibecode handoff prepare` from the
+    // release/continue command lists instead of guessing an action.
+    expect(TEAM_STATUS_ACTIONS).not.toContain('prepare_handoff');
+    expect(TEAM_STATUS_ACTIONS).not.toContain('ready_for_handoff');
+  });
+});
+
+describe('team status — handoff visibility without assignment', () => {
+  test('release_clean_work surfaces handoff prepare as a safe inspect command', () => {
+    const o = overview({
+      agents: [agent()],
+      claims: [claim()],
+      intents: [intent()],
+    });
+    const commands = o.agents[0].safe_cli_commands.join('\n');
+    expect(commands).toContain('vibecode handoff prepare --agent agent-a --json');
+    expectSafeCommands(o.agents[0].safe_cli_commands);
+  });
+
+  test('no assignment or ownership-transfer wording in any output', () => {
+    const o = overview({
+      agents: [
+        agent({ agent_id: 'a1' }),
+        agent({ agent_id: 'a2', status: 'stale' }),
+      ],
+      claims: [claim({ agent_id: 'a1' })],
+      intents: [intent({ agent_id: 'a1' })],
+      staleCoordinationPresent: true,
+    });
+    const allText = JSON.stringify(o);
+    expect(allText).not.toMatch(/should take|assigned to|transfer ownership|take over/i);
   });
 });

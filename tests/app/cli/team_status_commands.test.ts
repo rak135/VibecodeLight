@@ -137,4 +137,20 @@ describe('vibecode team status (CLI)', () => {
     await runCli(['team', 'status', '--repo', repo.repoRoot, '--json']);
     expect(git(['status', '--porcelain'], repo.repoRoot).stdout).toBe(before);
   });
+
+  test('team status leaves the coordination state file byte-identical (no heartbeat/revive)', async () => {
+    await register();
+    const statePath = path.join(repo.repoRoot, '.vibecode', 'coordination', 'state.json');
+    const before = fs.readFileSync(statePath);
+    await runCli(['team', 'status', '--repo', repo.repoRoot, '--json']);
+    expect(fs.readFileSync(statePath).equals(before)).toBe(true);
+  });
+
+  test('human output contains no assignment or ownership-transfer wording', async () => {
+    await register();
+    const res = await runCli(['team', 'status', '--repo', repo.repoRoot]);
+    expect(res.exitCode).toBe(0);
+    const out = res.logs.join('\n');
+    expect(out).not.toMatch(/should take|assigned to|transfer ownership|take over/i);
+  });
 });

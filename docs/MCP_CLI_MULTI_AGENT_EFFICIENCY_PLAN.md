@@ -3832,6 +3832,71 @@ and `tests/app/desktop/mcp_tools_panel.test.ts` /
 `tests/app/desktop/vibecodemcp_panel.test.ts` (search/filter/detail rendering,
 side-effect badges, empty state, no run-tool mutation control).
 
+## 14P. Phase 4C (team workflow) — read-only team status / team overview (Implemented)
+
+Note on numbering: this is the multi-agent team-workflow Phase 4C
+(`vibecode_team_status`), distinct from the desktop MCP tool catalog that
+section 14O also labels "Phase 4C".
+
+Trigger: after Phase 4A/4B, a human or agent starting a multi-agent session
+still had to call session_bootstrap per agent to learn who is active, stale,
+blocked, or holding claims. There was no single bounded read-only overview of
+the whole team.
+
+What Phase 4C adds: a read-only team status overview as a pure core service
+(`src/core/agent_session/team_status.ts`), exposed as the MCP tool
+`vibecode_team_status` (tool count **44 → 45**) and the CLI command
+`vibecode team status [--max-agents <n>] [--max-items <n>] --json`, plus a
+`team_status` tool profile (profiles **11 → 12**). Both adapters share the
+same core service, the MCP schema rejects unknown keys, and `max_agents` /
+`max_items` default to 20 and hard-cap at 50.
+
+The overview DTO contains summary counts (agents by status/mode, active
+claims/intents, unresolved conflicts, stale coordination, workspace dirty and
+staged-blocker state), a bounded per-agent list (status, mode, bounded task,
+heartbeat age, claim/intent/conflict counts, real per-agent dirty-claimed
+count, recommended action, safe next tools/commands, warnings/blockers),
+bounded claim/intent/conflict samples, and deduped, capped global
+recommendations.
+
+Per-agent `recommended_action` mirrors the Phase 3C recovery-guidance
+ordering and reuses the shared changed-path classifier
+(`coordination/path_classification.ts`) and the claim-aware git changes
+summary — it is a summary view, not a second state machine: `observe_only`,
+`ready_to_claim`, `continue_work`, `commit_claimed_work`,
+`isolated_commit_possible`, `release_clean_work`, `blocked_by_conflict`,
+`heartbeat_needed`, `housekeeping_needed`, `terminated`, `uncertain`.
+Releasability mirrors the Phase 2B intent-release lifecycle (per-path dirty
+check, fail-closed when git state is unavailable or the changed-file list was
+truncated). Staged unclaimed files and staged files claimed by another active
+agent are reported as blockers, never optimistically. Handoff readiness is
+intent-driven, so there is no separate handoff action — the release/continue
+command lists surface `vibecode handoff prepare` instead. All recommended
+commands are real, inspect/dry-run-style `vibecode` commands; the commit
+guard and intent release remain the decision points.
+
+Boundaries confirmed not added: no UI, no dashboard rendering, no scheduler,
+no orchestration, no agent/subagent assignment, no ownership transfer, no
+handoff execution, no auto-claim/release/reap/resolve, no force cleanup, no
+MCP commit tool, no raw git bypass, no `.vibecode` hand-editing, no
+directory/glob claims, no automatic file selection, and no Phase 4D behavior.
+Team status never registers, heartbeats, revives, or mutates coordination/git
+state — the CLI contract test pins the coordination state file byte-identical
+across a run. The human or external process still chooses work distribution.
+
+Known limitations: point-in-time snapshot (re-run after mutations);
+changed-file classification window is capped at 200 files, beyond which
+per-agent dirty counts are partial and releasability fails closed with an
+explicit truncation warning; per-agent detail remains canonical in
+session_bootstrap / handoff prepare / handoff guide / conflict detail.
+
+Tests: `tests/core/agent_session/team_status.test.ts` (classification,
+per-path releasability, staged blockers, truncation fail-closed, bounded
+output, safe-command validity, no-mutation, no assignment wording),
+`tests/app/mcp/team_status_tool.test.ts` (registration, count lockstep,
+schema strictness), `tests/app/cli/team_status_commands.test.ts` (envelope,
+validation, parity, human output, byte-identical coordination state).
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?

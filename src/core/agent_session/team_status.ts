@@ -8,11 +8,11 @@ import { listClaimIntents } from '../coordination/bulk_claims.js';
 import { listFileClaims } from '../coordination/claims.js';
 import { listConflicts, type ConflictRecord } from '../coordination/conflicts.js';
 import { listConflictTriages } from '../coordination/conflict_triage.js';
+import { classifyChangedPath, pathsOverlap } from '../coordination/path_classification.js';
 import { summarizeStaleCoordination } from '../coordination/stale_coordination.js';
 import type { AgentSession, AgentStatus, ClaimIntent, FileClaim } from '../coordination/types.js';
-import { getGitChangesSummary } from '../workspace/git_changes_summary.js';
+import { getGitChangesSummary, GIT_CHANGES_MAX_FILES } from '../workspace/git_changes_summary.js';
 import type { GitReadOnlyRunner } from '../workspace/git_status.js';
-import { HEARTBEAT_TTL_MS } from '../coordination/heartbeat.js';
 import {
   RUNTIME_AWARENESS_TASK_MAX_CHARS,
   type RuntimeNotice,
@@ -48,7 +48,12 @@ export const DEFAULT_TEAM_STATUS_MAX_ITEMS = 20;
 /** Hard cap on each recommendation list. */
 export const TEAM_STATUS_MAX_RECOMMENDATIONS = 12;
 
-/** Machine-readable recommended actions for each agent. */
+/**
+ * Machine-readable recommended actions for each agent. Handoff readiness is
+ * intent-driven (an agent that COULD release could equally hand off), so there
+ * is no separate handoff action — `release_clean_work` / `continue_work`
+ * surface `vibecode handoff prepare` in their safe command lists instead.
+ */
 export const TEAM_STATUS_ACTIONS = [
   'observe_only',
   'ready_to_claim',
@@ -56,8 +61,6 @@ export const TEAM_STATUS_ACTIONS = [
   'commit_claimed_work',
   'isolated_commit_possible',
   'release_clean_work',
-  'prepare_handoff',
-  'ready_for_handoff',
   'blocked_by_conflict',
   'heartbeat_needed',
   'housekeeping_needed',
@@ -166,6 +169,14 @@ export interface GetTeamStatusOptions {
   gitRunner?: GitReadOnlyRunner;
 }
 
+/** One changed working-tree file, as fed into the pure builder. */
+export interface TeamStatusChangedFile {
+  path: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+}
+
 /** Bounded, deduped recommendation builder. */
 class Recommendations {
   readonly tools: string[] = [];
@@ -191,8 +202,11 @@ function notice(code: string, severity: RuntimeNotice['severity'], message: stri
 }
 
 /**
- * Classify a team-level recommended action for one agent. Composes existing
- * Phase 3/4A services read-only — does NOT create a second state machine.
+ * Classify a team-level recommended action for one agent. Mirrors the Phase 3C
+ * recovery-guidance ordering (lifecycle first, then staged blockers, then
+ * committable work, then conflicts/release/continue) — it does NOT create a
+ * second competing state machine; the commit guard / intent release stay the
+ * decision points and every commit/release recommendation is dry-run/inspect.
  */
 function classifyAgentAction(args: {
   agent: AgentSession;
@@ -201,12 +215,11 @@ function classifyAgentAction(args: {
   activeIntentsCount: number;
   releasableIntentsCount: number;
   dirtyClaimedFilesCount: number;
-  conflictsInvolvingCount: number;
   stillBlockingConflictsCount: number;
-  staleCoordinationPresent: boolean;
   gitAvailable: boolean;
-  unclaimedDirtyCount: number;
+  unstagedUnclaimedDirtyCount: number;
   stagedUnclaimedCount: number;
+  stagedClaimedByOtherCount: number;
 }): { action: TeamStatusAction; warnings: RuntimeNotice[]; blockers: RuntimeNotice[] } {
   const warnings: RuntimeNotice[] = [];
   const blockers: RuntimeNotice[] = [];
@@ -218,10 +231,10 @@ function classifyAgentAction(args: {
     releasableIntentsCount,
     dirtyClaimedFilesCount,
     stillBlockingConflictsCount,
-    staleCoordinationPresent,
     gitAvailable,
-    unclaimedDirtyCount,
+    unstagedUnclaimedDirtyCount,
     stagedUnclaimedCount,
+    stagedClaimedByOtherCount,
   } = args;
 
   const status = agent.status;
@@ -260,20 +273,29 @@ function classifyAgentAction(args: {
     return { action: 'uncertain', warnings, blockers };
   }
 
-  // Blocked by staged files
-  if (stagedUnclaimedCount > 0) {
-    blockers.push(
-      notice('STAGED_FILES_BLOCK', 'block', `${stagedUnclaimedCount} staged unclaimed file(s) block commit.`),
-    );
+  // Blocked by staged files outside this agent's committable set (the commit
+  // guard hard-blocks on both kinds; see Phase 3B staged_unclaimed semantics).
+  if (stagedUnclaimedCount > 0 || stagedClaimedByOtherCount > 0) {
+    if (stagedUnclaimedCount > 0) {
+      blockers.push(
+        notice('STAGED_FILES_BLOCK', 'block', `${stagedUnclaimedCount} staged unclaimed file(s) block commit.`),
+      );
+    }
+    if (stagedClaimedByOtherCount > 0) {
+      blockers.push(
+        notice('STAGED_OTHER_AGENT_FILES_BLOCK', 'block',
+          `${stagedClaimedByOtherCount} staged file(s) claimed by another active agent block commit.`),
+      );
+    }
     return { action: 'housekeeping_needed', warnings, blockers };
   }
 
   // Dirty claimed files
   if (dirtyClaimedFilesCount > 0) {
-    if (unclaimedDirtyCount > 0) {
+    if (unstagedUnclaimedDirtyCount > 0) {
       warnings.push(
         notice('ISOLATED_COMMIT_POSSIBLE', 'warning',
-          `Dirty claimed + unclaimed dirty files — isolated commit may be possible.`),
+          'Dirty claimed + unstaged unclaimed dirty files — an isolated commit of the claimed files may be possible; confirm with a commit guard dry-run.'),
       );
       return { action: 'isolated_commit_possible', warnings, blockers };
     }
@@ -294,9 +316,10 @@ function classifyAgentAction(args: {
     return { action: 'release_clean_work', warnings, blockers };
   }
 
-  // Active claims/intents but clean
+  // Active claims/intents but nothing committable/releasable — keep working
+  // (mirrors recovery guidance's ready_to_continue).
   if (activeClaimsCount > 0 || activeIntentsCount > 0) {
-    return { action: 'prepare_handoff', warnings, blockers };
+    return { action: 'continue_work', warnings, blockers };
   }
 
   // No claims, no intents
@@ -314,10 +337,12 @@ export function buildTeamStatusOverview(input: {
   intents: readonly ClaimIntent[];
   conflicts: readonly ConflictRecord[];
   gitAvailable: boolean;
-  gitDirty: boolean;
-  gitChangedCount: number;
-  stagedUnclaimed: number;
-  stagedClaimedByOtherAgent: number;
+  /** Changed working-tree files (may be capped below `totalChangedCount`). */
+  changedFiles: readonly TeamStatusChangedFile[];
+  /** True when `changedFiles` was capped — dirty classification degrades conservatively. */
+  changedFilesTruncated: boolean;
+  /** Full-tree changed-file count (pre-cap). */
+  totalChangedCount: number;
   staleCoordinationPresent: boolean;
   maxAgents: number;
   maxItems: number;
@@ -329,10 +354,9 @@ export function buildTeamStatusOverview(input: {
     intents,
     conflicts,
     gitAvailable,
-    gitDirty,
-    gitChangedCount,
-    stagedUnclaimed,
-    stagedClaimedByOtherAgent,
+    changedFiles,
+    changedFilesTruncated,
+    totalChangedCount,
     staleCoordinationPresent,
     maxAgents,
     maxItems,
@@ -356,11 +380,50 @@ export function buildTeamStatusOverview(input: {
   const activeIntents = intents.filter((i) => i.status === 'active');
   const unresolvedConflicts = conflicts.filter((c) => c.status === 'detected');
 
-  // Compute releasable intents (clean-tree condition)
+  const gitDirty = gitAvailable && totalChangedCount > 0;
+  const agentNames = new Map(agents.map((a) => [a.agent_id, a.agent_name] as const));
+
+  // Classify each changed file once against the shared path classifier (the
+  // same primitive finalize/git_changes use) so the rules never diverge. With
+  // no agent perspective, any active claim classifies as another agent's.
+  const classifiedChanges = changedFiles
+    .map((file) => ({
+      file,
+      team: classifyChangedPath({
+        path: file.path,
+        agentId: null,
+        activeClaims,
+        staleClaims,
+        agentNames,
+      }),
+    }))
+    .filter((c) => c.team.classification !== 'generated_or_ignored');
+
+  // Team-level staged blockers: a staged unclaimed file hard-blocks EVERY
+  // agent's commit guard; a staged claimed file blocks every agent except the
+  // claim owner (per-agent below).
+  const stagedUnclaimed = classifiedChanges.filter(
+    (c) => c.file.staged && c.team.classification === 'unclaimed',
+  ).length;
+  const stagedClaimedByOtherAgent = classifiedChanges.filter(
+    (c) => c.file.staged && c.team.classification === 'claimed_by_other_active_agent',
+  ).length;
+
+  const agentOwnsPath = (agentId: string, changedPath: string): boolean =>
+    activeClaims.some((c) => c.agent_id === agentId && pathsOverlap(c.path, changedPath));
+
+  // Releasable intents — mirrors the Phase 2B intent-release lifecycle: every
+  // referenced claim must still be active and none of the claimed paths may be
+  // dirty. Fails CLOSED when the changed-file list was truncated (an
+  // unverifiable dirty state never reports releasable work).
+  const dirtyStateVerifiable = gitAvailable && (!changedFilesTruncated || totalChangedCount === 0);
   const releasableIntents = activeIntents.filter((intent) => {
-    const intentClaims = intent.claim_ids.map((id) => claims.find((c) => c.claim_id === id)).filter(Boolean);
-    const allClean = intentClaims.every((c) => c && c.status === 'active');
-    return allClean && gitAvailable && !gitDirty;
+    if (!dirtyStateVerifiable) return false;
+    const intentClaims = intent.claim_ids.map((id) => claims.find((c) => c.claim_id === id));
+    if (intentClaims.length === 0 || intentClaims.some((c) => !c || c.status !== 'active')) return false;
+    return !intentClaims.some((c) =>
+      classifiedChanges.some((change) => pathsOverlap(c!.path, change.file.path)),
+    );
   });
 
   // Conflict triages for per-agent conflict counts
@@ -395,26 +458,20 @@ export function buildTeamStatusOverview(input: {
     const agentActiveIntents = activeIntents.filter((i) => i.agent_id === agent.agent_id);
     const agentReleasable = releasableIntents.filter((i) => i.agent_id === agent.agent_id);
 
-    // Per-agent dirty claimed files count
-    const agentDirtyClaimed = gitAvailable
-      ? agentActiveClaims.filter((c) => {
-          // We approximate: if the agent has active claims and git is dirty,
-          // we need the actual git changes summary per agent. For team status
-          // we use a simpler heuristic based on the full changes summary.
-          return false; // Will be refined below
-        }).length
-      : 0;
-
-    // For accurate dirty claimed count, we need to use the git changes summary
-    // with agent context. Since team_status is a summary tool, we use the
-    // claims list + agent's claim ids as a proxy.
-    // The actual dirty count comes from getGitChangesSummary per agent, but
-    // that would be expensive for many agents. Instead, we note that
-    // session_bootstrap / handoff_prepare are the canonical sources for
-    // per-agent dirty state.
-    // For team status, we report 0 for dirty_claimed_files_count and note
-    // that agents should use git changes for detail.
-    const dirtyClaimedCount = 0;
+    // Per-agent dirty/staged counts from the shared classification (may
+    // undercount when the changed-file list was truncated; see global warning).
+    const dirtyClaimedCount = classifiedChanges.filter((c) =>
+      agentOwnsPath(agent.agent_id, c.file.path),
+    ).length;
+    const unstagedUnclaimedDirtyCount = classifiedChanges.filter(
+      (c) => !c.file.staged && c.team.classification === 'unclaimed',
+    ).length;
+    const stagedClaimedByOtherCount = classifiedChanges.filter(
+      (c) =>
+        c.file.staged
+        && c.team.classification === 'claimed_by_other_active_agent'
+        && !agentOwnsPath(agent.agent_id, c.file.path),
+    ).length;
 
     // Conflicts involving this agent
     const involving = triages.conflicts.filter(
@@ -429,12 +486,11 @@ export function buildTeamStatusOverview(input: {
       activeIntentsCount: agentActiveIntents.length,
       releasableIntentsCount: agentReleasable.length,
       dirtyClaimedFilesCount: dirtyClaimedCount,
-      conflictsInvolvingCount: involving.length,
       stillBlockingConflictsCount: stillBlocking.length,
-      staleCoordinationPresent,
       gitAvailable,
-      unclaimedDirtyCount: 0,
+      unstagedUnclaimedDirtyCount,
       stagedUnclaimedCount: stagedUnclaimed,
+      stagedClaimedByOtherCount,
     });
 
     // Build safe next commands for this agent
@@ -459,11 +515,11 @@ export function buildTeamStatusOverview(input: {
         );
         break;
       case 'continue_work':
-      case 'prepare_handoff':
-        agentRec.tool('vibecode_git_changes', 'vibecode_claim_intents_list');
+        agentRec.tool('vibecode_git_changes', 'vibecode_claim_intents_list', 'vibecode_handoff_prepare');
         agentRec.command(
           `vibecode git changes --agent ${agent.agent_id} --json`,
           `vibecode claims intents list --agent ${agent.agent_id} --status active --json`,
+          `vibecode handoff prepare --agent ${agent.agent_id} --json`,
         );
         break;
       case 'commit_claimed_work':
@@ -476,15 +532,12 @@ export function buildTeamStatusOverview(input: {
         );
         break;
       case 'release_clean_work':
-        agentRec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+        agentRec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release', 'vibecode_handoff_prepare');
         agentRec.command(
           `vibecode claims intents list --agent ${agent.agent_id} --status active --json`,
           `vibecode claims intent-release --agent ${agent.agent_id} --intent-id <intent_id> --dry-run --json`,
+          `vibecode handoff prepare --agent ${agent.agent_id} --json`,
         );
-        break;
-      case 'ready_for_handoff':
-        agentRec.tool('vibecode_handoff_prepare');
-        agentRec.command(`vibecode handoff prepare --agent ${agent.agent_id} --json`);
         break;
       case 'blocked_by_conflict':
         agentRec.tool('vibecode_conflicts_list', 'vibecode_conflict_detail');
@@ -536,6 +589,11 @@ export function buildTeamStatusOverview(input: {
   if (stagedUnclaimed > 0) {
     blockers.push(`${stagedUnclaimed} staged unclaimed file(s) block commit.`);
   }
+  if (changedFilesTruncated) {
+    warnings.push(
+      `Changed-file list truncated (${changedFiles.length} of ${totalChangedCount}); per-agent dirty counts are partial — use vibecode git changes --agent <agent_id> --json for exact state.`,
+    );
+  }
   if (unresolvedConflicts.length > 0) {
     warnings.push(`${unresolvedConflicts.length} unresolved conflict(s).`);
     rec.tool('vibecode_conflicts_list');
@@ -584,9 +642,9 @@ export function buildTeamStatusOverview(input: {
     },
     workspace: {
       git_available: gitAvailable,
-      dirty: gitAvailable && gitDirty,
+      dirty: gitDirty,
       changed_counts: {
-        total: gitChangedCount,
+        total: totalChangedCount,
         staged_unclaimed: stagedUnclaimed,
         staged_claimed_by_other_agent: stagedClaimedByOtherAgent,
       },
@@ -658,10 +716,13 @@ export function getTeamStatusOverview(
     maxItems: rawMaxItems,
   });
 
-  // Workspace git state (read-only)
+  // Workspace git state (read-only). The widest available file window is
+  // requested so per-agent dirty classification sees the whole tree; the
+  // builder degrades conservatively when the list is still truncated.
   const changes = getGitChangesSummary(repoRoot, {
     now,
     includeDiffStat: false,
+    maxFiles: GIT_CHANGES_MAX_FILES,
     gitRunner: options.gitRunner,
   });
 
@@ -671,10 +732,16 @@ export function getTeamStatusOverview(
     intents,
     conflicts: unresolved,
     gitAvailable: changes.ok,
-    gitDirty: changes.ok ? changes.dirty : false,
-    gitChangedCount: changes.ok ? changes.summary.changed_count : 0,
-    stagedUnclaimed: changes.ok ? changes.summary.staged_unclaimed : 0,
-    stagedClaimedByOtherAgent: changes.ok ? changes.summary.staged_claimed_by_other_agent : 0,
+    changedFiles: changes.ok
+      ? changes.files.map((f) => ({
+          path: f.path,
+          staged: f.staged,
+          unstaged: f.unstaged,
+          untracked: f.untracked,
+        }))
+      : [],
+    changedFilesTruncated: changes.ok ? changes.truncated : false,
+    totalChangedCount: changes.ok ? changes.total_changed : 0,
     staleCoordinationPresent: staleCoordination.has_stale_state,
     maxAgents: rawMaxAgents,
     maxItems: rawMaxItems,
