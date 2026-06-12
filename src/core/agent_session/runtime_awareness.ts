@@ -251,7 +251,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
         ),
       );
     }
-    rec.tool('vibecode_session_bootstrap');
+    rec.tool('vibecode_session_start');
     rec.command(REGISTER_COMMAND);
   } else if (status === 'terminated') {
     blockers.push(
@@ -261,7 +261,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
         `Agent ${agent.agent_id} is terminated and cannot edit, heartbeat, or commit. Register a new agent.`,
       ),
     );
-    rec.tool('vibecode_session_bootstrap');
+    rec.tool('vibecode_session_start');
     rec.command(REGISTER_COMMAND);
   } else if (!validSession) {
     blockers.push(
@@ -271,7 +271,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
         `Agent ${agent.agent_id} is missing required session metadata (operating_mode/task). Re-register through session bootstrap with register=true, agent_mode, and task.`,
       ),
     );
-    rec.tool('vibecode_session_bootstrap');
+    rec.tool('vibecode_session_start');
     rec.command(REGISTER_COMMAND);
   } else if (isStale) {
     warnings.push(
@@ -281,7 +281,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
         `Agent ${agent.agent_id} is ${status}. Heartbeat (or re-run session bootstrap with your agent id) before editing or committing.`,
       ),
     );
-    rec.tool('vibecode_agent_heartbeat', 'vibecode_session_bootstrap');
+    rec.tool('vibecode_session_start');
     rec.command(
       `vibecode agents heartbeat --agent ${agent.agent_id} --json`,
       `vibecode session bootstrap --agent ${agent.agent_id} --json`,
@@ -294,7 +294,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
         `Agent ${agent.agent_id} has not heartbeat for over half the TTL. Heartbeat during long-running work so the session does not go stale.`,
       ),
     );
-    rec.tool('vibecode_agent_heartbeat');
+    rec.tool('vibecode_session_start');
     rec.command(`vibecode agents heartbeat --agent ${agent.agent_id} --json`);
   }
 
@@ -338,7 +338,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
       stagedOtherAgent === 0;
 
     if (commitGuardReady) {
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
@@ -352,7 +352,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
           `Finalize is blocked by ${unclaimedForFinalize} unclaimed dirty file(s), but the commit guard can likely make an ISOLATED commit of your ${counts.claimed_by_agent} claimed file(s). Skipped unclaimed files stay dirty and are never staged, committed, or modified.`,
         ),
       );
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
@@ -366,7 +366,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
           `${counts.staged_unclaimed} unclaimed dirty file(s) are already STAGED in the git index. The commit guard will block (STAGED_UNCLAIMED_FILES_BLOCKED); unstage and review them yourself — never commit them.`,
         ),
       );
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
@@ -379,18 +379,18 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
           `${counts.staged_claimed_by_other_agent} file(s) claimed by another active agent are already STAGED in the git index. The commit guard will block (GIT_INDEX_NOT_CLEAN) until their owner commits or unstages them — never stage, unstage, or commit another agent's files yourself.`,
         ),
       );
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
       );
     } else if (dirty && counts.claimed_by_agent === 0 && unclaimedForFinalize > 0) {
       // Dirty unclaimed-only tree: inspect; never auto-claim or auto-select files.
-      rec.tool('vibecode_git_changes');
+      rec.tool('vibecode_changes');
       rec.command(`vibecode git changes --agent ${agentId} --json`);
     } else if (!dirty && input.activeIntentsCount === 0) {
       // Clean tree, no declared work yet: orient and declare an explicit scope.
-      rec.tool('vibecode_tool_profile', 'vibecode_claims_plan');
+      rec.tool('vibecode_workspace_snapshot', 'vibecode_build_start');
       rec.command(
         'vibecode tools profile --profile build_pre_edit --json',
         `vibecode claims plan --agent ${agentId} --path <path> --json`,
@@ -404,7 +404,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
         `Agent ${agentId} is read_only: it must not edit, claim, finalize, or commit.`,
       ),
     );
-    rec.tool('vibecode_workspace_info', 'vibecode_project_instructions');
+    rec.tool('vibecode_workspace_snapshot', 'vibecode_project_instructions');
     rec.command('vibecode tools profile --profile read_only_orientation --json');
   }
 
@@ -416,7 +416,7 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
   const stillBlockingInvolving = involving.filter((t) => t.triage_status === 'still_blocking');
 
   if (isActiveBuild && input.releasableIntentsCount > 0) {
-    rec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+    rec.tool('vibecode_build_scope');
     rec.command(
       `vibecode claims intents list --agent ${agentId} --status active --json`,
       `vibecode claims intent-release --agent ${agentId} --intent-id <intent_id> --dry-run --json`,
@@ -430,14 +430,14 @@ export function getAgentRuntimeAwareness(input: AgentRuntimeAwarenessInput): Age
         `${stillBlockingInvolving.length} unresolved conflict(s) involving this agent are still actively blocking.`,
       ),
     );
-    rec.tool('vibecode_conflicts_list', 'vibecode_conflict_detail');
+    rec.tool('vibecode_workspace_snapshot');
     rec.command(
       'vibecode tools profile --profile conflict_resolution --json',
       'vibecode conflicts list --json',
     );
   }
   if (input.staleCoordinationPresent) {
-    rec.tool('vibecode_claims_list', 'vibecode_claims_reap');
+    rec.tool('vibecode_build_scope');
     rec.command(
       'vibecode tools profile --profile coordination_housekeeping --json',
       'vibecode claims reap --dry-run --json',

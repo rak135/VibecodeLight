@@ -167,7 +167,7 @@ export function buildAgentHeartbeatTool(): McpToolDefinition {
       // Phase 2C: surface the pre-heartbeat lifecycle status so a long-running
       // agent can see whether it had gone stale; a revived agent should
       // re-orient before continuing.
-      const recommendedNextTools = detail.was_stale ? ['vibecode_session_bootstrap'] : [];
+      const recommendedNextTools = detail.was_stale ? ['vibecode_session_start'] : [];
       return formatSimpleSuccess({
         tool: TOOL_NAME,
         repoRoot: input.context.repoRoot,

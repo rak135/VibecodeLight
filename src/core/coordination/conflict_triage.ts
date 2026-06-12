@@ -318,19 +318,19 @@ function buildRecommendedNextTools(args: {
   blockingAgentStatus: ConflictAgentStatus;
   isOwnConflict: boolean;
 }): string[] {
-  const tools: string[] = ['vibecode_conflicts_list', 'vibecode_claims_list'];
+  const tools: string[] = ['vibecode_workspace_snapshot', 'vibecode_build_scope'];
 
   if (args.triageStatus === 'still_blocking' || args.triageStatus === 'unresolved') {
-    tools.push('vibecode_session_bootstrap', 'vibecode_git_changes');
+    tools.push('vibecode_session_start', 'vibecode_changes');
     if (args.blockingAgentStatus === 'stale' || args.blockingAgentStatus === 'terminated') {
-      tools.push('vibecode_claims_reap');
+      tools.push('vibecode_build_scope');
     }
   }
   if (args.triageStatus === 'cleared' || args.triageStatus === 'stale_blocking') {
-    tools.push('vibecode_claims_plan', 'vibecode_claims_add_bulk');
+    tools.push('vibecode_build_start');
   }
   if (args.isOwnConflict && args.triageStatus === 'cleared') {
-    tools.push('vibecode_claim_intents_list');
+    tools.push('vibecode_build_scope');
   }
 
   return [...new Set(tools)];

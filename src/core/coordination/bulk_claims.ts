@@ -212,7 +212,7 @@ export function addBulkClaims(
       warnings: [
         `Bulk claim blocked: ${blocked.length} path(s) cannot be claimed. No claims were created (atomic).`,
       ],
-      recommended_next_tools: ['vibecode_claims_list', 'vibecode_conflicts_list'],
+      recommended_next_tools: ['vibecode_build_scope', 'vibecode_workspace_snapshot'],
       recommended_cli_commands: [
         'vibecode claims list --json',
         'vibecode conflicts list --json',
@@ -300,7 +300,7 @@ export function addBulkClaims(
     blocked_paths: [],
     conflict_id: null,
     warnings: [],
-    recommended_next_tools: ['vibecode_git_changes', 'vibecode_finalize_check'],
+    recommended_next_tools: ['vibecode_changes', 'vibecode_build_finish'],
     recommended_cli_commands: [
       `vibecode git changes --agent ${agent.agent_id} --json`,
     ],

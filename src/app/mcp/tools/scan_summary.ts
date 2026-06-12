@@ -62,7 +62,7 @@ function renderText(data: ScanSummaryData): string {
   }
   lines.push('', 'recommended_next_tools:');
   for (const t of data.recommended_next_tools) lines.push(`  - ${t}`);
-  lines.push('', 'Read full section detail with vibecode_scan_artifact_read. These tools do not run the scanner.');
+  lines.push('', 'Read full section detail with vibecode_artifact_read. These tools do not run the scanner.');
   return lines.join('\n');
 }
 
@@ -72,7 +72,7 @@ export function buildScanSummaryTool(): McpToolDefinition {
     name: TOOL_NAME,
     title: 'Vibecode scan summary',
     description:
-      'Compact, bounded orientation from existing deterministic scan artifacts for a run: per-section counts and top items for files, commands, tests, symbols, imports, entrypoints, instructions, tooling, and git, plus which allowlisted scan artifacts are available/missing. Read-only — reads only allowlisted scan artifacts and never runs the scanner. run_id accepts "latest"/"current". Follow up with vibecode_scan_artifact_read for full detail.',
+      'Compact, bounded orientation from existing deterministic scan artifacts for a run: per-section counts and top items for files, commands, tests, symbols, imports, entrypoints, instructions, tooling, and git, plus which allowlisted scan artifacts are available/missing. Read-only — reads only allowlisted scan artifacts and never runs the scanner. run_id accepts "latest"/"current". Follow up with vibecode_artifact_read for full detail.',
     inputSchema,
     handler: async (input: McpToolHandlerInput): Promise<McpToolFormattedResult> => {
       const started = Date.now();

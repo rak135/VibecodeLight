@@ -497,25 +497,25 @@ export function buildTeamStatusOverview(input: {
     const agentRec = new Recommendations();
     switch (action) {
       case 'heartbeat_needed':
-        agentRec.tool('vibecode_agent_heartbeat', 'vibecode_session_bootstrap');
+        agentRec.tool('vibecode_session_start');
         agentRec.command(
           `vibecode agents heartbeat --agent ${agent.agent_id} --json`,
           `vibecode session bootstrap --agent ${agent.agent_id} --json`,
         );
         break;
       case 'observe_only':
-        agentRec.tool('vibecode_workspace_info', 'vibecode_project_instructions');
+        agentRec.tool('vibecode_workspace_snapshot', 'vibecode_project_instructions');
         agentRec.command('vibecode tools profile --profile read_only_orientation --json');
         break;
       case 'ready_to_claim':
-        agentRec.tool('vibecode_session_bootstrap', 'vibecode_claims_plan');
+        agentRec.tool('vibecode_session_start', 'vibecode_build_start');
         agentRec.command(
           `vibecode session bootstrap --agent ${agent.agent_id} --json`,
           `vibecode claims plan --agent ${agent.agent_id} --path <path> --json`,
         );
         break;
       case 'continue_work':
-        agentRec.tool('vibecode_git_changes', 'vibecode_claim_intents_list', 'vibecode_handoff_prepare');
+        agentRec.tool('vibecode_changes', 'vibecode_build_scope', 'vibecode_handoff');
         agentRec.command(
           `vibecode git changes --agent ${agent.agent_id} --json`,
           `vibecode claims intents list --agent ${agent.agent_id} --status active --json`,
@@ -524,7 +524,7 @@ export function buildTeamStatusOverview(input: {
         break;
       case 'commit_claimed_work':
       case 'isolated_commit_possible':
-        agentRec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+        agentRec.tool('vibecode_changes', 'vibecode_build_finish');
         agentRec.command(
           `vibecode git changes --agent ${agent.agent_id} --json`,
           `vibecode finalize check --agent ${agent.agent_id} --json`,
@@ -532,7 +532,7 @@ export function buildTeamStatusOverview(input: {
         );
         break;
       case 'release_clean_work':
-        agentRec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release', 'vibecode_handoff_prepare');
+        agentRec.tool('vibecode_build_scope', 'vibecode_handoff');
         agentRec.command(
           `vibecode claims intents list --agent ${agent.agent_id} --status active --json`,
           `vibecode claims intent-release --agent ${agent.agent_id} --intent-id <intent_id> --dry-run --json`,
@@ -540,14 +540,14 @@ export function buildTeamStatusOverview(input: {
         );
         break;
       case 'blocked_by_conflict':
-        agentRec.tool('vibecode_conflicts_list', 'vibecode_conflict_detail');
+        agentRec.tool('vibecode_workspace_snapshot');
         agentRec.command(
           'vibecode tools profile --profile conflict_resolution --json',
           'vibecode conflicts list --json',
         );
         break;
       case 'housekeeping_needed':
-        agentRec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+        agentRec.tool('vibecode_changes', 'vibecode_build_finish');
         agentRec.command(
           `vibecode git changes --agent ${agent.agent_id} --json`,
           `vibecode finalize check --agent ${agent.agent_id} --json`,
@@ -555,7 +555,7 @@ export function buildTeamStatusOverview(input: {
         break;
       case 'terminated':
       case 'uncertain':
-        agentRec.tool('vibecode_session_bootstrap');
+        agentRec.tool('vibecode_session_start');
         agentRec.command(`vibecode session bootstrap --agent ${agent.agent_id} --json`);
         break;
     }
@@ -583,7 +583,7 @@ export function buildTeamStatusOverview(input: {
   // Global warnings/blockers
   if (staleCoordinationPresent) {
     warnings.push('Stale coordination state (stale agents/claims/intents) exists. Use coordination_housekeeping.');
-    rec.tool('vibecode_claims_list', 'vibecode_claims_reap');
+    rec.tool('vibecode_build_scope');
     rec.command('vibecode tools profile --profile coordination_housekeeping --json', 'vibecode claims reap --dry-run --json');
   }
   if (stagedUnclaimed > 0) {
@@ -596,7 +596,7 @@ export function buildTeamStatusOverview(input: {
   }
   if (unresolvedConflicts.length > 0) {
     warnings.push(`${unresolvedConflicts.length} unresolved conflict(s).`);
-    rec.tool('vibecode_conflicts_list');
+    rec.tool('vibecode_workspace_snapshot');
     rec.command('vibecode conflicts list --json');
   }
   if (!gitAvailable) {
@@ -604,7 +604,7 @@ export function buildTeamStatusOverview(input: {
   }
 
   // Global recommended tools
-  rec.tool('vibecode_team_status', 'vibecode_session_bootstrap');
+  rec.tool('vibecode_workspace_snapshot', 'vibecode_session_start');
   rec.command('vibecode team status --json');
 
   // Bounded samples

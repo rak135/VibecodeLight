@@ -33,7 +33,7 @@ function summarizeRun(info: RunInfo): Record<string, unknown> {
 function renderText(runs: Array<ReturnType<typeof summarizeRun>>): string {
   const lines: string[] = ['# Vibecode runs', ''];
   if (runs.length === 0) {
-    lines.push('(no runs yet — call `vibecode_runs_list` after running `vibecode prompt` or `vibecode context-build`)');
+    lines.push('(no runs yet — call `vibecode_run_status` after running `vibecode prompt` or `vibecode context-build`)');
     return lines.join('\n');
   }
   for (const r of runs) {

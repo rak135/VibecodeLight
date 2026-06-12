@@ -130,7 +130,7 @@ describe('runtime awareness — agent lifecycle (Part B)', () => {
     expect(
       result.recommended_cli_commands.some((c) => c.includes('session bootstrap --agent agent-a')),
     ).toBe(true);
-    expect(result.recommended_next_tools).toContain('vibecode_agent_heartbeat');
+    expect(result.recommended_next_tools).toContain('vibecode_session_start');
     expectSafeCommands(result.recommended_cli_commands);
   });
 

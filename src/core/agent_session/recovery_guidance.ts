@@ -249,7 +249,7 @@ export function getAgentRecoveryGuidance(input: AgentRecoveryGuidanceInput): Age
           ),
         );
       }
-      rec.tool('vibecode_session_bootstrap');
+      rec.tool('vibecode_session_start');
       rec.command(REGISTER_COMMAND);
       break;
     case 'terminated':
@@ -260,29 +260,29 @@ export function getAgentRecoveryGuidance(input: AgentRecoveryGuidanceInput): Age
           `Agent ${agentId} is terminated. Register a new agent; never heartbeat a terminated agent or reuse its old claims.`,
         ),
       );
-      rec.tool('vibecode_session_bootstrap');
+      rec.tool('vibecode_session_start');
       rec.command(REGISTER_COMMAND);
       break;
     case 'stale_needs_heartbeat':
-      rec.tool('vibecode_agent_heartbeat', 'vibecode_session_bootstrap');
+      rec.tool('vibecode_session_start');
       rec.command(
         `vibecode agents heartbeat --agent ${agentId} --json`,
         `vibecode session bootstrap --agent ${agentId} --json`,
       );
       break;
     case 'read_only_observe_only':
-      rec.tool('vibecode_workspace_info', 'vibecode_project_instructions');
+      rec.tool('vibecode_workspace_snapshot', 'vibecode_project_instructions');
       rec.command('vibecode tools profile --profile read_only_orientation --json');
       break;
     case 'ready_to_claim':
-      rec.tool('vibecode_tool_profile', 'vibecode_claims_plan', 'vibecode_claims_add_bulk');
+      rec.tool('vibecode_workspace_snapshot', 'vibecode_build_start');
       rec.command(
         'vibecode tools profile --profile build_pre_edit --json',
         `vibecode claims plan --agent ${agentId} --intent "<intent>" --path <path> --json`,
       );
       break;
     case 'ready_to_continue':
-      rec.tool('vibecode_git_changes', 'vibecode_claim_intents_list');
+      rec.tool('vibecode_changes', 'vibecode_build_scope');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode claims intents list --agent ${agentId} --status active --json`,
@@ -290,7 +290,7 @@ export function getAgentRecoveryGuidance(input: AgentRecoveryGuidanceInput): Age
       break;
     case 'ready_to_commit':
     case 'isolated_commit_possible':
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
@@ -305,28 +305,28 @@ export function getAgentRecoveryGuidance(input: AgentRecoveryGuidanceInput): Age
           `${counts.staged_unclaimed} unclaimed dirty file(s) are STAGED in the git index. Inspect and unstage them yourself before any commit — the guard blocks and never auto-unstages; never commit them.`,
         ),
       );
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
       );
       break;
     case 'ready_to_release':
-      rec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+      rec.tool('vibecode_build_scope');
       rec.command(
         `vibecode claims intents list --agent ${agentId} --status active --json`,
         `vibecode claims intent-release --agent ${agentId} --intent-id <intent_id> --dry-run --json`,
       );
       break;
     case 'blocked_by_conflict':
-      rec.tool('vibecode_conflicts_list', 'vibecode_conflict_detail');
+      rec.tool('vibecode_workspace_snapshot');
       rec.command(
         'vibecode tools profile --profile conflict_resolution --json',
         'vibecode conflicts list --json',
       );
       break;
     case 'uncertain_state':
-      rec.tool('vibecode_session_bootstrap', 'vibecode_git_changes');
+      rec.tool('vibecode_session_start', 'vibecode_changes');
       if (canContinue && agentId) {
         rec.command(
           `vibecode session bootstrap --agent ${agentId} --json`,
@@ -347,7 +347,7 @@ export function getAgentRecoveryGuidance(input: AgentRecoveryGuidanceInput): Age
         `Agent ${agentId} has not heartbeat for over half the TTL. Heartbeat before/while continuing so the session does not go stale.`,
       ),
     );
-    rec.tool('vibecode_agent_heartbeat');
+    rec.tool('vibecode_session_start');
     rec.command(`vibecode agents heartbeat --agent ${agentId} --json`);
   }
   if (stillBlockingConflicts > 0 && state !== 'blocked_by_conflict') {
@@ -358,7 +358,7 @@ export function getAgentRecoveryGuidance(input: AgentRecoveryGuidanceInput): Age
         `${stillBlockingConflicts} unresolved conflict(s) involving this agent are still blocking. Triage them after the primary action; never auto-resolve.`,
       ),
     );
-    rec.tool('vibecode_conflicts_list');
+    rec.tool('vibecode_workspace_snapshot');
     rec.command('vibecode conflicts list --json');
   }
   if (
@@ -390,7 +390,7 @@ export function getAgentRecoveryGuidance(input: AgentRecoveryGuidanceInput): Age
         'Stale coordination state (stale agents/claims/intents) exists. Housekeeping is explicit and dry-run-first; never release another agent\'s intent.',
       ),
     );
-    rec.tool('vibecode_claims_list', 'vibecode_claims_reap');
+    rec.tool('vibecode_build_scope');
     rec.command(
       'vibecode tools profile --profile coordination_housekeeping --json',
       'vibecode claims reap --dry-run --json',

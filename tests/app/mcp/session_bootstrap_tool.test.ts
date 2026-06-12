@@ -70,7 +70,7 @@ describe('VibecodeMCP session_bootstrap tool', () => {
     const data = result.structuredContent.data as SessionBootstrapResult;
     expect(data.repo_root).toBe(repo.repoRoot);
     expect(data.agent_protocol.length).toBeGreaterThan(0);
-    expect(data.recommended_next_tools).toContain('vibecode_git_changes');
+    expect(data.recommended_next_tools).toContain('vibecode_changes');
     expect(data.codegraph).toMatchObject({ available: false, initialized: false });
   });
 

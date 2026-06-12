@@ -170,7 +170,7 @@ describe('getScanSummary — populated scan dir', () => {
 
   test('recommends scan_artifact_read when scan is available', () => {
     const result = ok(getScanSummary(env.runDir, { sections: ['files'] }));
-    expect(result.recommended_next_tools).toContain('vibecode_scan_artifact_read');
+    expect(result.recommended_next_tools).toContain('vibecode_artifact_read');
   });
 });
 
@@ -182,7 +182,7 @@ describe('getScanSummary — degraded states', () => {
       expect(result.scan_dir_available).toBe(false);
       expect(result.scan_available).toBe(false);
       expect(result.warnings.some((w) => /scan directory is not available/.test(w))).toBe(true);
-      expect(result.recommended_next_tools).toContain('vibecode_session_bootstrap');
+      expect(result.recommended_next_tools).toContain('vibecode_session_start');
     } finally {
       fs.rmSync(runDir, { recursive: true, force: true });
     }

@@ -214,8 +214,8 @@ describe('Phase 1A MCP input validation / hard caps', () => {
       expect(result.isError).toBe(false);
       const data = result.structuredContent.data as SessionBootstrapResult;
       expect(data.current_agent?.operating_mode).toBe('read_only');
-      expect(data.recommended_next_tools).not.toContain('vibecode_claim_add');
-      expect(data.recommended_next_tools).toContain('vibecode_git_changes');
+      expect(data.recommended_next_tools).not.toContain('vibecode_build_start');
+      expect(data.recommended_next_tools).toContain('vibecode_changes');
       expect(data.recommended_next_tools).toContain('vibecode_project_instructions');
     });
 
@@ -228,9 +228,9 @@ describe('Phase 1A MCP input validation / hard caps', () => {
       expect(result.isError).toBe(false);
       const data = result.structuredContent.data as SessionBootstrapResult;
       expect(data.current_agent?.operating_mode).toBe('build');
-      expect(data.recommended_next_tools).toContain('vibecode_claim_add');
-      expect(data.recommended_next_tools).toContain('vibecode_finalize_check');
-      expect(data.recommended_next_tools).toContain('vibecode_git_changes');
+      expect(data.recommended_next_tools).toContain('vibecode_build_start');
+      expect(data.recommended_next_tools).toContain('vibecode_build_finish');
+      expect(data.recommended_next_tools).toContain('vibecode_changes');
     });
 
     test('unregistered bootstrap shows claim guidance for onboarding', async () => {
@@ -243,8 +243,8 @@ describe('Phase 1A MCP input validation / hard caps', () => {
       const data = result.structuredContent.data as SessionBootstrapResult;
       expect(data.current_agent).toBeNull();
       // Unregistered sees both for guidance.
-      expect(data.recommended_next_tools).toContain('vibecode_claim_add');
-      expect(data.recommended_next_tools).toContain('vibecode_git_changes');
+      expect(data.recommended_next_tools).toContain('vibecode_build_start');
+      expect(data.recommended_next_tools).toContain('vibecode_changes');
     });
   });
 

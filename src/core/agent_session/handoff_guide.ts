@@ -402,7 +402,7 @@ export function buildNextAgentHandoffGuide(
         `for_agent_id equals from_agent_id (${fromAgentId}): this is a same-agent resume, not a cross-agent handoff. Use the session_recovery profile and session bootstrap instead of onboarding as a new agent.`,
       ),
     );
-    rec.tool('vibecode_session_bootstrap');
+    rec.tool('vibecode_session_start');
     rec.nextCommand(
       'vibecode tools profile --profile session_recovery --json',
       `vibecode session bootstrap --agent ${fromAgentId} --json`,
@@ -421,28 +421,28 @@ export function buildNextAgentHandoffGuide(
       );
       if (sourceState === 'stale_agent_needs_heartbeat') {
         required.push('previous_agent_heartbeat_and_rerun_prepare');
-        rec.tool('vibecode_agent_heartbeat', 'vibecode_handoff_prepare');
+        rec.tool('vibecode_session_start', 'vibecode_handoff');
         rec.previousCommand(
           `vibecode agents heartbeat --agent ${fromAgentId} --json`,
           `vibecode handoff prepare --agent ${fromAgentId} --json`,
         );
       } else if (sourceState === 'blocked_by_staged_files') {
         required.push('inspect_staged_blockers');
-        rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+        rec.tool('vibecode_changes', 'vibecode_build_finish');
         rec.previousCommand(
           `vibecode git changes --agent ${fromAgentId} --json`,
           `vibecode finalize check --agent ${fromAgentId} --json`,
         );
       } else {
         required.push('previous_agent_commit_or_revert');
-        rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+        rec.tool('vibecode_changes', 'vibecode_build_finish');
         rec.previousCommand(
           `vibecode git changes --agent ${fromAgentId} --json`,
           `vibecode finalize check --agent ${fromAgentId} --json`,
           `vibecode commit guard --agent ${fromAgentId} --dry-run --json`,
         );
       }
-      rec.tool('vibecode_handoff_prepare');
+      rec.tool('vibecode_handoff');
       break;
     }
     case 'previous_agent_ready_after_release': {
@@ -455,7 +455,7 @@ export function buildNextAgentHandoffGuide(
       );
       if (previousActiveIntents > 0) {
         required.push('previous_agent_release_intents');
-        rec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+        rec.tool('vibecode_build_scope');
         rec.previousCommand(
           `vibecode claims intents list --agent ${fromAgentId} --status active --json`,
           `vibecode claims intent-release --agent ${fromAgentId} --intent-id <intent_id> --dry-run --json`,
@@ -463,7 +463,7 @@ export function buildNextAgentHandoffGuide(
         );
       } else {
         required.push('previous_agent_release_claims');
-        rec.tool('vibecode_claims_list', 'vibecode_claim_release');
+        rec.tool('vibecode_build_scope');
         rec.previousCommand(
           `vibecode claims list --agent ${fromAgentId} --json`,
           'vibecode claims release --claim <claim_id> --json',
@@ -480,7 +480,7 @@ export function buildNextAgentHandoffGuide(
           `${previousActiveClaims} active claim(s) of terminated/missing agent ${fromAgentId} still exist. They never transfer to you — use explicit housekeeping (dry-run first) and claim the files yourself afterwards.`,
         ),
       );
-      rec.tool('vibecode_claims_list', 'vibecode_claims_reap');
+      rec.tool('vibecode_build_scope');
       rec.nextCommand(
         'vibecode tools profile --profile coordination_housekeeping --json',
         'vibecode claims reap --dry-run --json',
@@ -496,7 +496,7 @@ export function buildNextAgentHandoffGuide(
           'A still-blocking conflict involves this handoff. Triage it explicitly before continuing; resolution is never automatic.',
         ),
       );
-      rec.tool('vibecode_conflicts_list', 'vibecode_conflict_detail');
+      rec.tool('vibecode_workspace_snapshot');
       rec.nextCommand(
         'vibecode tools profile --profile conflict_resolution --json',
         'vibecode conflicts list --json',
@@ -512,7 +512,7 @@ export function buildNextAgentHandoffGuide(
           'Stale coordination state (stale agents/claims/intents) makes continuing noisy. Run explicit housekeeping (dry-run first) before claiming; never force-clean.',
         ),
       );
-      rec.tool('vibecode_claims_list', 'vibecode_claims_reap');
+      rec.tool('vibecode_build_scope');
       rec.nextCommand(
         'vibecode tools profile --profile coordination_housekeeping --json',
         'vibecode claims reap --dry-run --json',
@@ -531,10 +531,10 @@ export function buildNextAgentHandoffGuide(
         ),
       );
       if (nextStatus === 'terminated') {
-        rec.tool('vibecode_session_bootstrap');
+        rec.tool('vibecode_session_start');
         rec.nextCommand(REGISTER_COMMAND);
       } else {
-        rec.tool('vibecode_agent_heartbeat', 'vibecode_session_bootstrap');
+        rec.tool('vibecode_session_start');
         rec.nextCommand(
           `vibecode agents heartbeat --agent ${forAgentId} --json`,
           `vibecode session bootstrap --agent ${forAgentId} --json`,
@@ -550,13 +550,13 @@ export function buildNextAgentHandoffGuide(
           `Your agent ${forAgentId} is read_only: use this guide for observation and reporting only — no claim, edit, finalize, or commit.`,
         ),
       );
-      rec.tool('vibecode_workspace_info', 'vibecode_project_instructions');
+      rec.tool('vibecode_workspace_snapshot', 'vibecode_project_instructions');
       rec.nextCommand('vibecode tools profile --profile read_only_orientation --json');
       break;
     }
     case 'next_agent_not_registered': {
       required.push('register_next_agent');
-      rec.tool('vibecode_session_bootstrap', 'vibecode_tool_profile');
+      rec.tool('vibecode_session_start', 'vibecode_workspace_snapshot');
       rec.nextCommand(
         REGISTER_COMMAND,
         'vibecode tools profile --profile team_handoff --json',
@@ -565,7 +565,7 @@ export function buildNextAgentHandoffGuide(
     }
     case 'same_agent_resume': {
       required.push('resume_same_agent_with_session_recovery');
-      rec.tool('vibecode_session_bootstrap', 'vibecode_tool_profile');
+      rec.tool('vibecode_session_start', 'vibecode_workspace_snapshot');
       rec.nextCommand(
         'vibecode tools profile --profile session_recovery --json',
         `vibecode session bootstrap --agent ${fromAgentId} --json`,
@@ -575,7 +575,7 @@ export function buildNextAgentHandoffGuide(
     }
     case 'ready_for_new_agent': {
       required.push('plan_and_claim_explicit_files');
-      rec.tool('vibecode_session_bootstrap', 'vibecode_tool_profile', 'vibecode_claims_plan');
+      rec.tool('vibecode_session_start', 'vibecode_workspace_snapshot', 'vibecode_build_start');
       rec.nextCommand(
         `vibecode session bootstrap --agent ${forAgentId} --json`,
         'vibecode tools profile --profile build_pre_edit --json',
@@ -592,7 +592,7 @@ export function buildNextAgentHandoffGuide(
           'Handoff/onboarding state could not be classified safely (git unavailable, invalid session data, or unowned staged files). Inspect only — do not claim, edit, commit, release, or clean up based on this guide.',
         ),
       );
-      rec.tool('vibecode_session_bootstrap', 'vibecode_git_changes');
+      rec.tool('vibecode_session_start', 'vibecode_changes');
       rec.nextCommand('vibecode session bootstrap --json');
       break;
     }
@@ -611,7 +611,7 @@ export function buildNextAgentHandoffGuide(
         'Stale coordination state (stale agents/claims/intents) exists. Housekeeping is explicit and dry-run-first; never release another agent\'s intent.',
       ),
     );
-    rec.tool('vibecode_claims_reap');
+    rec.tool('vibecode_build_scope');
     rec.nextCommand(
       'vibecode tools profile --profile coordination_housekeeping --json',
       'vibecode claims reap --dry-run --json',

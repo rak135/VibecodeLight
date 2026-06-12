@@ -198,7 +198,7 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
         agent_guidance: [...AGENT_GUIDANCE],
         guidance_status: guidanceStatus,
         // Phase 1B-3: compact list of available tool profiles (ids/titles only,
-        // not the full recommended tool sets). Call vibecode_tool_profile for one.
+        // not the full recommended tool sets). Call vibecode_workspace_snapshot for one.
         tool_profiles: listToolProfileSummaries(),
       };
 

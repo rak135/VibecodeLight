@@ -205,7 +205,7 @@ export function buildScanArtifactReadTool(): McpToolDefinition {
       ];
       if (chunk.hasMore) {
         headerLines.push(
-          `continue: call vibecode_scan_artifact_read again with byte_offset: ${chunk.nextByteOffset}`,
+          `continue: call vibecode_artifact_read again with byte_offset: ${chunk.nextByteOffset}`,
         );
       }
       headerLines.push('', chunk.content);

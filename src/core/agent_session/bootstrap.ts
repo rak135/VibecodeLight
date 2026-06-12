@@ -81,11 +81,11 @@ export type { AgentOperatingMode } from '../coordination/agent_operating_mode.js
 export const AGENT_OPERATING_PROTOCOL: readonly string[] = Object.freeze([
   'Register or confirm your agent identity (read_only or build) with a task/intent before working.',
   'read_only agents must NOT modify source files and do not claim files.',
-  'build agents must claim each file (vibecode_claim_add) before editing it.',
-  'Inspect the working tree with vibecode_git_changes before editing or finalizing.',
+  'build agents must claim each file (vibecode_build_start) before editing it.',
+  'Inspect the working tree with vibecode_changes before editing or finalizing.',
   'Edit only files your agent has claimed.',
   'Run the project checks/tests after editing.',
-  'Run vibecode_finalize_check before committing.',
+  'Run vibecode_build_finish before committing.',
   'Commit only your claimed files through the CLI `vibecode commit guard` (no raw git add/commit).',
   'Heartbeat to stay active; release claims or terminate when done.',
 ]);
@@ -274,7 +274,7 @@ export interface SessionBootstrapResult {
   /**
    * Phase 1B-3: compact, context-aware tool-profile recommendations (ids +
    * short reasons, NOT full profiles). Fetch a full profile with
-   * `vibecode_tool_profile` / `vibecode tools profile`.
+   * `vibecode_workspace_snapshot` / `vibecode tools profile`.
    */
   recommended_tool_profiles: ToolProfileRecommendation[];
   checked_at: string;
@@ -488,17 +488,16 @@ function recommendations(args: {
   const tools: string[] = [];
   const commands: string[] = [];
   if (!args.registered) {
-    tools.push('vibecode_session_bootstrap');
+    tools.push('vibecode_session_start');
     commands.push('vibecode session bootstrap --repo <path> --register --agent-mode <read_only|build> --task "<intent>" --json');
   }
-  tools.push('vibecode_git_changes');
+  tools.push('vibecode_changes');
   commands.push('vibecode git changes --repo <path> --agent <agent_id> --json');
 
   if (args.operatingMode === 'build') {
     // Build agents get the claim workflow. Prefer declaring an explicit work
-    // scope (plan → add-bulk) over claiming files one-by-one; claim_add remains
-    // the single-file fallback.
-    tools.push('vibecode_claims_plan', 'vibecode_claims_add_bulk', 'vibecode_claim_add', 'vibecode_finalize_check');
+    // scope (build_start) over claiming files one-by-one.
+    tools.push('vibecode_build_start', 'vibecode_build_finish');
     commands.push(
       'vibecode claims plan --repo <path> --agent <agent_id> --path <path> --json',
       'vibecode claims add-bulk --repo <path> --agent <agent_id> --intent "<intent>" --path <path> --json',
@@ -507,7 +506,7 @@ function recommendations(args: {
     );
     // Phase 2B: recommend intent release when clean releasable intents exist.
     if (args.hasReleasableIntents) {
-      tools.push('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+      tools.push('vibecode_build_scope');
       commands.push(
         'vibecode claims intents list --agent <agent_id> --json',
         'vibecode claims intent-release --agent <agent_id> --intent-id <intent_id> --dry-run --json',
@@ -516,22 +515,20 @@ function recommendations(args: {
     }
   } else if (args.operatingMode === 'read_only') {
     // Read-only agents get project-instructions and artifact tools, not claim workflow.
-    tools.push('vibecode_project_instructions', 'vibecode_workspace_info');
+    tools.push('vibecode_project_instructions', 'vibecode_workspace_snapshot');
     commands.push(
-      // Phase 3B fix: `vibecode workspace info` does not exist as a CLI
-      // command; point at the real read-only orientation profile instead.
       'vibecode tools profile --profile read_only_orientation --json',
     );
   } else {
     // Unknown mode (not registered) — show both for guidance.
-    tools.push('vibecode_claim_add', 'vibecode_finalize_check');
+    tools.push('vibecode_build_start', 'vibecode_build_finish');
     commands.push(
       'vibecode claims add --repo <path> --agent <agent_id> --path <path> --json',
       'vibecode finalize check --repo <path> --agent <agent_id> --json',
     );
   }
   if (args.hasStaleCleanClaims) {
-    tools.push('vibecode_claims_list', 'vibecode_claims_reap');
+    tools.push('vibecode_build_scope');
     commands.push(
       'vibecode claims list --repo <repo> --json',
       'vibecode claims reap --repo <repo> --dry-run --json',
@@ -539,7 +536,7 @@ function recommendations(args: {
   }
   // Phase 2D: conflict triage recommendations.
   if (args.hasStillBlockingConflicts) {
-    tools.push('vibecode_conflicts_list', 'vibecode_conflict_detail');
+    tools.push('vibecode_workspace_snapshot');
     commands.push(
       'vibecode conflicts list --json',
       'vibecode conflicts detail --conflict-id <conflict_id> --json',
@@ -934,7 +931,7 @@ export async function getSessionBootstrap(input: SessionBootstrapInput): Promise
   const recommendedTools = [...rec.tools];
   const recommendedCommands = [...rec.commands];
   if (staleCoordination.has_stale_state) {
-    for (const tool of ['vibecode_claims_list', 'vibecode_claims_reap', ...(currentAgent ? ['vibecode_agent_heartbeat'] : [])]) {
+    for (const tool of ['vibecode_build_scope', ...(currentAgent ? ['vibecode_session_start'] : [])]) {
       if (!recommendedTools.includes(tool)) recommendedTools.push(tool);
     }
     for (const command of staleCoordination.recommended_cli_commands) {

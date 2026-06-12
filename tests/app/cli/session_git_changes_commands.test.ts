@@ -75,7 +75,7 @@ describe('vibecode session bootstrap --json', () => {
     expect(envelope.ok).toBe(true);
     expect(envelope.data.repo_root).toBe(repo.repoRoot);
     expect(envelope.data.agent_protocol.length).toBeGreaterThan(0);
-    expect(envelope.data.recommended_next_tools).toContain('vibecode_git_changes');
+    expect(envelope.data.recommended_next_tools).toContain('vibecode_changes');
     expect(Array.isArray(envelope.artifacts)).toBe(true);
   });
 

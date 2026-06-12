@@ -66,7 +66,7 @@ describe('getSessionBootstrap — git + orientation', () => {
     expect(result.agent_protocol).toEqual([...AGENT_OPERATING_PROTOCOL]);
     expect(result.recommended_next_tools.length).toBeGreaterThan(0);
     expect(result.recommended_cli_commands.length).toBeGreaterThan(0);
-    expect(result.recommended_next_tools).toContain('vibecode_git_changes');
+    expect(result.recommended_next_tools).toContain('vibecode_changes');
   });
 
   test('dirty repo: changed counts and sample paths are populated', async () => {
@@ -292,7 +292,7 @@ describe('getSessionBootstrap — Phase 2D conflict triage summary', () => {
     expect(item.blocking_agent_status).toBe('active');
     expect(item.warning_codes).toContain('CONFLICT_STILL_BLOCKING');
     expect(result.warnings.map((w) => w.code)).toContain('CONFLICTS_STILL_BLOCKING');
-    expect(result.recommended_next_tools).toContain('vibecode_conflict_detail');
+    expect(result.recommended_next_tools).toContain('vibecode_workspace_snapshot');
     expect(result.recommended_tool_profiles.map((p) => p.profile_id)).toContain('conflict_resolution');
     // Safety boundary: no recommendation suggests force cleanup, cross-agent
     // release, ownership transfer, or direct .vibecode editing.
@@ -471,8 +471,7 @@ describe('getSessionBootstrap — stale active claim warnings for clean files', 
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: a, now: PAST_GRACE, ...baseOpts });
     expect(result.recommended_cli_commands.some((c) => c.includes('claims list'))).toBe(true);
     expect(result.recommended_cli_commands.some((c) => c.includes('claims reap'))).toBe(true);
-    expect(result.recommended_next_tools).toContain('vibecode_claims_list');
-    expect(result.recommended_next_tools).toContain('vibecode_claims_reap');
+    expect(result.recommended_next_tools).toContain('vibecode_build_scope');
   });
 
   test('no grace period for real claim conflicts: fresh blocking claim still triages still_blocking', async () => {
@@ -524,8 +523,7 @@ describe('getSessionBootstrap — releasable intent recommendations (Phase 2B)',
 
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
     expect(result.active_work_intents).toHaveLength(1);
-    expect(result.recommended_next_tools).toContain('vibecode_claim_intents_list');
-    expect(result.recommended_next_tools).toContain('vibecode_claim_intent_release');
+    expect(result.recommended_next_tools).toContain('vibecode_build_scope');
     expect(result.recommended_cli_commands.some((c) => c.includes('intent-release') && c.includes('--dry-run'))).toBe(true);
   });
 
@@ -538,7 +536,7 @@ describe('getSessionBootstrap — releasable intent recommendations (Phase 2B)',
 
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
     expect(result.active_work_intents).toHaveLength(1);
-    expect(result.recommended_next_tools).not.toContain('vibecode_claim_intent_release');
+    expect(result.recommended_next_tools).not.toContain('vibecode_build_scope');
     expect(result.recommended_cli_commands.some((c) => c.includes('intent-release'))).toBe(false);
   });
 
@@ -551,7 +549,7 @@ describe('getSessionBootstrap — releasable intent recommendations (Phase 2B)',
 
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
     expect(result.active_work_intents).toHaveLength(1);
-    expect(result.recommended_next_tools).not.toContain('vibecode_claim_intent_release');
+    expect(result.recommended_next_tools).not.toContain('vibecode_build_scope');
   });
 
   test('released intent → no active intent and no release recommendation', async () => {
@@ -564,6 +562,6 @@ describe('getSessionBootstrap — releasable intent recommendations (Phase 2B)',
 
     const result = await getSessionBootstrap({ repoRoot: repo, agent_id: agentId, ...baseOpts });
     expect(result.active_work_intents).toHaveLength(0);
-    expect(result.recommended_next_tools).not.toContain('vibecode_claim_intent_release');
+    expect(result.recommended_next_tools).not.toContain('vibecode_build_scope');
   });
 });

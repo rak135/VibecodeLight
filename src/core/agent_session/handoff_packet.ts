@@ -346,7 +346,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
               `Agent ${agentId} is terminated; its claims do not transfer. Register a new agent and treat leftover state as coordination housekeeping.`,
             ),
       );
-      rec.tool('vibecode_session_bootstrap');
+      rec.tool('vibecode_session_start');
       rec.command(REGISTER_COMMAND);
       break;
     case 'stale_agent_needs_heartbeat':
@@ -357,7 +357,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
           `Agent ${agentId} is ${status}. Heartbeat, then re-run handoff prepare — never hand off based on stale state.`,
         ),
       );
-      rec.tool('vibecode_agent_heartbeat', 'vibecode_session_bootstrap');
+      rec.tool('vibecode_session_start');
       rec.command(
         `vibecode agents heartbeat --agent ${agentId} --json`,
         `vibecode session bootstrap --agent ${agentId} --json`,
@@ -372,7 +372,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
           `Agent ${agentId} is read_only: this packet is a report only — no claims, commits, or releases are involved.`,
         ),
       );
-      rec.tool('vibecode_workspace_info', 'vibecode_project_instructions');
+      rec.tool('vibecode_workspace_snapshot', 'vibecode_project_instructions');
       rec.command('vibecode tools profile --profile read_only_orientation --json');
       break;
     case 'blocked_by_staged_files':
@@ -383,7 +383,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
           `${stagedBlockers} staged file(s) outside this agent's committable set (unclaimed/other-agent/generated) block handoff. Inspect and unstage them safely yourself — never commit them.`,
         ),
       );
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
@@ -400,7 +400,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
           ),
         );
       }
-      rec.tool('vibecode_git_changes', 'vibecode_finalize_check');
+      rec.tool('vibecode_changes', 'vibecode_build_finish');
       rec.command(
         `vibecode git changes --agent ${agentId} --json`,
         `vibecode finalize check --agent ${agentId} --json`,
@@ -415,7 +415,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
           `${stillBlockingInvolving.length} still-blocking conflict(s) involve this agent. Triage them before handoff; resolution is explicit, never automatic.`,
         ),
       );
-      rec.tool('vibecode_conflicts_list', 'vibecode_conflict_detail');
+      rec.tool('vibecode_workspace_snapshot');
       rec.command(
         'vibecode tools profile --profile conflict_resolution --json',
         'vibecode conflicts list --json',
@@ -430,7 +430,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
             `${activeIntentsCount} clean active own intent(s) should be released before another agent continues — dry-run the release first. The next agent must not edit the claimed files until release.`,
           ),
         );
-        rec.tool('vibecode_claim_intents_list', 'vibecode_claim_intent_release');
+        rec.tool('vibecode_build_scope');
         rec.command(
           `vibecode claims intents list --agent ${agentId} --status active --json`,
           `vibecode claims intent-release --agent ${agentId} --intent-id <intent_id> --dry-run --json`,
@@ -444,7 +444,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
             `${activeClaimsCount} active own claim(s) without an intent remain. Release them before another agent claims the same files.`,
           ),
         );
-        rec.tool('vibecode_claims_list', 'vibecode_claim_release');
+        rec.tool('vibecode_build_scope');
         rec.command(
           `vibecode claims list --agent ${agentId} --json`,
           'vibecode claims release --claim <claim_id> --json',
@@ -452,7 +452,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
       }
       break;
     case 'ready_to_handoff':
-      rec.tool('vibecode_session_bootstrap');
+      rec.tool('vibecode_session_start');
       rec.command(`vibecode agents terminate --agent ${agentId} --json`);
       break;
     case 'uncertain_state':
@@ -473,7 +473,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
           ),
         );
       }
-      rec.tool('vibecode_session_bootstrap', 'vibecode_git_changes');
+      rec.tool('vibecode_session_start', 'vibecode_changes');
       rec.command(`vibecode session bootstrap --agent ${agentId} --json`);
       break;
   }
@@ -501,7 +501,7 @@ export function buildAgentHandoffPacket(input: AgentHandoffPacketBuildInput): Ag
         'Stale coordination state (stale agents/claims/intents) exists. Housekeeping is explicit and dry-run-first; it does not block this handoff unless it affects the owned work above.',
       ),
     );
-    rec.tool('vibecode_claims_list', 'vibecode_claims_reap');
+    rec.tool('vibecode_build_scope');
     rec.command(
       'vibecode tools profile --profile coordination_housekeeping --json',
       'vibecode claims reap --dry-run --json',

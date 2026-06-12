@@ -75,7 +75,7 @@ describe('vibecode_scan_summary', () => {
     expect(data.run_id).toBe('r1');
     expect(data.scan_available).toBe(true);
     expect(data.available_artifacts).toContain('commands');
-    expect((data.recommended_next_tools as string[])).toContain('vibecode_scan_artifact_read');
+    expect((data.recommended_next_tools as string[])).toContain('vibecode_artifact_read');
   });
 
   test('sections filter limits the returned sections', async () => {
@@ -94,7 +94,7 @@ describe('vibecode_scan_summary', () => {
     expect(res.isError).toBe(false);
     const data = res.structuredContent.data as Record<string, unknown>;
     expect(data.scan_available).toBe(false);
-    expect((data.recommended_next_tools as string[])).toContain('vibecode_session_bootstrap');
+    expect((data.recommended_next_tools as string[])).toContain('vibecode_session_start');
   });
 
   test('unknown section is rejected with INVALID_ARGUMENT', async () => {

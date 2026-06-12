@@ -225,10 +225,9 @@ describe('vibecode conflicts (CLI)', () => {
     expect(conflict.recommended_cli_commands.some(
       (c) => c.includes('claims plan') && c.includes(`--agent ${requesterId}`),
     )).toBe(true);
-    expect(conflict.recommended_next_tools).toContain('vibecode_claims_plan');
-    expect(conflict.recommended_next_tools).toContain('vibecode_claims_add_bulk');
-    // Own cleared conflict additionally points at the agent's intent list.
-    expect(conflict.recommended_next_tools).toContain('vibecode_claim_intents_list');
+    expect(conflict.recommended_next_tools).toContain('vibecode_build_start');
+    // Own cleared conflict additionally points at the agent's scope.
+    expect(conflict.recommended_next_tools).toContain('vibecode_build_scope');
   });
 
   test('conflicts detail without --agent keeps existing generic recommendations', async () => {

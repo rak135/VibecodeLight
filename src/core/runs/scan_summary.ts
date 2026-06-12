@@ -263,12 +263,12 @@ const SECTION_SUMMARIZERS: Readonly<
 function recommendations(scanAvailable: boolean): { tools: string[]; commands: string[] } {
   if (!scanAvailable) {
     return {
-      tools: ['vibecode_session_bootstrap'],
+      tools: ['vibecode_session_start'],
       commands: ['vibecode scan "<task>"   # run a deterministic scan to produce scan artifacts'],
     };
   }
   return {
-    tools: ['vibecode_scan_artifact_read', 'vibecode_artifact_read', 'vibecode_codegraph_context'],
+    tools: ['vibecode_artifact_read', 'vibecode_run_status', 'vibecode_codegraph_explore'],
     commands: ['vibecode scan artifact-read --run <current|latest|run_id> --artifact <key> --json'],
   };
 }

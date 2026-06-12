@@ -356,8 +356,8 @@ describe('Phase 2D — conflict triage', () => {
     });
 
     expect(detail.recommended_next_tools.length).toBeGreaterThan(0);
-    expect(detail.recommended_next_tools).toContain('vibecode_conflicts_list');
-    expect(detail.recommended_next_tools).toContain('vibecode_claims_list');
+    expect(detail.recommended_next_tools).toContain('vibecode_workspace_snapshot');
+    expect(detail.recommended_next_tools).toContain('vibecode_build_scope');
     expect(detail.recommended_cli_commands.length).toBeGreaterThan(0);
   });
 
@@ -573,7 +573,7 @@ describe('Phase 2D — conflict triage', () => {
 
     expect(detail.blocking_agent_id).toBe('agent-a');
     // Current agent is the blocker — they should release their own claim.
-    expect(detail.recommended_next_tools).toContain('vibecode_claims_list');
+    expect(detail.recommended_next_tools).toContain('vibecode_build_scope');
   });
 
   test('recommended CLI commands embed the real conflict id and detail/summary agree after release', () => {
