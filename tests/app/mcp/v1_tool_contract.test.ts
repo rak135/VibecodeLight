@@ -79,6 +79,8 @@ describe('VibecodeMCP Tool Contract v1 public surface', () => {
   });
 
   test('registry constants expose exactly the 14 v1 public tools', () => {
+    expect(V1_PUBLIC_TOOLS).toHaveLength(14);
+    expect(new Set(V1_PUBLIC_TOOLS).size).toBe(V1_PUBLIC_TOOLS.length);
     expect(VIBECODE_MCP_TOOL_NAMES).toEqual(V1_PUBLIC_TOOLS);
   });
 
