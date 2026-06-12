@@ -124,13 +124,11 @@ describe('Coordination Phase 4C scope boundary', () => {
     expect(store).toContain('getCoordinationPaths');
   });
 
-  test('MCP exposes exactly two evidence tools and still no commit/guard/source-mutation tool', () => {
+  test('MCP v1 does not expose old evidence tools or commit/guard/source-mutation tools', () => {
     const tools = buildVibecodeMcpTools();
     expect(tools).toHaveLength(VIBECODE_MCP_TOOL_NAMES.length);
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_evidence_list');
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_evidence_scan');
     const evidenceTools = VIBECODE_MCP_TOOL_NAMES.filter((n) => n.includes('evidence'));
-    expect(evidenceTools.sort()).toEqual(['vibecode_evidence_list', 'vibecode_evidence_scan']);
+    expect(evidenceTools).toEqual([]);
     for (const name of VIBECODE_MCP_TOOL_NAMES) {
       expect(name).not.toMatch(/commit|guard/i);
       expect(name).not.toMatch(/(write|create|update|delete|put|post|set|edit|modify)/i);

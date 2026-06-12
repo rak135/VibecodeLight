@@ -16,31 +16,24 @@ describe('agent guidance settings — MCP tool metadata', () => {
   test('group mapping matches the documented Settings groups', () => {
     expect(AGENT_GUIDANCE_MCP_TOOL_GROUPS.workspace_orientation).toEqual(
       expect.arrayContaining([
-        'vibecode_workspace_info',
-        'vibecode_workspace_status',
-        'vibecode_mcp_guidance',
+        'vibecode_session_start',
+        'vibecode_workspace_snapshot',
         'vibecode_project_instructions',
-        'vibecode_artifacts_list',
+        'vibecode_changes',
       ]),
     );
     expect(AGENT_GUIDANCE_MCP_TOOL_GROUPS.codegraph).toEqual(
       expect.arrayContaining([
-        'vibecode_codegraph_status',
         'vibecode_codegraph_search',
-        'vibecode_codegraph_context',
-        'vibecode_codegraph_files',
+        'vibecode_codegraph_explore',
         'vibecode_codegraph_callers',
-        'vibecode_codegraph_callees',
         'vibecode_codegraph_impact',
       ]),
     );
     expect(AGENT_GUIDANCE_MCP_TOOL_GROUPS.runs_artifacts).toEqual(
       expect.arrayContaining([
-        'vibecode_runs_list',
-        'vibecode_current_run',
-        'vibecode_run_get',
+        'vibecode_run_status',
         'vibecode_artifact_read',
-        'vibecode_codegraph_usage',
       ]),
     );
   });
@@ -59,12 +52,11 @@ describe('agent guidance settings — MCP tool metadata', () => {
       availableNames: new Set([
         'vibecode_codegraph_status',
         'vibecode_codegraph_search',
-        'vibecode_runs_list',
-        'vibecode_current_run',
+        'vibecode_run_status',
         'vibecode_artifact_read',
       ]),
     });
-    expect(filtered.find((t) => t.name === 'vibecode_workspace_info')).toBeUndefined();
+    expect(filtered.find((t) => t.name === 'vibecode_workspace_snapshot')).toBeUndefined();
     expect(filtered.find((t) => t.group === 'codegraph')).toBeTruthy();
     expect(filtered.find((t) => t.group === 'runs_artifacts')).toBeTruthy();
   });

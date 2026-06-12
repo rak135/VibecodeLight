@@ -68,24 +68,24 @@ describe('Settings v1 / Agent Guidance docs contract', () => {
     expect(text).toMatch(/does not send text into the terminal/i);
   });
 
-  test('docs/codegraph.md mentions the new boundaries explicitly under "intentionally not implemented"', () => {
-    const text = read('docs/codegraph.md');
-    expect(text).toMatch(/hidden PTY prompt injection/);
-    expect(text).toMatch(/modification of `output\/final_prompt\.md` after the composer preview/);
-    expect(text).toMatch(/mutation of Claude\/Codex approvals/);
+  test('README mentions the new boundaries explicitly', () => {
+    const text = read('README.md');
+    expect(text).toMatch(/hidden PTY\/stdin injection|inject hidden text into the PTY/i);
+    expect(text).toMatch(/does NOT modify.*final_prompt\.md.*after preview/i);
+    expect(text).toMatch(/does NOT mutate Claude\/Codex/i);
     expect(text).toMatch(/agent-guidance-config\.yaml/);
     expect(text).toMatch(/vibecode_mcp_guidance/);
     expect(text).toMatch(/new MCP sessions/i);
   });
 
-  test('docs/codegraph.md and roadmap mention Terminal Agent Preflight and restart/reconnect behavior', () => {
-    const combined = `${read('docs/codegraph.md')}\n${read('docs/codegraph_mcp_roadmap.md')}`;
+  test('README and AGENTS mention Terminal Agent Preflight and restart/reconnect behavior', () => {
+    const combined = `${read('README.md')}\n${read('AGENTS.md')}`;
     expect(combined).toMatch(/Terminal Agent Preflight/);
     expect(combined).toMatch(/supported agents have VibecodeMCP configured/i);
     expect(combined).toMatch(/user still starts/i);
     expect(combined).toMatch(/no Start Codex/i);
     expect(combined).toMatch(/no hidden PTY\/stdin injection/i);
-    expect(combined).toMatch(/no final_prompt\.md mutation/i);
+    expect(combined).toMatch(/no Composer.*final_prompt\.md mutation|does NOT modify.*final_prompt\.md/i);
     expect(combined).toMatch(/no approval\/permission mutation/i);
     expect(combined).toMatch(/restart\/reconnect/i);
   });

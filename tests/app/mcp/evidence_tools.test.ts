@@ -45,8 +45,8 @@ describe('VibecodeMCP evidence tools', () => {
   afterEach(() => repo.cleanup());
 
   test('both tools are in the canonical name list with the expected names', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_evidence_list');
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_evidence_scan');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_evidence_list');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_evidence_scan');
     expect(buildEvidenceListTool().name).toBe('vibecode_evidence_list');
     expect(buildEvidenceScanTool().name).toBe('vibecode_evidence_scan');
   });

@@ -47,7 +47,7 @@ describe('vibecode_mcp_guidance dynamic output', () => {
         'scope: global',
         'default_guidance: "CUSTOM_MCP_GUIDANCE"',
         'per_tool_notes:',
-        '  vibecode_workspace_info: "CUSTOM_WORKSPACE_NOTE"',
+        '  vibecode_workspace_snapshot: "CUSTOM_WORKSPACE_NOTE"',
         '',
       ].join('\n'));
       const tool = buildMcpGuidanceTool({ env: f.env });
@@ -68,7 +68,7 @@ describe('vibecode_mcp_guidance dynamic output', () => {
       expect(data.source).toBe('file');
       expect(data.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
       expect(data.general_guidance).toBe('CUSTOM_MCP_GUIDANCE');
-      expect(data.per_tool_notes.vibecode_workspace_info).toBe('CUSTOM_WORKSPACE_NOTE');
+      expect(data.per_tool_notes.vibecode_workspace_snapshot).toBe('CUSTOM_WORKSPACE_NOTE');
       expect(data.fallback_guidance).toMatch(/Vibecode CLI/);
       expect(data.approval_boundary).toMatch(/does not manage.*approval/i);
       expect(result.content[0]?.text ?? '').toMatch(/CUSTOM_MCP_GUIDANCE/);

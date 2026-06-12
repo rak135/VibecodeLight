@@ -993,7 +993,7 @@ pnpm vibecode codegraph impact   "<path-or-symbol>"   --repo <path> [--limit <n>
 
 These wrap the verified read-only upstream subcommands (`query`, `context`, `files`, `callers`, `callees`, `impact`). They are provider-agnostic: any terminal agent (Claude Code, Codex, Hermes, opencode, or anything else that can run a shell command) can invoke them. They are **not** native MCP tools, and they are **not** a Vibecode-owned MCP server. Native MCP integration remains optional future work. The commands are strictly read-only — they never run `codegraph init`, `sync`, `index`, `watch`, or `serve`, never create `.codegraph/`, never mutate the repository, and never call an LLM provider. If CodeGraph is missing or the repository is not initialized, they return a structured `CODEGRAPH_NOT_INSTALLED` / `CODEGRAPH_NOT_INITIALIZED` envelope that points to the explicit maintenance commands above. Use `rg`/`grep` for exact text and error messages; use these commands for structural symbol search, call relationships, and impact analysis.
 
-### VibecodeMCP server (Phase MCP-1)
+### VibecodeMCP server (v1)
 
 VibecodeLight now exposes its **own** native Model Context Protocol server: a repo-bound stdio process that any MCP-capable agent (Claude Code, Codex, OpenCode, Hermes, anything that speaks MCP) can connect to. It is distinct from upstream CodeGraph's MCP server (`codegraph serve --mcp`) — VibecodeMCP is a Vibecode-owned protocol adapter that calls the same internal core services the CLI calls. Provider-agnostic by construction: no provider SDK ever crosses the MCP boundary.
 
@@ -1008,517 +1008,57 @@ pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --log-level silent
 
 `--repo` is required and the resolved path is bound to the server for its lifetime. Tools never accept a `repo` argument. stdout is reserved for the MCP JSON-RPC stream; human/diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`) and per-call usage rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` as bounded, secret-free JSONL.
 
-Phase MCP-1 + MCP-2 + MCP-3 scope:
+VibecodeMCP v1 is a breaking public tool contract cleanup. The server exposes
+exactly **14 public MCP tools**; old phase-era MCP tool names are not listed,
+not callable, and not kept as public aliases. Existing CLI/operator commands may
+remain for human use, but agents should use the v1 MCP names below.
+
+VibecodeMCP v1 scope:
 
 - transport: **stdio only**;
-- mode: **read-only**;
+- read-only tools are read-only; build tools write only generated coordination
+  state under `.vibecode/coordination`;
 - bound to a **single repo** at startup;
-- tools call existing core services in-process (no shell-out, no CLI text parsing).
+- tools call existing core services in-process (no shell-out, no CLI text parsing);
+- `vibecode_build_finish` returns commit-guard guidance but **does not commit**.
 
-MCP-capable agents should prefer these VibecodeMCP tools over shelling out to
-grep/find for repo navigation or opening `.vibecode/runs/...` files by hand.
-Agents without MCP support should fall back to the equivalent
-`vibecode codegraph ...` / `vibecode runs ...` CLI commands instead of calling
-upstream CodeGraph directly.
-
-CodeGraph tools (Phase MCP-1):
+Public MCP tools:
 
 ```text
-vibecode_codegraph_status
-vibecode_codegraph_search
-vibecode_codegraph_context
-vibecode_codegraph_files
-vibecode_codegraph_callers
-vibecode_codegraph_callees
-vibecode_codegraph_impact
-```
-
-Run / artifact tools (Phase MCP-2 — read-only):
-
-```text
-vibecode_runs_list
-vibecode_current_run
-vibecode_run_get
-vibecode_artifact_read
-vibecode_codegraph_usage
-```
-
-`vibecode_artifact_read` accepts an allowlisted artifact name (`final_prompt`,
-`context_pack`, `flash_input`, `flash_output`, `task_intent` / `task-intent`,
-`codegraph` / `codegraph_usage`, `codegraph_context`, `codegraph_repo_atlas`,
-`selected_skills`, `send_metadata`, `user_prompt`, `run_manifest`) and supports
-`run_id: "latest"` / `"current"`. Reading arbitrary repo source files or paths
-outside the run directory is rejected with `ARTIFACT_NOT_ALLOWED`.
-
-Scan intelligence tools (Phase 1B-2 — read-only):
-
-```text
-vibecode_scan_summary
-vibecode_scan_artifact_read
-```
-
-`vibecode_scan_summary` returns a compact, bounded orientation built from the
-deterministic scan artifacts of a run: per-section counts and a top sample for
-`files`, `commands`, `tests`, `symbols`, `imports`, `entrypoints`,
-`instructions`, `tooling`, and `git`, plus which allowlisted scan artifacts are
-available/missing. `vibecode_scan_artifact_read` reads one allowlisted scan
-artifact **by key** (`file_inventory`, `commands`, `repo_instructions`,
-`symbols`, `imports`, `entrypoints`, `tests`, `tooling`, `schemas`,
-`keyword_hits`, `git_status`, `git_diff_stat`) in bounded, UTF-8-safe chunks
-with the same `byte_offset` / `next_byte_offset` / `content_sha256` continuation
-contract as `vibecode_artifact_read`. Both accept `run_id: "latest"` /
-`"current"`, **read existing scan artifacts only — they never run the scanner**,
-and reject raw paths, traversal, source files, and non-allowlisted scan files
-(`ARTIFACT_NOT_ALLOWED`). CLI parity: `vibecode scan summary --json` and
-`vibecode scan artifact-read --json`. CodeGraph fuzzy resolve, affected-tests,
-and tool profiles are intentionally **not** part of this batch.
-
-Tool profiles (Phase 1B-3 — read-only):
-
-```text
-vibecode_tool_profile
-```
-
-`vibecode_tool_profile` returns named, deterministic recommended tool sets for
-common agent situations so an agent does not have to reason over every tool.
-Omit `profile` to list the profiles; pass a profile id
-(`read_only_orientation`, `build_pre_edit`, `build_post_edit`, `scan_inspection`,
-`artifact_continuation`, `safe_commit`, `conflict_resolution`,
-`coordination_housekeeping`, `runtime_preflight`, `session_recovery`) to get its
-recommended MCP tools, CLI fallbacks, when-to-use notes, next steps, and
-warnings. Profiles are **static/deterministic** — no LLM ranking, no task-aware
-relevance scoring, and no tool execution. CLI parity:
-`vibecode tools profile --json` (list) and `vibecode tools profile --profile
-<id> --json` (one profile). `vibecode_session_bootstrap` returns compact
-`recommended_tool_profiles` (ids + reasons) for the current context, and
-`vibecode_workspace_info` lists the available profiles. See
-`docs/MCP_CLI_MULTI_AGENT_EFFICIENCY_PLAN.md` for the full contract.
-
-Workspace orientation tools (Phase MCP-3 — read-only):
-
-```text
-vibecode_workspace_info
-vibecode_workspace_status
-vibecode_mcp_guidance
+vibecode_session_start
+vibecode_workspace_snapshot
 vibecode_project_instructions
-vibecode_artifacts_list
+vibecode_run_status
+vibecode_artifact_read
+vibecode_changes
+vibecode_codegraph_search
+vibecode_codegraph_explore
+vibecode_codegraph_callers
+vibecode_codegraph_impact
+vibecode_build_start
+vibecode_build_scope
+vibecode_build_finish
+vibecode_handoff
 ```
 
-These are the first calls an MCP-capable agent should make when it enters a
-repo. `vibecode_workspace_info` returns the bound repo path, the available
-VibecodeMCP tool groups, the CodeGraph status summary, the current run id (if
-any), and short agent guidance. `vibecode_workspace_info` and
-`vibecode_session_bootstrap` also return a compact `server_identity` block
-(server name/version, canonical tool count, server start time, bound repo
-root) so an agent can detect a stale MCP server session — if the reported
-tool count differs from the current build's `vibecode mcp tools`, restart or
-reconnect the MCP server. `vibecode_workspace_status` adds read-only
-git inspection (branch, head, dirty flag, bounded changed-file summary — no
-diff, never mutates git) and the current run/artifact availability summary.
-`vibecode_mcp_guidance` is a compact static cheat sheet describing when to
-prefer VibecodeMCP, when to fall back to the Vibecode CLI, and when to use
-`rg`/`grep`. `vibecode_project_instructions` returns bounded excerpts of the
-allowlisted instruction set (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`,
-`docs/codegraph.md`); with `include_docs: true` it also returns architecture
-docs (`docs/ARCHITECTURE.md`, `docs/ARCHITECTURE_DECISIONS.md`,
-`docs/IMPLEMENTATION_MAP.md`). `vibecode_artifacts_list` enumerates which
-allowlisted artifacts exist for a run (with size and recommendation flags) so
-agents do not have to guess names before calling `vibecode_artifact_read`.
+Start an MCP-capable agent with `vibecode_session_start`, then call
+`vibecode_workspace_snapshot`. Build work requires `mode: "build"` and an
+explicit `vibecode_build_start` claim for exact paths before editing. Restart or
+reconnect already-running MCP clients after changing the server contract or MCP
+configuration.
 
-Phase MCP-3 is **read-only**, adds no terminal write, no shell exec, no file
-write, no git commit, no run creation, and no arbitrary file read. Vibecode
-does not manage approvals/permissions: the MCP client/agent owns those.
+MCP-capable agents should prefer these VibecodeMCP v1 tools over shelling out to
+grep/find for repo navigation or opening `.vibecode/runs/...` files by hand.
+Agents without MCP support should fall back to the equivalent `vibecode codegraph ...`,
+`vibecode runs ...`, `vibecode scan ...`, `vibecode git changes`, `vibecode session ...`,
+`vibecode claims ...`, `vibecode finalize ...`, `vibecode handoff ...`, and
+`vibecode commit guard` CLI commands. Both paths call the same Vibecode core
+services.
 
-Session bootstrap + claim-aware git changes (Phase 1A):
-
-```text
-vibecode_session_bootstrap
-vibecode_git_changes
-```
-
-`vibecode_session_bootstrap` is the new one-call orientation: in a single
-request it returns the repo/git dirty state, the current run and which artifacts
-exist, active/stale agents, own/other/stale claims, unresolved conflicts,
-evidence counts, scan availability, CodeGraph status, a bounded
-project-instruction excerpt, the short agent operating protocol, and the
-recommended next tools/commands. It is read-only by default; with `register:
-true` (plus `agent_mode` `read_only`/`build` and a `task`) or an `agent_id` it
-writes only generated `.vibecode/coordination/state.json` (register/heartbeat).
-`vibecode_git_changes` returns a claim-aware changed-files summary — per-file
-category and classification (`claimed_by_agent` / `claimed_by_other_active_agent`
-/ `unclaimed` / `stale_claim_overlap` / `generated_or_ignored` /
-`unknown_without_agent_id`), counts with truncation metadata, and a bounded
-`git diff --stat` (never a full diff). Both have CLI parity (`vibecode session
-bootstrap --json`, `vibecode git changes --json`) and never mutate git or source
-files. See `docs/MCP_CLI_MULTI_AGENT_EFFICIENCY_PLAN.md` for the full contract.
-
-Runtime preflight awareness (Phase 3B): `vibecode_session_bootstrap` /
-`vibecode session bootstrap --json` additionally return a compact
-`runtime_awareness` section — agent lifecycle (registered / active / stale /
-terminated, operating mode, heartbeat age and whether a heartbeat is
-recommended), the live MCP `server` identity (MCP responses only; the CLI
-always reflects the current build, so it reports `null`), the claim-aware
-shared-tree state (claimed-by-you / other-agent / unclaimed / staged-unclaimed
-counts), commit readiness (`finalize_ready`, `commit_guard_ready`,
-`isolated_commit_possible`, staged-unclaimed blockers), bounded coordination
-counts (own intents, releasable intents, conflicts involving the agent, stale
-coordination), and exact safe next commands. Finalize stays conservative;
-unclaimed dirty files are never committed; staged unclaimed files still
-hard-block the guard. Commit readiness also mirrors the guard's index check:
-a staged file claimed by another active agent (counted as
-`staged_claimed_by_other_agent`) removes `commit_guard_ready` /
-`isolated_commit_possible` and raises `STAGED_OTHER_AGENT_FILES_PRESENT`,
-because the guard blocks with `GIT_INDEX_NOT_CLEAN` on any staged file
-outside the committable set. The preflight is read-only and never heartbeats,
-releases, reaps, resolves, or commits by itself. The `runtime_preflight` tool
-profile (`vibecode tools profile --profile runtime_preflight --json`) teaches
-the stale-MCP-server check (compare the live server `tool_count` with
-`vibecode mcp tools --json`) and the CLI fallback path.
-
-Session recovery guidance (Phase 3C): `runtime_awareness` additionally carries
-a compact `recovery` section that classifies one primary resume state
-(`not_registered`, `terminated`, `stale_needs_heartbeat`,
-`read_only_observe_only`, `ready_to_claim`, `ready_to_continue`,
-`ready_to_commit`, `isolated_commit_possible`, `blocked_by_staged_unclaimed`,
-`ready_to_release`, `blocked_by_conflict`, `uncertain_state`) with explicit
-flags and exact safe next commands, so an agent resuming after an
-interruption, stale heartbeat, or MCP restart knows whether to continue,
-heartbeat + re-bootstrap, commit via the guard, release its own clean intent,
-re-plan (released claims grant nothing), or register a new agent. Ambiguous
-state fails safe (`uncertain_state`: inspect-only). Recovery is advisory and
-explicit — no auto-resume, no auto-claim/release/reap/resolve, no ownership
-transfer, no background heartbeat. The `session_recovery` tool profile
-(`vibecode tools profile --profile session_recovery --json`) teaches the full
-resume flow, and the bootstrap human output shows one `Recovery:` line.
-
-Multi-agent coordination tool (Phase Coordination-1 — read-only):
-
-```text
-vibecode_coordination_status
-```
-
-`vibecode_coordination_status` reports the advisory multi-agent coordination
-status for the bound repo: the schema version, whether generated state exists
-yet, and counts of agents/claims/conflicts/handoffs. Coordination is
-**advisory** — no source files are hard-locked. Generated coordination state
-lives under `.vibecode/coordination/state.json` (git-ignored, never scanned as
-source). It is read-only and never writes state. The equivalent CLI command is
-`vibecode coordination status --repo <path> --json`; both call the same shared
-core service. `vibecode_coordination_status` now also lists the registered
-agent sessions (see Coordination-2 below). Later phases add a file watcher, a
-finalize guard, a commit guard, and the desktop UI panel.
-
-Agent session tools (Phase Coordination-2 — persistent agent registry +
-heartbeat):
-
-```text
-vibecode_agent_register
-vibecode_agent_heartbeat
-vibecode_agents_list
-vibecode_agent_status
-```
-
-These manage a persistent agent session registry for the bound repo.
-`vibecode_agent_register` creates an `active` session; `vibecode_agent_heartbeat`
-refreshes a session's heartbeat (reviving a stale/idle session to active; a
-`terminated` session is blocked with `AGENT_TERMINATED` and the agent must
-register a new session). Heartbeat changes only the heartbeat timestamp/status
-— never mode, task, claims, or intents — and reports `was_stale` so a
-long-running agent can see it had gone stale (Phase 2C);
-`vibecode_agents_list` and `vibecode_agent_status` are read-only and report each
-session with its computed status. A session is marked `stale` (computed-only at
-read time) once its heartbeat is older than the 5-minute TTL. register and
-heartbeat write **only** the advisory generated state at
-`.vibecode/coordination/state.json` — never source files, the shell, git, or the
-terminal — and no source files are hard-locked. The equivalent CLI commands are
-`vibecode agents register|list|heartbeat|status|terminate --repo <path> --json`;
-both surfaces call the same shared core service. Coordination-2 does **not**
-implement conflict detection, a file watcher, or any commit/finalize guard.
-
-Advisory file claim tools (Phase Coordination-3A):
-
-```text
-vibecode_claim_add
-vibecode_claims_list
-vibecode_claim_status
-vibecode_claim_release
-```
-
-These manage advisory file claims over one shared working tree. Claims persist
-only in `.vibecode/coordination/state.json`, normalize paths to repository-
-relative POSIX paths, and support `exclusive` and `shared` compatibility.
-`shared` claims can overlap other `shared` claims; any overlap involving an
-active `exclusive` claim is denied with a structured `CLAIM_DENIED` diagnostic.
-Missing, stale, or terminated agents cannot create claims, and claims owned by
-stale/terminated/missing agents do not create source-file locks. The equivalent
-CLI commands are `vibecode claims add|list|status|release --repo <path> --json`;
-both surfaces call the same shared TypeScript core service. Coordination-3A
-does **not** implement a file watcher, automatic conflict workflow, finalize or
-commit guard, handoff protocol, UI panel, prompt injection, or source-file hard
-locks.
-
-Agent-declared work scope — explicit bulk claims (Phase 2A):
-
-```text
-vibecode_claims_plan
-vibecode_claims_add_bulk
-```
-
-**Key principle: Vibecode does not decide which files an agent needs.** The agent
-researches the task, understands the likely implementation scope, and explicitly
-declares the exact paths it wants to claim. Vibecode only validates those paths,
-detects conflicts, applies the claims safely, and makes the declared work scope
-visible to other agents. There is **no** automatic file selection, task-to-files
-inference, glob/wildcard/directory expansion, or scanner-based auto-claim.
-
-**Explicit file paths only — directories are rejected.** A claim authorizes a
-path and, via prefix overlap, everything under it, so claiming a directory like
-`src` would silently authorize descendant files the agent never declared. Both
-plan and add-bulk reject existing directories (`directory_not_supported`), and
-the single-file `vibecode_claim_add` / `vibecode claims add` reject them too
-(`DIRECTORY_CLAIM_NOT_ALLOWED`) so the exact-path principle holds everywhere.
-
-`vibecode_claims_plan` is read-only: given an agent and an explicit list of
-paths, it classifies each one (`claimable`, `missing`, `already_claimed_by_agent`,
-`claimed_by_other_active_agent`, `stale_claim_overlap`, `generated_or_ignored`,
-`directory_not_supported`, `invalid`) and reports whether the whole set can be
-claimed atomically — without mutating any state. `vibecode_claims_add_bulk` claims
-the declared paths as one atomic **work intent**: if any requested path is blocked
-(claimed by another active agent, an existing directory, generated/ignored, or
-invalid), **no** claims are created and a structured `status: "blocked"` result is
-returned; a coordination conflict is recorded only when the block is another
-agent's active claim (local validation blocks like directories/invalid paths
-record no conflict). Otherwise all new claims are created in a single state write
-and tagged with the intent metadata. It is idempotent for paths the agent already
-owns. Pass `intent` to create a new work scope, or `intent_id` to extend your own
-intent later (for example, to add a `package-lock.json` you discovered you must
-edit). Only valid build sessions may plan or bulk-claim — `operating_mode=build`
-**and** a non-empty `task`; read_only / invalid / no-mode / no-task agents are
-blocked. Bulk-created claims behave like normal advisory claims for `git_changes`,
-`finalize_check`, and the commit guard, and active intents are summarized in
-`session_bootstrap` (`active_work_intents`). The equivalent CLI commands are
-`vibecode claims plan --agent <agent_id> --path <p> --json` and
-`vibecode claims add-bulk --agent <agent_id> --intent "<intent>" --path <p> --json`
-(extend with `--intent-id <id>`); both surfaces call the same shared core service.
-
-Claim intent lifecycle (Phase 2B):
-
-```text
-vibecode_claim_intents_list
-vibecode_claim_intent_release
-```
-
-`vibecode_claim_intents_list` is read-only: it lists the agent's work intents with
-claim detail (active/released counts, paths, timestamps). Filter by `agent_id`,
-`status` (`active` / `released` / `all`), or `intent_id`. Default returns active
-intents only. `vibecode_claim_intent_release` releases all active claims belonging
-to a work intent. Same-agent only. If any claimed path in the intent is dirty in
-the working tree, release is **blocked** (`release_allowed: false`,
-`blocked_reason: dirty_claimed_files`) and zero claims are released — commit
-through `vibecode commit guard` or revert the changes, then retry. If git
-changed-file detection is unavailable (not a git repository, git missing),
-release is blocked fail-closed (`blocked_reason: git_unavailable`) — an
-unverifiable dirty state never authorizes a release. A clean release updates all
-of the intent's claims and the intent status in a single state write. Pass
-`dry_run: true` to preview what would happen without releasing. Already-released
-intents return an idempotent `already_released` response. The intent record is
-never deleted. The equivalent CLI commands are
-`vibecode claims intents list --agent <id> --json`,
-`vibecode claims intent-release --agent <id> --intent-id <id> --dry-run --json`,
-and `vibecode claims intent-release --agent <id> --intent-id <id> --json`.
-
-Read-only finalize check tool (Phase Coordination-4A):
-
-```text
-vibecode_finalize_check
-```
-
-This classifies the dirty working tree of the bound repo relative to one
-agent's active advisory claims. Because all agents share one working tree (no
-git worktrees), it never asserts which agent edited a file — it only reports,
-per changed file, whether it is covered by this agent's active claim
-(`claimed_by_agent`), covered by another active agent's claim
-(`claimed_by_other_active_agent`), `unclaimed`, or a `generated_or_ignored`
-Vibecode runtime path. Pass `agent_id` or a `run_id` (whose
-`agent_binding.json` resolves the agent). Blocking findings are returned as a
-successful result with `status: "blocked"`; the check reuses the read-only
-`getGitChangedFiles` helper and performs **no** git mutation. The equivalent CLI
-command is `vibecode finalize check --repo <path> --agent <agent_id> --json`
-(or `--run <run_id>`); both surfaces call the same shared core service.
-Coordination-4A is a read-only **check** only — it is **not** a commit guard,
-file watcher, handoff workflow, or any git-mutating / source-locking behavior.
-
-Scoped commit guard (Phase Coordination-4B, CLI-only):
-
-```powershell
-vibecode commit guard --agent <agent_id> --json
-vibecode commit guard --run <run_id> --json
-vibecode commit guard --run <run_id> --dry-run --json
-vibecode commit guard --agent <agent_id> --message "feat(x): ..." --json
-```
-
-This is the first git-mutating coordination behavior. It runs the Phase 4A
-finalize check first and, only if the check is not blocked, creates a scoped
-commit containing **exactly** the changed files the check classified as
-`claimed_by_agent`. Staging is always by explicit literal pathspec
-(`git add -- :(literal)<path>`) — never `git add -A`, never broad staging — and the guard never runs
-`reset`/`stash`/`clean`/`checkout`/`restore`. If the git index already contains
-unrelated staged files it blocks with `GIT_INDEX_NOT_CLEAN` rather than touching
-them (in a shared working tree they may belong to another agent/user). Generated
-`.vibecode/` runtime paths and files unclaimed or claimed by another active agent
-are never staged. `--dry-run` reports the would-stage set without staging or
-committing and does not write `commit_guard.json`. The commit message gets a
-`Vibecode-Run` / `Vibecode-Agent` footer, and (when a `run_id` is given for a
-real commit or blocked non-dry-run guard) a `commit_guard.json` result is written
-under the run's generated `coordination/` state. All git mutation is reversible
-by normal git history.
-
-Shared-tree commit isolation (Phase 3A): when the finalize check is blocked
-**only** by unclaimed dirty files that are unstaged and outside the agent's
-claim scope, and the agent has at least one committable claimed file, the guard
-proceeds with an **isolated commit** — it stages an explicit allowlist of the
-agent's claimed files only and reports the unclaimed files as skipped with a
-high-visibility `UNCLAIMED_DIRTY_FILES_SKIPPED` warning (`isolated_commit: true`
-in the JSON result). Skipped files are never staged, committed, cleaned,
-reverted, claimed, or modified — they stay dirty after the commit. If an
-unclaimed dirty file is already staged, the guard blocks with
-`STAGED_UNCLAIMED_FILES_BLOCKED` (any other unrelated staged file still blocks
-with `GIT_INDEX_NOT_CLEAN`); unstage and review such files yourself rather than
-committing them. `vibecode finalize check` stays conservative and still reports
-every unclaimed dirty file as a blocker for general readiness — isolated commit
-is a narrower commit-guard policy, not cleanup, not ownership transfer, and not
-permission to edit unclaimed files.
-
-The commit guard is **CLI-only** in Phase 4B — there is intentionally **no**
-`vibecode_commit_guard` MCP tool and no MCP git/source/commit mutation surface.
-MCP coordination tools may mutate only generated `.vibecode/coordination/` state
-for agent sessions, heartbeats, and advisory claims. MCP agents run the read-only
-finalize check via `vibecode_finalize_check` and then invoke the CLI
-`vibecode commit guard` only when the task explicitly asks for a commit.
-
-Watcher evidence tools (Phase Coordination-4C):
-
-```text
-vibecode_evidence_list
-vibecode_evidence_scan
-```
-
-These provide an **advisory, non-enforcing** evidence layer for early visibility
-into suspicious edits. `vibecode_evidence_scan` reads the dirty git working tree
-(read-only) and appends one evidence event per changed file to the generated
-`.vibecode/coordination/events.jsonl` log; `vibecode_evidence_list` reads that
-log back. Each event classifies a changed path relative to the active advisory
-claims (`claimed_by_agent`, `claimed_by_other_active_agent`, `unclaimed`,
-`generated_or_ignored`) with an advisory severity. Because all agents share one
-working tree, evidence never asserts which agent physically edited a file — it
-records that a file *changed* while/without a matching active claim. The
-equivalent CLI commands are `vibecode evidence list|scan --repo <path> --json`;
-both surfaces call the same shared core service. Evidence is **not** enforcement:
-it never blocks writes, never mutates source files, and never stages, commits, or
-reverts. Enforcement remains with advisory claims, the finalize check, and the
-CLI-only commit guard. `scan` writes only generated `.vibecode/coordination/`
-state — it adds no git or source mutation, consistent with the other generated-
-state MCP coordination tools. Phase 4C ships the evidence foundation plus a
-manual scan; a live filesystem watcher is deferred to a later phase. Coordination
-status (`vibecode coordination status` / `vibecode_coordination_status`) now also
-reports a compact evidence summary (recent/warning/high counts and the last event
-timestamp) without dumping the full event log.
-
-Claims reap and conflict tools (Phase Coordination-4D-cleanup / Phase 2D):
-
-```text
-vibecode_claims_reap
-vibecode_conflicts_list
-vibecode_conflict_resolve
-vibecode_conflict_detail
-```
-
-`vibecode_claims_reap` releases claims owned by stale or terminated agents so
-future claim attempts are not blocked by dead agents. Pass `dry_run: true` to
-preview without mutating. `vibecode_conflicts_list` returns recorded conflict
-events (claim denials, stale claim reaps) with optional status/type filters.
-`vibecode_conflict_resolve` marks a conflict as resolved. `vibecode_conflict_detail`
-returns intent-aware triage detail for one conflict: blocking claim/intent, owner
-lifecycle status, warning codes, and safe next-step recommendations. All write only
-generated `.vibecode/coordination/state.json` (detail and list are read-only). The
-equivalent CLI commands are `vibecode claims reap --repo <path> --json`,
-`vibecode conflicts list --repo <path> --json`, `vibecode conflicts resolve --repo
-<path> --conflict <id> --json`, and `vibecode conflicts detail --repo <path>
---conflict-id <id> [--agent <agent_id>] --json` (the optional `--agent` passes
-the requesting agent so cleared conflicts recommend requester-specific
-`claims plan` / `claims add-bulk` follow-ups; it is advisory and read-only).
-
-Read-only handoff packet (Phase 4A):
-
-```text
-vibecode_handoff_prepare
-```
-
-`vibecode_handoff_prepare` builds a bounded, read-only handoff packet for one
-agent: who is handing off, owned claims/intents, dirty/staged shared-tree
-state, conflicts, one explicit `handoff_state` (e.g. `ready_to_handoff`,
-`ready_after_release`, `commit_before_handoff`, `blocked_by_staged_files`),
-what must happen before another agent continues, exact safe next commands, and
-a `do_not_do` boundary list. It is handoff VISIBILITY only: it never transfers
-claims, never assigns the next agent, and never releases, claims, reaps,
-resolves, or cleans anything — the next agent always registers separately and
-claims exact files itself. The equivalent CLI command is
-`vibecode handoff prepare --repo <path> --agent <agent_id> --json`. The
-`team_handoff` tool profile (`vibecode tools profile --profile team_handoff
---json`) teaches the cross-agent transition workflow; use `session_recovery`
-when the SAME agent resumes.
-
-Next-agent onboarding guidance (Phase 4B):
-
-```text
-vibecode_handoff_guide
-```
-
-`vibecode_handoff_guide` consumes a previous agent's handoff packet as
-onboarding guidance for the NEXT agent: one explicit `onboarding_state`
-(e.g. `ready_for_new_agent`, `previous_agent_ready_after_release`,
-`previous_agent_not_ready`, `next_agent_not_registered`,
-`blocked_by_conflict`, `stale_coordination_requires_housekeeping`,
-`same_agent_resume`), whether the previous agent's work is still claimed
-(`blocked_paths`), whether the next agent may register/continue, exact safe
-next commands separated by which agent runs them
-(`previous_agent_cli_commands` vs `next_agent_cli_commands`), and a
-`do_not_do` boundary list. It is onboarding GUIDANCE only: ownership is never
-transferred, nothing is auto-claimed or auto-released, and the next agent
-always registers separately (session bootstrap) and claims exact files itself
-(claims plan → claims add-bulk). Path lists come from the previous agent's
-packet — Vibecode never selects the next agent's task scope. Passing the same
-agent as `from` and `for` returns `same_agent_resume`, `can_continue_now=false`,
-and session recovery/bootstrap guidance instead of cross-agent continuation.
-When the previous agent has active claims but no active intents, the guide uses
-claim-list/claim-release guidance, not intent-release. The equivalent CLI
-command is
-`vibecode handoff guide --repo <path> --from-agent <agent_id>
-[--for-agent <agent_id>] [--max-items <n>] --json`.
-
-Read-only team status / team overview (Phase 4C):
-
-```text
-vibecode_team_status
-```
-
-`vibecode_team_status` provides a read-only team overview for multi-agent
-coordination: all agents with their status, operating mode, claims, intents,
-conflicts, stale coordination state, and safe next commands. It answers who is
-active, stale, terminated, blocked, or ready for handoff in one bounded
-snapshot. The equivalent CLI command is `vibecode team status --json` (or
-`--max-agents <n> --max-items <n>`). Observability and guidance only — it
-never assigns work, transfers ownership, auto-claims, auto-releases, auto-reaps,
-auto-resolves, or mutates git/source/coordination state. No assignment: team
-status does not choose which agent continues; the human or external process
-decides.
-
-Approval / permission settings remain controlled by the MCP client / agent
-(Codex's `/mcp` flow, Claude Code's managed approvals UI, etc.). Vibecode does
-not add a permission profile, an allow/deny list, or any approval mutation. MCP-2
-adds no terminal write, no shell exec, no file write, no git commit, no
-arbitrary file read, and no agent-lane coordination tools.
-
+The v1 MCP surface intentionally does not expose old phase-era public MCP tool
+names, resources, worktrees, terminal write, shell exec, source file write, git
+commit, arbitrary file read, or upstream CodeGraph maintenance tools. CodeGraph
+maintenance (`init`/`sync`/`index`/`watch`) remains explicit CLI/Desktop work.
 List them without starting the server:
 
 ```powershell
@@ -1745,7 +1285,7 @@ pnpm vibecode desktop smoke --json
 
 ### Terminal agent protocol banner
 
-When the desktop opens a new terminal, it prints a short, one-time **agent protocol banner** to the terminal display (Phase 1B-4). The banner is guidance only — it tells a fresh agent the exact first command (`vibecode session bootstrap --register --agent-mode <read_only|build> --task "<task>" --json`), distinguishes the MCP-preferred path (`vibecode_session_bootstrap` / `vibecode_tool_profile`) from the CLI fallback (`vibecode tools profile --json`, `vibecode git changes`, `vibecode scan summary`, `vibecode runs artifact-read`, `vibecode finalize check`, `vibecode commit guard`), reminds build agents to claim before editing and to finalize + commit guard before committing, and says not to push unless explicitly asked. It is **display-only** (never written into the PTY/shell stdin), never registers an agent, infers a mode, runs the scanner, or mutates state, and never pollutes JSON CLI output. Set `VIBECODE_AGENT_BANNER=0` to silence it.
+When the desktop opens a new terminal, it prints a short, one-time **agent protocol banner** to the terminal display (Phase 1B-4). The banner is guidance only — it tells a fresh agent to start with MCP `vibecode_session_start`, then `vibecode_workspace_snapshot`; the CLI fallback is `vibecode session bootstrap --register --agent-mode <read_only|build> --task "<task>" --json`. It reminds build agents to use `vibecode_build_start` before editing, `vibecode_changes` during work, and `vibecode_build_finish` plus CLI `vibecode commit guard` before committing. It says not to push unless explicitly asked. It is **display-only** (never written into the PTY/shell stdin), never registers an agent, infers a mode, runs the scanner, or mutates state, and never pollutes JSON CLI output. Set `VIBECODE_AGENT_BANNER=0` to silence it.
 
 The desktop app should provide:
 

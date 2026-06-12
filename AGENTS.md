@@ -350,19 +350,16 @@ vibecode agent-guidance preflight --repo <path> --terminal --mode auto_repair --
 ```
 
 `vibecode mcp serve` starts a repo-bound stdio MCP server exposing the
-Phase MCP-1 read-only CodeGraph tools, the Phase MCP-2 read-only run /
-artifact tools (`vibecode_runs_list`, `vibecode_current_run`,
-`vibecode_run_get`, `vibecode_artifact_read`, `vibecode_codegraph_usage`),
-and the Phase MCP-3 read-only workspace orientation tools
-(`vibecode_workspace_info`, `vibecode_workspace_status`,
-`vibecode_mcp_guidance`, `vibecode_project_instructions`,
-`vibecode_artifacts_list`). MCP-capable agents entering this repo should
-**start with `vibecode_workspace_info` and `vibecode_workspace_status`**
-to learn the bound repo, available tools, CodeGraph status, git state,
-and the current run; then use the CodeGraph and run/artifact tools for
-deeper navigation. MCP-capable agents should prefer these tools over
-grep/find for repo navigation and over opening `.vibecode/runs/...` files
-by hand. Agents without MCP support use the equivalent CLI commands
+VibecodeMCP v1 public surface: exactly 14 tools. MCP-capable agents entering
+this repo should **start with `vibecode_session_start` and
+`vibecode_workspace_snapshot`** to establish identity, learn the bound repo,
+CodeGraph status, git state, claims, and current run; then use the v1
+CodeGraph/run/artifact tools for deeper navigation. Build-mode agents must
+claim exact paths with `vibecode_build_start` before editing and finish with
+`vibecode_build_finish`; MCP does not commit. MCP-capable agents should prefer
+these tools over grep/find for repo navigation and over opening
+`.vibecode/runs/...` files by hand. Agents without MCP support use the
+equivalent CLI commands
 (`vibecode codegraph status|search|context|files|callers|callees|impact`
 and `vibecode runs list` / `vibecode runs show latest --artifact <name>`).
 Both call the same Vibecode core services. Approvals / permission settings

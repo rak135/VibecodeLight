@@ -97,71 +97,7 @@ describe('Codex MCP config generation', () => {
     });
 
     expect(result.enabled_tools).toHaveLength(VIBECODE_MCP_TOOL_NAMES.length);
-    expect(result.enabled_tools).toEqual([
-      // Phase MCP-1
-      'vibecode_codegraph_status',
-      'vibecode_codegraph_search',
-      'vibecode_codegraph_context',
-      'vibecode_codegraph_files',
-      'vibecode_codegraph_callers',
-      'vibecode_codegraph_callees',
-      'vibecode_codegraph_impact',
-      // Phase MCP-2 (read-only run / artifact tools)
-      'vibecode_runs_list',
-      'vibecode_current_run',
-      'vibecode_run_get',
-      'vibecode_artifact_read',
-      'vibecode_codegraph_usage',
-      // Phase 1B-2 (read-only bounded scan summary + allowlisted scan artifact reads)
-      'vibecode_scan_summary',
-      'vibecode_scan_artifact_read',
-      // Phase MCP-3 (read-only workspace orientation tools)
-      'vibecode_workspace_info',
-      'vibecode_workspace_status',
-      'vibecode_mcp_guidance',
-      'vibecode_project_instructions',
-      'vibecode_artifacts_list',
-      // Phase 1B-3 (named recommended tool sets; static, read-only)
-      'vibecode_tool_profile',
-      // Phase 1A (session bootstrap + claim-aware git changes)
-      'vibecode_session_bootstrap',
-      'vibecode_git_changes',
-      // Phase Coordination-1 (read-only coordination status)
-      'vibecode_coordination_status',
-      // Phase Coordination-2 (agent session registry + heartbeat; advisory generated-state writes only)
-      'vibecode_agent_register',
-      'vibecode_agent_heartbeat',
-      'vibecode_agents_list',
-      'vibecode_agent_status',
-      // Phase Coordination-3A (advisory claims; generated-state writes only)
-      'vibecode_claim_add',
-      'vibecode_claims_list',
-      'vibecode_claim_status',
-      'vibecode_claim_release',
-      // Phase 2A (agent-declared work scope: claim plan + explicit bulk claim)
-      'vibecode_claims_plan',
-      'vibecode_claims_add_bulk',
-      // Phase 2B (claim intent lifecycle: list + release)
-      'vibecode_claim_intents_list',
-      'vibecode_claim_intent_release',
-      // Phase Coordination-4A (read-only finalize check)
-      'vibecode_finalize_check',
-      // Phase Coordination-4C (watcher evidence; list read-only, scan writes generated state only)
-      'vibecode_evidence_list',
-      'vibecode_evidence_scan',
-      // Phase Coordination-4D-cleanup (claims reap + conflict history)
-      'vibecode_claims_reap',
-      'vibecode_conflicts_list',
-      'vibecode_conflict_resolve',
-      // Phase 2D (intent-aware conflict triage detail)
-      'vibecode_conflict_detail',
-      // Phase 4A (read-only handoff packet)
-      'vibecode_handoff_prepare',
-      // Phase 4B (read-only next-agent onboarding guide)
-      'vibecode_handoff_guide',
-      // Phase 4C (read-only team status / team overview)
-      'vibecode_team_status',
-    ]);
+    expect(result.enabled_tools).toEqual([...VIBECODE_MCP_TOOL_NAMES]);
     const joined = result.toml_snippet.toLowerCase();
     // Tool names referencing destructive verbs must not appear.
     expect(joined).not.toMatch(/\bshell\b/);

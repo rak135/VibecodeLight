@@ -25,6 +25,8 @@ import {
   buildGuidanceStatusSummary,
 } from '../../../core/agent_guidance/agent_guidance_runtime.js';
 import { listToolProfileSummaries } from '../../../core/agent_guidance/tool_profiles.js';
+import { AGENT_GUIDANCE_MCP_TOOL_GROUPS } from '../../../core/config/agent_guidance_mcp_tools.js';
+import { VIBECODE_MCP_TOOL_NAMES } from '../tool_registry.js';
 
 const TOOL_NAME = 'vibecode_workspace_info';
 const ALLOWED_KEYS = new Set<string>();
@@ -39,63 +41,6 @@ const AGENT_GUIDANCE = Object.freeze([
   'Use rg/grep for exact literal text, logs, and raw error messages.',
   'Do not call upstream CodeGraph (`codegraph serve --mcp`) directly — go through these Vibecode tools.',
   'Vibecode does not manage approvals; the MCP client/agent owns permission/trust decisions.',
-]);
-
-const CODEGRAPH_TOOL_NAMES = Object.freeze([
-  'vibecode_codegraph_status',
-  'vibecode_codegraph_search',
-  'vibecode_codegraph_context',
-  'vibecode_codegraph_files',
-  'vibecode_codegraph_callers',
-  'vibecode_codegraph_callees',
-  'vibecode_codegraph_impact',
-]);
-
-const RUNS_ARTIFACTS_TOOL_NAMES = Object.freeze([
-  'vibecode_runs_list',
-  'vibecode_current_run',
-  'vibecode_run_get',
-  'vibecode_artifact_read',
-  'vibecode_codegraph_usage',
-  'vibecode_scan_summary',
-  'vibecode_scan_artifact_read',
-]);
-
-const WORKSPACE_ORIENTATION_TOOL_NAMES = Object.freeze([
-  'vibecode_workspace_info',
-  'vibecode_workspace_status',
-  'vibecode_mcp_guidance',
-  'vibecode_project_instructions',
-  'vibecode_artifacts_list',
-  'vibecode_tool_profile',
-  'vibecode_session_bootstrap',
-  'vibecode_git_changes',
-]);
-
-const COORDINATION_TOOL_NAMES = Object.freeze([
-  'vibecode_coordination_status',
-  'vibecode_agent_register',
-  'vibecode_agent_heartbeat',
-  'vibecode_agents_list',
-  'vibecode_agent_status',
-  'vibecode_claim_add',
-  'vibecode_claims_list',
-  'vibecode_claim_status',
-  'vibecode_claim_release',
-  'vibecode_claims_plan',
-  'vibecode_claims_add_bulk',
-  'vibecode_claim_intents_list',
-  'vibecode_claim_intent_release',
-  'vibecode_finalize_check',
-  'vibecode_evidence_list',
-  'vibecode_evidence_scan',
-  'vibecode_claims_reap',
-  'vibecode_conflicts_list',
-  'vibecode_conflict_resolve',
-  'vibecode_conflict_detail',
-  'vibecode_handoff_prepare',
-  'vibecode_handoff_guide',
-  'vibecode_team_status',
 ]);
 
 export interface WorkspaceInfoToolDeps {
@@ -231,12 +176,6 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
       const currentRun = safeCurrentRunSummary(input.context.repoRoot);
       const runtime = input.context.agentGuidance ?? buildAgentGuidanceRuntime({ env: deps.env });
       const guidanceStatus = buildGuidanceStatusSummary(runtime);
-      const total =
-        CODEGRAPH_TOOL_NAMES.length +
-        RUNS_ARTIFACTS_TOOL_NAMES.length +
-        WORKSPACE_ORIENTATION_TOOL_NAMES.length +
-        COORDINATION_TOOL_NAMES.length;
-
       const data = {
         repo_root: input.context.repoRoot,
         mcp_server: { name: WORKSPACE_INFO_SERVER_NAME, version: WORKSPACE_INFO_SERVER_VERSION },
@@ -244,13 +183,10 @@ export function buildWorkspaceInfoTool(deps: WorkspaceInfoToolDeps = {}): McpToo
         // agents can detect a stale MCP server session (e.g. tool_count drift).
         server_identity: buildMcpServerIdentity(input.context.repoRoot),
         tools: {
-          total,
-          groups: {
-            codegraph: [...CODEGRAPH_TOOL_NAMES],
-            runs_artifacts: [...RUNS_ARTIFACTS_TOOL_NAMES],
-            workspace_orientation: [...WORKSPACE_ORIENTATION_TOOL_NAMES],
-            coordination: [...COORDINATION_TOOL_NAMES],
-          },
+          total: VIBECODE_MCP_TOOL_NAMES.length,
+          groups: Object.fromEntries(
+            Object.entries(AGENT_GUIDANCE_MCP_TOOL_GROUPS).map(([group, names]) => [group, [...names]]),
+          ),
         },
         codegraph: {
           available: status.available,

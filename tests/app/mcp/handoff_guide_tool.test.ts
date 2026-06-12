@@ -72,7 +72,7 @@ describe('VibecodeMCP handoff_guide tool', () => {
   afterEach(() => repo.cleanup());
 
   test('is registered in the canonical tool name list', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_handoff_guide');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_handoff_guide');
     expect(buildHandoffGuideTool().name).toBe('vibecode_handoff_guide');
   });
 

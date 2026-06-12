@@ -132,14 +132,14 @@ describe('desktop MCP bridge', () => {
 
   test('mcp:getToolDetail returns one tool and safely returns null for invalid names', async () => {
     const ipc = register();
-    const known = (await ipc.invoke('mcp:getToolDetail', 'vibecode_session_bootstrap')) as {
+    const known = (await ipc.invoke('mcp:getToolDetail', 'vibecode_session_start')) as {
       name: string;
       output_contract: { summary: string };
     } | null;
     const missing = (await ipc.invoke('mcp:getToolDetail', 'vibecode_commit_guard')) as unknown;
     const invalid = (await ipc.invoke('mcp:getToolDetail', 42)) as unknown;
 
-    expect(known?.name).toBe('vibecode_session_bootstrap');
+    expect(known?.name).toBe('vibecode_session_start');
     expect(known?.output_contract.summary).toMatch(/repo|session|runtime|recovery/i);
     expect(missing).toBeNull();
     expect(invalid).toBeNull();

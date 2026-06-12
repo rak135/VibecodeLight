@@ -50,7 +50,7 @@ describe('VibecodeMCP git_changes tool', () => {
   afterEach(() => repo.cleanup());
 
   test('is registered in the canonical tool name list', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_git_changes');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_git_changes');
     expect(buildGitChangesTool().name).toBe('vibecode_git_changes');
   });
 

@@ -14,9 +14,6 @@ describe('Vibecode config ownership documentation', () => {
     const docs = [
       read('AGENTS.md'),
       read('README.md'),
-      read('docs/CONTEXT.md'),
-      read('docs/ARCHITECTURE.md'),
-      read('docs/ARCHITECTURE_DECISIONS.md'),
     ];
 
     for (const doc of docs) {

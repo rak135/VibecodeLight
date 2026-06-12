@@ -33,13 +33,13 @@ describe('terminal protocol banner — content', () => {
     );
   });
 
-  test('names the MCP-preferred bootstrap/profile tools', () => {
-    expect(banner).toContain('vibecode_session_bootstrap');
-    expect(banner).toContain('vibecode_tool_profile');
+  test('names the MCP-preferred v1 start/snapshot tools', () => {
+    expect(banner).toContain('vibecode_session_start');
+    expect(banner).toContain('vibecode_workspace_snapshot');
   });
 
-  test('names the CLI fallback for tool profiles', () => {
-    expect(banner).toContain('vibecode tools profile --json');
+  test('names the CLI fallback for session start', () => {
+    expect(banner).toContain('vibecode session bootstrap');
   });
 
   test('offers the read_only vs build mode choice', () => {
@@ -48,12 +48,13 @@ describe('terminal protocol banner — content', () => {
   });
 
   test('reminds build agents to claim before editing and to use git changes', () => {
-    expect(banner.toLowerCase()).toContain('claim');
+    expect(banner.toLowerCase()).toContain('exact paths');
+    expect(banner).toContain('vibecode_build_start');
     expect(banner).toContain('vibecode git changes');
   });
 
   test('points to finalize check and commit guard for commits', () => {
-    expect(banner).toContain('vibecode finalize check');
+    expect(banner).toContain('vibecode_build_finish');
     expect(banner).toContain('vibecode commit guard');
   });
 
@@ -114,7 +115,7 @@ describe('terminal protocol banner — preflight summary integration', () => {
       expect(banner).toContain(repoRoot);
       expect(banner.split('\n').length).toBeLessThanOrEqual(20);
       // The protocol body is still present.
-      expect(banner).toContain('vibecode tools profile --json');
+      expect(banner).toContain('vibecode_session_start');
     } finally {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }

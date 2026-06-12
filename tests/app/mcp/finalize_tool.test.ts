@@ -44,7 +44,7 @@ describe('VibecodeMCP finalize check tool', () => {
   afterEach(() => repo.cleanup());
 
   test('is registered in the canonical tool name list', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_finalize_check');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_finalize_check');
     expect(buildFinalizeCheckTool().name).toBe('vibecode_finalize_check');
   });
 

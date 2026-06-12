@@ -199,13 +199,10 @@ describe('CLI contract characterization (current behavior, pre-cleanup)', () => 
   });
 
   test('current protocol exception: docs pin `mcp serve` stdout as the MCP JSON-RPC stream', () => {
-    const docs = fs.readFileSync(
-      path.resolve(__dirname, '../../../docs/ARCHITECTURE_DECISIONS.md'),
-      'utf8',
-    );
+    const docs = fs.readFileSync(path.resolve(__dirname, '../../../README.md'), 'utf8');
 
-    expect(docs).toContain('`vibecode mcp serve` owns stdout as the MCP JSON-RPC stream');
-    expect(docs).toContain('Human diagnostics');
+    expect(docs).toContain('stdout is reserved for the MCP JSON-RPC stream');
+    expect(docs).toContain('human/diagnostic logs');
     expect(docs).toContain('stderr');
   });
 

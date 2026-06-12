@@ -18,7 +18,7 @@ function ctx(): McpServerContext {
 
 describe('vibecode_tool_profile', () => {
   test('is part of the canonical MCP registry', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_tool_profile');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_tool_profile');
   });
 
   test('without a profile returns the list of profile summaries', async () => {
@@ -68,7 +68,7 @@ describe('vibecode_tool_profile', () => {
     }
     // Text block restates the recommended tools.
     const text = result.content[0]?.text ?? '';
-    expect(text).toMatch(/vibecode_claim_add/);
+    expect(text).toMatch(/vibecode_build_start/);
   });
 
   test('unknown profile id returns INVALID_ARGUMENT', async () => {

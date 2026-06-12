@@ -57,8 +57,8 @@ describe('agent guidance config — defaults', () => {
   test('default_guidance mentions VibecodeMCP, workspace tools, CodeGraph, runs, fallback, and approval boundary', () => {
     const defaults = defaultAgentGuidanceConfig();
     expect(defaults.default_guidance).toMatch(/VibecodeMCP/);
-    expect(defaults.default_guidance).toMatch(/vibecode_workspace_info/);
-    expect(defaults.default_guidance).toMatch(/vibecode_workspace_status/);
+    expect(defaults.default_guidance).toMatch(/vibecode_session_start/);
+    expect(defaults.default_guidance).toMatch(/vibecode_workspace_snapshot/);
     expect(defaults.default_guidance).toMatch(/CodeGraph/);
     expect(defaults.default_guidance).toMatch(/run/i);
     expect(defaults.default_guidance).toMatch(/rg|grep/);
@@ -69,8 +69,8 @@ describe('agent guidance config — defaults', () => {
   test('per_tool_notes is a record with notes for key VibecodeMCP tools', () => {
     const defaults = defaultAgentGuidanceConfig();
     expect(defaults.per_tool_notes).toBeTruthy();
-    expect(typeof defaults.per_tool_notes.vibecode_workspace_info).toBe('string');
-    expect(typeof defaults.per_tool_notes.vibecode_workspace_status).toBe('string');
+    expect(typeof defaults.per_tool_notes.vibecode_session_start).toBe('string');
+    expect(typeof defaults.per_tool_notes.vibecode_workspace_snapshot).toBe('string');
     expect(typeof defaults.per_tool_notes.vibecode_codegraph_search).toBe('string');
     expect(typeof defaults.per_tool_notes.vibecode_artifact_read).toBe('string');
   });

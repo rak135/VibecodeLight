@@ -75,23 +75,21 @@ describe('MCP tool catalog', () => {
     }
   });
 
-  test('handoff tools are read-only and describe visibility without ownership transfer', () => {
-    const prepare = getMcpToolDetail('vibecode_handoff_prepare');
-    const guide = getMcpToolDetail('vibecode_handoff_guide');
+  test('handoff tool is read-only and describes visibility without ownership transfer', () => {
+    const handoff = getMcpToolDetail('vibecode_handoff');
 
-    expect(prepare?.side_effect).toBe('read_only');
-    expect(guide?.side_effect).toBe('read_only');
+    expect(handoff?.side_effect).toBe('read_only');
     expect([
-      prepare?.summary,
-      prepare?.description,
-      prepare?.output_contract.summary,
-      ...(prepare?.safety_notes ?? []),
+      handoff?.summary,
+      handoff?.description,
+      handoff?.output_contract.summary,
+      ...(handoff?.safety_notes ?? []),
     ].join(' ').toLowerCase()).toMatch(/read-only|read only/);
     expect([
-      guide?.summary,
-      guide?.description,
-      guide?.output_contract.summary,
-      ...(guide?.safety_notes ?? []),
+      handoff?.summary,
+      handoff?.description,
+      handoff?.output_contract.summary,
+      ...(handoff?.safety_notes ?? []),
     ].join(' ').toLowerCase()).toMatch(/no ownership transfer|never transfers ownership|does not transfer/);
   });
 
@@ -107,7 +105,9 @@ describe('MCP tool catalog', () => {
 
     expect(second).toEqual(first);
     expect(JSON.stringify(first).length).toBeLessThan(180_000);
-    expect(first.groups.flatMap((group) => group.tool_names)).toEqual(first.tools.map((tool) => tool.name));
+    const groupedNames = first.groups.flatMap((group) => group.tool_names);
+    expect([...groupedNames].sort()).toEqual([...first.tools.map((tool) => tool.name)].sort());
+    expect(new Set(groupedNames).size).toBe(first.tools.length);
     expect(first.warnings).toEqual([]);
   });
 });

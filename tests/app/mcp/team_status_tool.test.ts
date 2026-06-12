@@ -6,41 +6,39 @@ import {
 } from '../../../src/app/mcp/index.js';
 
 /**
- * Phase 4C — vibecode_team_status MCP tool.
+ * VibecodeMCP v1 removes vibecode_team_status from the public surface.
  *
  * What breaks if removed:
- *   - agents lose the read-only team overview MCP tool;
- *   - MCP/CLI parity breaks (CLI has `vibecode team status` but MCP has no tool);
- *   - tool count lockstep tests fail.
+ *   - the old public team overview tool could reappear after the v1 cleanup;
+ *   - tests could silently drift back to the old 45-tool public surface.
  */
 
-describe('vibecode_team_status MCP tool', () => {
-  test('tool is registered in the canonical tool list', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_team_status');
+describe('vibecode_team_status public MCP removal', () => {
+  test('old team_status tool is not registered in the canonical tool list', () => {
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_team_status');
   });
 
-  test('tool count includes team_status (45)', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toHaveLength(45);
+  test('v1 public tool count is 14', () => {
+    expect(VIBECODE_MCP_TOOL_NAMES).toHaveLength(14);
   });
 
-  test('tool definition has correct name and description', () => {
+  test('handoff is the public v1 visibility tool', () => {
     const tools = buildVibecodeMcpTools();
-    const tool = tools.find((t) => t.name === 'vibecode_team_status');
+    const tool = tools.find((t) => t.name === 'vibecode_handoff');
     expect(tool).toBeDefined();
-    expect(tool!.name).toBe('vibecode_team_status');
-    expect(tool!.description).toContain('team');
-    expect(tool!.description).toContain('Read-only');
-    expect(tool!.description).toContain('never assigns');
+    expect(tool!.description).toContain('handoff');
+    expect(tool!.description).toContain('no ownership transfer');
   });
 
-  test('tool input schema accepts optional max_agents and max_items', () => {
+  test('handoff input schema accepts mode and agent fields', () => {
     const tools = buildVibecodeMcpTools();
-    const tool = tools.find((t) => t.name === 'vibecode_team_status')!;
+    const tool = tools.find((t) => t.name === 'vibecode_handoff')!;
     const schema = tool.inputSchema;
     expect(schema.type).toBe('object');
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties).toBeDefined();
-    expect(schema.properties!.max_agents).toBeDefined();
+    expect(schema.properties!.mode).toBeDefined();
+    expect(schema.properties!.agent_id).toBeDefined();
     expect(schema.properties!.max_items).toBeDefined();
   });
 });

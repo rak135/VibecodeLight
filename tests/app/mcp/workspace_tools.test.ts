@@ -101,10 +101,10 @@ describe('vibecode_workspace_info', () => {
       expect(codegraph.length + runs_artifacts.length + workspace_orientation.length + coordination.length)
         .toBe(VIBECODE_MCP_TOOL_NAMES.length);
       // Each group contains its signature tool.
-      expect(codegraph).toContain('vibecode_codegraph_status');
-      expect(runs_artifacts).toContain('vibecode_runs_list');
-      expect(workspace_orientation).toContain('vibecode_workspace_info');
-      expect(coordination).toContain('vibecode_coordination_status');
+      expect(codegraph).toContain('vibecode_codegraph_search');
+      expect(runs_artifacts).toContain('vibecode_run_status');
+      expect(workspace_orientation).toContain('vibecode_workspace_snapshot');
+      expect(coordination).toContain('vibecode_build_start');
       // No group contains a forbidden dangerous tool.
       for (const name of [...codegraph, ...runs_artifacts, ...workspace_orientation, ...coordination]) {
         expect(name).not.toMatch(/commit_guard|shell|git_write|terminal_exec|file_write/i);
@@ -379,7 +379,7 @@ describe('vibecode_mcp_guidance', () => {
     const result = await tool.handler({ context: ctx('/tmp/whatever'), arguments: {}, requestId: null });
     expect(result.isError).toBe(false);
     const text = result.content[0]?.text ?? '';
-    expect(text).toMatch(/workspace_info|workspace_status/);
+      expect(text).toMatch(/session_start|workspace_snapshot/);
     expect(text).toMatch(/codegraph/);
     expect(text).toMatch(/runs_list|current_run|artifact_read/);
     expect(text).toMatch(/project_instructions/);

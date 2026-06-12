@@ -112,15 +112,15 @@ export function getTerminalAgentProtocolBanner(
   }
   lines.push(
     'Vibecode agent protocol — do this first in a new terminal:',
-    '1. Orient: prefer MCP vibecode_session_bootstrap / vibecode_tool_profile; CLI fallback:',
+    '1. Start: prefer MCP vibecode_session_start, then vibecode_workspace_snapshot; CLI fallback:',
     `   ${TERMINAL_FIRST_COMMAND}`,
     '2. Mode: read_only for research/review, build to edit files.',
-    '3. Pick tools by profile (do not guess): vibecode tools profile --json (e.g. --profile build_pre_edit --json).',
-    '4. build agents: claim files before editing; run vibecode git changes --agent <agent_id> --json before/after edits.',
+    '3. Build agents: call MCP vibecode_build_start with exact paths before editing.',
+    '4. Check changes before/after edits with MCP vibecode_changes; CLI fallback: vibecode git changes --agent <agent_id> --json.',
     '5. Orient with scan/artifact tools, not raw rg/find or direct .vibecode reads:',
     '   vibecode scan summary --run current --json',
     '   vibecode runs artifact-read --run current --artifact <artifact> --json',
-    '6. Before commit: vibecode finalize check --agent <agent_id> --json, then vibecode commit guard.',
+    '6. Before commit: MCP vibecode_build_finish, then CLI vibecode commit guard.',
     `Do not push unless explicitly asked. (Set ${TERMINAL_AGENT_BANNER_ENV}=0 to silence this banner.)`,
   );
   return lines.join('\n');

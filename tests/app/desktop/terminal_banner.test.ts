@@ -75,7 +75,8 @@ describe('desktop terminal protocol banner', () => {
     expect(meta.banner).toContain(
       'vibecode session bootstrap --register --agent-mode <read_only|build> --task "<task>" --json',
     );
-    expect(meta.banner).toContain('vibecode tools profile --json');
+    expect(meta.banner).toContain('vibecode_session_start');
+    expect(meta.banner).toContain('vibecode_workspace_snapshot');
     // DISPLAY-only: the banner must never be written into the PTY.
     expect(fakePty.writes).toEqual([]);
   });

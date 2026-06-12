@@ -21,15 +21,10 @@ const FORBIDDEN_TOOL_NAME_PATTERNS = [
 ];
 
 // Tools that are intentionally read-only despite their names containing
-// substrings the forbidden patterns might match. vibecode_codegraph_files
-// (a list/files-tool), vibecode_artifact_read (a read-only artifact reader),
-// and vibecode_git_changes (a read-only changed-files inspector — it only spawns
-// `git rev-parse`/`git status`/`git diff --stat` and never mutates git) are all
-// read-only — none write anything.
+// substrings the forbidden patterns might match.
 const ALLOWED_READ_TOOL_NAMES = new Set([
-  'vibecode_codegraph_files',
   'vibecode_artifact_read',
-  'vibecode_git_changes',
+  'vibecode_changes',
 ]);
 
 const READ_ONLY_NAME_RE = /(write|create|update|delete|put|post|set|edit|modify)/i;
@@ -78,7 +73,7 @@ describe('VibecodeMCP security boundary', () => {
     await client.connect(clientTransport);
     try {
       const result = (await client.callTool({
-        name: 'vibecode_codegraph_status',
+        name: 'vibecode_workspace_snapshot',
         arguments: { repo: '/etc/passwd' },
       })) as { isError?: boolean; structuredContent?: { error?: { code?: string } } };
       expect(result.isError).toBe(true);
@@ -105,7 +100,7 @@ describe('VibecodeMCP security boundary', () => {
     process.env.OPENROUTER_API_KEY = secret;
     try {
       const result = (await client.callTool({
-        name: 'vibecode_codegraph_status',
+        name: 'vibecode_workspace_snapshot',
         arguments: {},
       })) as { content?: Array<{ text?: string }>; structuredContent?: unknown };
       const blob = JSON.stringify(result);

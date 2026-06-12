@@ -75,23 +75,8 @@ describe('vibecode mcp config/install/doctor for Codex', () => {
       command: 'node',
     });
     expect(payload.config_path).toBe(path.join(codexHome, 'config.toml').replace(/\\/g, '/'));
-    // MCP-1 CodeGraph + MCP-2 run/artifact + MCP-3 workspace orientation + Coordination tools.
     expect(payload.enabled_tools).toHaveLength(VIBECODE_MCP_TOOL_NAMES.length);
-    expect(payload.enabled_tools).toEqual(expect.arrayContaining([
-      'vibecode_codegraph_status',
-      'vibecode_runs_list',
-      'vibecode_artifact_read',
-      'vibecode_codegraph_usage',
-      'vibecode_workspace_info',
-      'vibecode_workspace_status',
-      'vibecode_mcp_guidance',
-      'vibecode_project_instructions',
-      'vibecode_artifacts_list',
-      'vibecode_claim_add',
-      'vibecode_claims_list',
-      'vibecode_claim_status',
-      'vibecode_claim_release',
-    ]));
+    expect(payload.enabled_tools).toEqual([...VIBECODE_MCP_TOOL_NAMES]);
     expect(payload.toml_snippet).toContain('[mcp_servers.vibecode]');
   });
 

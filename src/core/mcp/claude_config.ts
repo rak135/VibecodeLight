@@ -2,6 +2,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { VIBECODE_MCP_TOOL_NAMES } from '../../app/mcp/tool_registry.js';
 import { detectClaudeMcpConfig, type ClaudeMcpDetectionResult } from './claude_mcp_detect.js';
 
 export type ClaudeMcpScope = 'local' | 'user' | 'project';
@@ -20,86 +21,7 @@ export const CLAUDE_FORBIDDEN_CONFIG_KEYS = [
   'disabled_tools',
 ] as const;
 
-export const CLAUDE_MCP_EXPECTED_TOOLS = [
-  // Phase MCP-1: read-only CodeGraph tools.
-  'vibecode_codegraph_status',
-  'vibecode_codegraph_search',
-  'vibecode_codegraph_context',
-  'vibecode_codegraph_files',
-  'vibecode_codegraph_callers',
-  'vibecode_codegraph_callees',
-  'vibecode_codegraph_impact',
-  // Phase MCP-2: read-only run / artifact tools.
-  'vibecode_runs_list',
-  'vibecode_current_run',
-  'vibecode_run_get',
-  'vibecode_artifact_read',
-  'vibecode_codegraph_usage',
-  // Phase 1B-2: read-only bounded scan summary + allowlisted scan artifact reads.
-  'vibecode_scan_summary',
-  'vibecode_scan_artifact_read',
-  // Phase MCP-3: read-only workspace orientation tools.
-  'vibecode_workspace_info',
-  'vibecode_workspace_status',
-  'vibecode_mcp_guidance',
-  'vibecode_project_instructions',
-  'vibecode_artifacts_list',
-  // Phase 1B-3: named recommended tool sets (static, read-only).
-  'vibecode_tool_profile',
-  // Phase 1A: one-call session bootstrap + claim-aware git changes.
-  // session_bootstrap writes ONLY advisory generated state when asked to
-  // register/heartbeat; git_changes is read-only. Neither touches source files,
-  // the shell, git mutation, or the terminal.
-  'vibecode_session_bootstrap',
-  'vibecode_git_changes',
-  // Phase Coordination-1: read-only multi-agent coordination status.
-  'vibecode_coordination_status',
-  // Phase Coordination-2: persistent agent session registry + heartbeat.
-  // These write ONLY advisory generated state (.vibecode/coordination/state.json);
-  // they never touch source files, the shell, git, or the terminal.
-  'vibecode_agent_register',
-  'vibecode_agent_heartbeat',
-  'vibecode_agents_list',
-  'vibecode_agent_status',
-  // Phase Coordination-3A: advisory file claims.
-  // These write ONLY advisory generated state (.vibecode/coordination/state.json);
-  // they never touch source files, the shell, git, or the terminal.
-  'vibecode_claim_add',
-  'vibecode_claims_list',
-  'vibecode_claim_status',
-  'vibecode_claim_release',
-  // Phase 2A: agent-declared work scope — claim plan (read-only) + explicit bulk
-  // claim. These write ONLY advisory generated state; they never touch source
-  // files, the shell, git, or the terminal, and never infer/expand paths.
-  'vibecode_claims_plan',
-  'vibecode_claims_add_bulk',
-  // Phase 2B: claim intent lifecycle — list (read-only) + release (same-agent,
-  // blocked on dirty files). Write ONLY advisory generated state.
-  'vibecode_claim_intents_list',
-  'vibecode_claim_intent_release',
-  // Phase Coordination-4A: read-only agent-aware finalize check.
-  // Read-only; classifies the working tree against advisory claims. Never
-  // touches source files, the shell, git mutation, or the terminal.
-  'vibecode_finalize_check',
-  // Phase Coordination-4C: watcher evidence.
-  // list is read-only; scan writes ONLY generated advisory state
-  // (.vibecode/coordination/events.jsonl). Neither touches source files, the
-  // shell, git mutation, or the terminal.
-  'vibecode_evidence_list',
-  'vibecode_evidence_scan',
-  // Phase Coordination-4D-cleanup: claims reap + conflict history.
-  'vibecode_claims_reap',
-  'vibecode_conflicts_list',
-  'vibecode_conflict_resolve',
-  // Phase 2D: intent-aware conflict triage detail (read-only).
-  'vibecode_conflict_detail',
-  // Phase 4A: read-only handoff packet (visibility only; no ownership transfer).
-  'vibecode_handoff_prepare',
-  // Phase 4B: read-only next-agent onboarding guide (guidance only; no transfer).
-  'vibecode_handoff_guide',
-  // Phase 4C: read-only team status / team overview (observability only; no assignment).
-  'vibecode_team_status',
-] as const;
+export const CLAUDE_MCP_EXPECTED_TOOLS = Object.freeze([...VIBECODE_MCP_TOOL_NAMES]);
 
 export interface ClaudeMcpServerConfig {
   type: 'stdio';

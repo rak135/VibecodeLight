@@ -183,10 +183,10 @@ describe('tool profiles — coordination_housekeeping (Phase 2C)', () => {
     const profile = getToolProfile('coordination_housekeeping');
     expect(profile).not.toBeNull();
     const toolNames = profile!.mcp_tools.map((t) => t.name);
-    expect(toolNames).toContain('vibecode_agent_heartbeat');
-    expect(toolNames).toContain('vibecode_claim_intents_list');
-    expect(toolNames).toContain('vibecode_claims_list');
-    expect(toolNames).toContain('vibecode_claims_reap');
+    expect(toolNames).toContain('vibecode_session_start');
+    expect(toolNames).toContain('vibecode_workspace_snapshot');
+    expect(toolNames).toContain('vibecode_changes');
+    expect(toolNames).toContain('vibecode_handoff');
 
     const commands = profile!.cli_commands.map((c) => c.command);
     expect(commands.some((c) => c.includes('agents heartbeat --agent <agent_id>'))).toBe(true);
@@ -220,10 +220,10 @@ describe('tool profiles — runtime_preflight (Phase 3B)', () => {
     const profile = getToolProfile('runtime_preflight');
     expect(profile).not.toBeNull();
     const toolNames = profile!.mcp_tools.map((t) => t.name);
-    expect(toolNames).toContain('vibecode_session_bootstrap');
-    expect(toolNames).toContain('vibecode_workspace_info');
-    expect(toolNames).toContain('vibecode_agent_heartbeat');
-    expect(toolNames).toContain('vibecode_finalize_check');
+    expect(toolNames).toContain('vibecode_session_start');
+    expect(toolNames).toContain('vibecode_workspace_snapshot');
+    expect(toolNames).toContain('vibecode_changes');
+    expect(toolNames).toContain('vibecode_build_finish');
 
     const commands = profile!.cli_commands.map((c) => c.command);
     expect(commands.some((c) => c.includes('session bootstrap --agent <agent_id>'))).toBe(true);
@@ -243,7 +243,6 @@ describe('tool profiles — runtime_preflight (Phase 3B)', () => {
     expect(text).toMatch(/stale/);
     expect(text).toMatch(/restart|reconnect/);
     expect(text).toContain('cli fallback');
-    expect(text).toContain('heartbeat');
     expect(text).toMatch(/tool_count|tool count/);
   });
 
@@ -264,11 +263,11 @@ describe('tool profiles — session_recovery (Phase 3C)', () => {
     const profile = getToolProfile('session_recovery');
     expect(profile).not.toBeNull();
     const toolNames = profile!.mcp_tools.map((t) => t.name);
-    expect(toolNames).toContain('vibecode_session_bootstrap');
-    expect(toolNames).toContain('vibecode_agent_heartbeat');
-    expect(toolNames).toContain('vibecode_git_changes');
-    expect(toolNames).toContain('vibecode_finalize_check');
-    expect(toolNames).toContain('vibecode_claim_intents_list');
+    expect(toolNames).toContain('vibecode_session_start');
+    expect(toolNames).toContain('vibecode_workspace_snapshot');
+    expect(toolNames).toContain('vibecode_changes');
+    expect(toolNames).toContain('vibecode_build_finish');
+    expect(toolNames).toContain('vibecode_build_scope');
 
     const commands = profile!.cli_commands.map((c) => c.command);
     expect(commands.some((c) => c.includes('session bootstrap --agent <agent_id>'))).toBe(true);
@@ -289,7 +288,6 @@ describe('tool profiles — session_recovery (Phase 3C)', () => {
       ...(profile?.mcp_tools.map((t) => t.reason) ?? []),
       ...(profile?.cli_commands.map((c) => c.reason) ?? []),
     ].join(' ').toLowerCase();
-    expect(text).toContain('heartbeat');
     expect(text).toContain('terminated');
     expect(text).toMatch(/released claim|re-claim|reuse/);
     expect(text).toMatch(/new agent|register/);
@@ -319,12 +317,10 @@ describe('tool profiles — team_handoff (Phase 4A)', () => {
     const profile = getToolProfile('team_handoff');
     expect(profile).not.toBeNull();
     const toolNames = profile!.mcp_tools.map((t) => t.name);
-    expect(toolNames).toContain('vibecode_handoff_prepare');
-    expect(toolNames).toContain('vibecode_session_bootstrap');
-    expect(toolNames).toContain('vibecode_git_changes');
-    expect(toolNames).toContain('vibecode_finalize_check');
-    expect(toolNames).toContain('vibecode_claim_intent_release');
-    expect(toolNames).toContain('vibecode_claim_release');
+    expect(toolNames).toContain('vibecode_handoff');
+    expect(toolNames).toContain('vibecode_session_start');
+    expect(toolNames).toContain('vibecode_changes');
+    expect(toolNames).toContain('vibecode_build_start');
 
     const commands = profile!.cli_commands.map((c) => c.command);
     expect(commands.some((c) => c.includes('handoff prepare --agent <agent_id>'))).toBe(true);
@@ -337,7 +333,7 @@ describe('tool profiles — team_handoff (Phase 4A)', () => {
   test('team_handoff teaches the Phase 4B consumer side: handoff guide before continuing', () => {
     const profile = getToolProfile('team_handoff');
     const toolNames = profile!.mcp_tools.map((t) => t.name);
-    expect(toolNames).toContain('vibecode_handoff_guide');
+    expect(toolNames).toContain('vibecode_handoff');
 
     const commands = profile!.cli_commands.map((c) => c.command);
     expect(commands.some((c) => c.includes('handoff guide --from-agent <from_agent_id>'))).toBe(true);

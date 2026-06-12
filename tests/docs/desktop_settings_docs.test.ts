@@ -22,16 +22,14 @@ describe('desktop remembered settings documentation', () => {
     expect(readme).toContain('--auto-approve');
   });
 
-  test('architecture docs document auto-approve safety and CodeGraph transport exception', () => {
-    const context = read('docs/CONTEXT.md');
-    const decisions = read('docs/ARCHITECTURE_DECISIONS.md');
-    const combined = `${context}\n${decisions}`;
+  test('README documents auto-approve safety and CodeGraph transport exception', () => {
+    const combined = read('README.md');
 
     expect(combined).toContain('desktop.*');
     expect(combined).toContain('desktop.auto_approve.enabled');
     expect(combined).toContain('safety-sensitive');
-    expect(combined).toContain('does not become a CLI/global default');
+    expect(combined).toContain('CLI remains explicit');
     expect(combined).toContain('defaults.codegraph.transport');
-    expect(combined).toContain('Renderer localStorage is not a source of truth');
+    expect(combined).toContain('Renderer localStorage is not the source of truth');
   });
 });

@@ -33,13 +33,13 @@ describe('VibecodeMCP tool registry guidance metadata', () => {
         'enabled: true',
         'default_guidance: "short"',
         'per_tool_notes:',
-        '  vibecode_workspace_info: "Start with this configured note."',
+        '  vibecode_workspace_snapshot: "Start with this configured note."',
         '',
       ].join('\n'));
       const tools = buildVibecodeMcpTools({ agentGuidanceEnv: f.env });
-      const workspaceInfo = tools.find((tool) => tool.name === 'vibecode_workspace_info');
-      expect(workspaceInfo?.description).toMatch(/^Workspace identity and MCP capability summary/);
-      expect(workspaceInfo?.description).toMatch(/User guidance: Start with this configured note\./);
+      const workspaceSnapshot = tools.find((tool) => tool.name === 'vibecode_workspace_snapshot');
+      expect(workspaceSnapshot?.description).toMatch(/^Compact bounded workspace overview/);
+      expect(workspaceSnapshot?.description).toMatch(/User guidance: Start with this configured note\./);
     } finally {
       f.cleanup();
     }
@@ -53,11 +53,11 @@ describe('VibecodeMCP tool registry guidance metadata', () => {
         'enabled: true',
         'default_guidance: "short"',
         'per_tool_notes:',
-        `  vibecode_workspace_info: "${'long-note '.repeat(120)}"`,
+        `  vibecode_workspace_snapshot: "${'long-note '.repeat(120)}"`,
         '',
       ].join('\n'));
       const tools = buildVibecodeMcpTools({ agentGuidanceEnv: f.env });
-      const desc = tools.find((tool) => tool.name === 'vibecode_workspace_info')?.description ?? '';
+      const desc = tools.find((tool) => tool.name === 'vibecode_workspace_snapshot')?.description ?? '';
       expect(desc).toMatch(/User guidance:/);
       expect(desc).toMatch(/truncated/i);
       expect(desc.length).toBeLessThan(500);
@@ -74,11 +74,11 @@ describe('VibecodeMCP tool registry guidance metadata', () => {
         'enabled: false',
         'default_guidance: "short"',
         'per_tool_notes:',
-        '  vibecode_workspace_info: "SHOULD_NOT_APPEND"',
+        '  vibecode_workspace_snapshot: "SHOULD_NOT_APPEND"',
         '',
       ].join('\n'));
       const tools = buildVibecodeMcpTools({ agentGuidanceEnv: f.env });
-      const desc = tools.find((tool) => tool.name === 'vibecode_workspace_info')?.description ?? '';
+      const desc = tools.find((tool) => tool.name === 'vibecode_workspace_snapshot')?.description ?? '';
       expect(desc).not.toContain('SHOULD_NOT_APPEND');
       expect(desc).not.toMatch(/User guidance:/);
     } finally {

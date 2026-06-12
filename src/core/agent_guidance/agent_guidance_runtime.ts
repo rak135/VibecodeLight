@@ -127,7 +127,7 @@ export function buildMcpServerInstructions(runtime: AgentGuidanceRuntime): strin
   }
   return [
     'VibecodeMCP exposes user-editable Agent Guidance through the read-only `vibecode_mcp_guidance` tool.',
-    'At session start, call `vibecode_mcp_guidance`, then `vibecode_workspace_info` and `vibecode_workspace_status`.',
+    'At session start, call `vibecode_session_start`, then `vibecode_workspace_snapshot`.',
     `Guidance hash: ${runtime.guidance_hash.slice(0, 12)}. Config path: ${runtime.config_path}.`,
     'Vibecode does not manage agent approvals or permissions.',
   ].join(' ');

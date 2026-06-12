@@ -46,7 +46,7 @@ describe('VibecodeMCP session_bootstrap tool', () => {
   afterEach(() => repo.cleanup());
 
   test('is registered in the canonical tool name list', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_session_bootstrap');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_session_bootstrap');
     expect(buildSessionBootstrapTool().name).toBe('vibecode_session_bootstrap');
   });
 

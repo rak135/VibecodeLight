@@ -135,10 +135,10 @@ describe('mcp_tool_usage.jsonl logging', () => {
       const client = new Client({ name: 't', version: '0' }, { capabilities: {} });
       await client.connect(clientT);
       try {
-        await client.callTool({ name: 'vibecode_runs_list', arguments: {} });
+        await client.callTool({ name: 'vibecode_run_status', arguments: { run_ref: runId } });
         await client.callTool({
           name: 'vibecode_artifact_read',
-          arguments: { run_id: runId, artifact: 'final_prompt' },
+          arguments: { run_ref: runId, artifact_type: 'run', artifact_key: 'final_prompt' },
         });
       } finally {
         await client.close();
@@ -150,7 +150,7 @@ describe('mcp_tool_usage.jsonl logging', () => {
       const rows = logText.trim().split('\n').map((l) => JSON.parse(l));
       // Both MCP-2 calls landed and stayed read-only (ok=true).
       const tools = rows.map((r) => r.tool);
-      expect(tools).toContain('vibecode_runs_list');
+      expect(tools).toContain('vibecode_run_status');
       expect(tools).toContain('vibecode_artifact_read');
       for (const row of rows) {
         expect(row).not.toHaveProperty('content');

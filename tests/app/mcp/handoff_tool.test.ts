@@ -69,7 +69,7 @@ describe('VibecodeMCP handoff_prepare tool', () => {
   afterEach(() => repo.cleanup());
 
   test('is registered in the canonical tool name list', () => {
-    expect(VIBECODE_MCP_TOOL_NAMES).toContain('vibecode_handoff_prepare');
+    expect(VIBECODE_MCP_TOOL_NAMES).not.toContain('vibecode_handoff_prepare');
     expect(buildHandoffPrepareTool().name).toBe('vibecode_handoff_prepare');
   });
 

@@ -45,43 +45,15 @@ describe('VibecodeMCP stdio server smoke (over in-memory transport)', () => {
     try {
       const listed = await client.listTools();
       const names = (listed.tools ?? []).map((t) => t.name);
-      expect(names.sort()).toEqual([...VIBECODE_MCP_TOOL_NAMES].sort());
-      // Phase MCP-2 additions visible alongside Phase MCP-1.
-      expect(names).toContain('vibecode_runs_list');
-      expect(names).toContain('vibecode_current_run');
-      expect(names).toContain('vibecode_run_get');
-      expect(names).toContain('vibecode_artifact_read');
-      expect(names).toContain('vibecode_codegraph_usage');
-      // Phase MCP-3 workspace orientation tools.
-      expect(names).toContain('vibecode_workspace_info');
-      expect(names).toContain('vibecode_workspace_status');
-      expect(names).toContain('vibecode_mcp_guidance');
-      expect(names).toContain('vibecode_project_instructions');
-      expect(names).toContain('vibecode_artifacts_list');
-      // Phase Coordination-1 tool.
-      expect(names).toContain('vibecode_coordination_status');
-      // Phase Coordination-2 agent session tools.
-      expect(names).toContain('vibecode_agent_register');
-      expect(names).toContain('vibecode_agent_heartbeat');
-      expect(names).toContain('vibecode_agents_list');
-      expect(names).toContain('vibecode_agent_status');
-      // Phase Coordination-3A advisory claim tools.
-      expect(names).toContain('vibecode_claim_add');
-      expect(names).toContain('vibecode_claims_list');
-      expect(names).toContain('vibecode_claim_status');
-      expect(names).toContain('vibecode_claim_release');
-      // Phase 2A agent-declared work scope tools.
-      expect(names).toContain('vibecode_claims_plan');
-      expect(names).toContain('vibecode_claims_add_bulk');
-      // Phase Coordination-4A finalize check tool.
-      expect(names).toContain('vibecode_finalize_check');
-      // Phase Coordination-4C watcher evidence tools.
-      expect(names).toContain('vibecode_evidence_list');
-      expect(names).toContain('vibecode_evidence_scan');
-      // Phase Coordination-4D-cleanup: claims reap + conflict tools.
-      expect(names).toContain('vibecode_claims_reap');
-      expect(names).toContain('vibecode_conflicts_list');
-      expect(names).toContain('vibecode_conflict_resolve');
+      expect([...names].sort()).toEqual([...VIBECODE_MCP_TOOL_NAMES].sort());
+      expect(names).toEqual([...VIBECODE_MCP_TOOL_NAMES]);
+      expect(names).toHaveLength(14);
+      expect(names).toContain('vibecode_session_start');
+      expect(names).toContain('vibecode_workspace_snapshot');
+      expect(names).toContain('vibecode_build_start');
+      expect(names).toContain('vibecode_handoff');
+      expect(names).not.toContain('vibecode_session_bootstrap');
+      expect(names).not.toContain('vibecode_agent_heartbeat');
     } finally {
       await client.close();
       await handle.close();

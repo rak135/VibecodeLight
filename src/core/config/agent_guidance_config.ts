@@ -63,8 +63,8 @@ const DEFAULT_GUIDANCE_TEXT = [
   'When VibecodeMCP tools are available, use them first.',
   '',
   'Start with:',
-  '- vibecode_workspace_info',
-  '- vibecode_workspace_status',
+  '- vibecode_session_start',
+  '- vibecode_workspace_snapshot',
   '',
   'Use Vibecode CodeGraph tools for repository navigation.',
   'Use Vibecode run/artifact tools for Vibecode run history and final prompts.',
@@ -76,9 +76,9 @@ const DEFAULT_GUIDANCE_TEXT = [
 ].join('\n');
 
 const DEFAULT_PER_TOOL_NOTES: Record<string, string> = Object.freeze({
-  vibecode_workspace_info: 'Start here when entering a repo.',
-  vibecode_workspace_status:
-    'Use at the start of implementation/review tasks to inspect branch, dirty state, current run, and CodeGraph state.',
+  vibecode_session_start: 'Start or resume your attributed agent session first.',
+  vibecode_workspace_snapshot:
+    'Use at the start of implementation/review tasks to inspect branch, dirty state, current run, claims, and CodeGraph state.',
   vibecode_codegraph_search:
     'Prefer this over grep/find for code navigation. Use rg/grep for exact literal strings and raw error messages.',
   vibecode_artifact_read: 'Use this before manually browsing .vibecode/runs files.',

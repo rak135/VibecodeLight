@@ -115,6 +115,7 @@ describe('vibecode tools profile', () => {
     expect(cli.exitCode).toBe(0);
     const envelope = JSON.parse(cli.logs[0]) as { ok: boolean; data: { tools: string[] } };
     expect(envelope.ok).toBe(true);
-    expect(envelope.data.tools).toContain('vibecode_tool_profile');
+    expect(envelope.data.tools).toContain('vibecode_session_start');
+    expect(envelope.data.tools).not.toContain('vibecode_tool_profile');
   });
 });
