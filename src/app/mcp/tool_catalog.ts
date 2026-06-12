@@ -197,7 +197,7 @@ export const MCP_TOOL_CONTRACTS: Readonly<Record<string, McpToolContractMetadata
     ['results', 'codegraph_stale', 'warnings'],
     {
       cli: ['vibecode codegraph search "<query>" --json'],
-      safety: [READ_ONLY],
+      safety: [READ_ONLY, 'Indexed symbol/file/structural search only — not a guaranteed literal grep replacement; use grep/rg for exact strings.'],
       source: ['src/app/mcp/tools/v1_contract.ts', 'src/app/mcp/tools/codegraph_search.ts'],
       tests: ['tests/app/mcp/v1_tool_contract.test.ts', 'tests/app/mcp/codegraph_tools.test.ts'],
     },

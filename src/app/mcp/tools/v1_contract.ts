@@ -1,8 +1,10 @@
+import { listAgents } from '../../../core/coordination/agents.js';
 import { addBulkClaims } from '../../../core/coordination/bulk_claims.js';
 import { planClaims } from '../../../core/coordination/claim_planning.js';
 import { listFileClaims } from '../../../core/coordination/claims.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import { getFinalizeCheck } from '../../../core/coordination/finalize_check.js';
+import { summarizeStaleCoordination, type StaleCoordinationSummary } from '../../../core/coordination/stale_coordination.js';
 import { getGitChangedFiles } from '../../../core/workspace/git_changed_files.js';
 import { classifyChangedPath } from '../../../core/coordination/path_classification.js';
 import { releaseClaimIntent } from '../../../core/coordination/intent_lifecycle.js';
@@ -420,6 +422,10 @@ export function buildV1SessionStartTool(deps: SessionBootstrapToolDeps = {}): Mc
       });
       const old = result.structuredContent.data as Record<string, unknown> | undefined;
       const current = old?.current_agent as Record<string, unknown> | undefined;
+      // Stale coordination is advisory: keep the compact counts, drop the
+      // per-item sample dumps that made every session start noisy in dogfood.
+      const staleFull = old?.stale_coordination as StaleCoordinationSummary | undefined;
+      const staleCompact = staleFull ? compactStaleCoordination(staleFull) : null;
       const data = {
         ok: !result.isError,
         agent_id: current?.agent_id ?? agentId?.value ?? null,
@@ -430,7 +436,8 @@ export function buildV1SessionStartTool(deps: SessionBootstrapToolDeps = {}): Mc
         recommended_next_tools: ['vibecode_workspace_snapshot', 'vibecode_project_instructions'],
         warnings: result.structuredContent.warnings,
         blockers: (old?.blockers as unknown[]) ?? [],
-        bootstrap: old,
+        stale_coordination: staleCompact,
+        bootstrap: old ? { ...old, stale_coordination: staleCompact } : old,
       };
       return retag(result, TOOL_NAMES.sessionStart, data);
     },
@@ -453,6 +460,45 @@ interface SnapshotClaimEntry {
 const SNAPSHOT_DEFAULT_MAX_ITEMS = 20;
 
 /**
+ * Compact, count-only stale-coordination summary for v1 outputs. The v1 dogfood
+ * found that repeating per-item stale agent/claim samples on every call was
+ * noise: stale state is advisory and never blocks the current agent, so v1
+ * surfaces counts plus explicit CLI housekeeping commands and nothing else.
+ */
+interface CompactStaleCoordination {
+  has_stale_state: boolean;
+  stale_agents_count: number;
+  stale_active_claims_count: number;
+  stale_owned_intents_count: number;
+  claimless_intents_count: number;
+  /** Explicit CLI housekeeping commands only; never old MCP tool names. */
+  recommended_cli_commands: string[];
+}
+
+function compactStaleCoordination(full: StaleCoordinationSummary): CompactStaleCoordination {
+  return {
+    has_stale_state: full.has_stale_state,
+    stale_agents_count: full.stale_agents_count,
+    stale_active_claims_count: full.stale_active_claims_count,
+    stale_owned_intents_count:
+      full.active_intents_owned_by_stale_agents_count +
+      full.active_intents_owned_by_terminated_agents_count +
+      full.active_intents_owned_by_missing_agents_count,
+    claimless_intents_count: full.active_intents_with_no_active_claims_count,
+    recommended_cli_commands: full.recommended_cli_commands,
+  };
+}
+
+const EMPTY_STALE_COORDINATION: CompactStaleCoordination = Object.freeze({
+  has_stale_state: false,
+  stale_agents_count: 0,
+  stale_active_claims_count: 0,
+  stale_owned_intents_count: 0,
+  claimless_intents_count: 0,
+  recommended_cli_commands: [],
+});
+
+/**
  * Compute the claim-aware safety counts and bounded claims summary for the
  * snapshot. Never hardcode these to zero: a snapshot that reports a clean
  * workspace while unclaimed dirty files exist is actively misleading. Degrades
@@ -463,7 +509,11 @@ function buildSnapshotSafety(
   agentId: string | null,
   maxItems: number,
   warnings: string[],
-): { safety: SnapshotSafety; claims: { owned: SnapshotClaimEntry[]; foreign: SnapshotClaimEntry[]; stale: SnapshotClaimEntry[] } } {
+): {
+  safety: SnapshotSafety;
+  claims: { owned: SnapshotClaimEntry[]; foreign: SnapshotClaimEntry[]; stale: SnapshotClaimEntry[] };
+  staleCoordination: CompactStaleCoordination;
+} {
   const safety: SnapshotSafety = {
     unclaimed_dirty_count: 0,
     staged_unclaimed_count: 0,
@@ -471,6 +521,7 @@ function buildSnapshotSafety(
     conflict_count: 0,
   };
   const claims = { owned: [] as SnapshotClaimEntry[], foreign: [] as SnapshotClaimEntry[], stale: [] as SnapshotClaimEntry[] };
+  let staleCoordination: CompactStaleCoordination = EMPTY_STALE_COORDINATION;
   let activeClaims: ReturnType<typeof listFileClaims> = [];
   let staleClaims: ReturnType<typeof listFileClaims> = [];
   try {
@@ -481,6 +532,12 @@ function buildSnapshotSafety(
     const allClaims = listFileClaims(repoRoot);
     activeClaims = allClaims.filter((claim) => claim.status === 'active');
     staleClaims = allClaims.filter((claim) => claim.status !== 'active' && claim.status !== 'released');
+    staleCoordination = compactStaleCoordination(summarizeStaleCoordination({
+      agents: listAgents(repoRoot),
+      claims: allClaims,
+      intents: state.intents,
+      currentAgentId: agentId,
+    }));
     for (const claim of allClaims) {
       if (claim.status === 'released') continue;
       const entry: SnapshotClaimEntry = {
@@ -524,7 +581,7 @@ function buildSnapshotSafety(
   } catch (err) {
     warnings.push(`WORKSPACE_SAFETY_UNAVAILABLE: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return { safety, claims };
+  return { safety, claims, staleCoordination };
 }
 
 export function buildV1WorkspaceSnapshotTool(deps: WorkspaceStatusToolDeps = {}): McpToolDefinition {
@@ -547,13 +604,25 @@ export function buildV1WorkspaceSnapshotTool(deps: WorkspaceStatusToolDeps = {})
       const old = result.structuredContent.data as Record<string, unknown> | undefined;
       const git = old?.git as Record<string, unknown> | undefined;
       const warnings = [...result.structuredContent.warnings];
-      const { safety, claims } = buildSnapshotSafety(
+      const { safety, claims, staleCoordination } = buildSnapshotSafety(
         input.context.repoRoot,
         agentId,
         maxItems.value ?? SNAPSHOT_DEFAULT_MAX_ITEMS,
         warnings,
       );
       const unsafe = safety.unclaimed_dirty_count > 0 || safety.staged_unclaimed_count > 0;
+      // CodeGraph freshness: no index-timestamp service exists yet, so the
+      // snapshot only reports a bounded honest enum — `not_indexed` until init,
+      // otherwise `unknown` (never a fabricated "fresh"). Exact string literals
+      // are explicitly out of CodeGraph scope.
+      const oldCodegraph = (old?.codegraph as Record<string, unknown> | null | undefined) ?? null;
+      const codegraph = oldCodegraph
+        ? {
+            ...oldCodegraph,
+            index_freshness: oldCodegraph.available === true && oldCodegraph.initialized === true ? 'unknown' : 'not_indexed',
+            literal_search: 'CodeGraph search covers indexed symbols/files/structure and may lag recent edits. Use grep/rg for exact string literals, error messages, and config keys.',
+          }
+        : null;
       const data = {
         repo: {
           root: input.context.repoRoot,
@@ -564,8 +633,10 @@ export function buildV1WorkspaceSnapshotTool(deps: WorkspaceStatusToolDeps = {})
         agent: { agent_id: agentId },
         workspace_safety: safety,
         claims_summary: claims,
+        // Counts only — stale state is advisory and must stay non-blocking noise-free.
+        stale_coordination: staleCoordination,
         run: old?.current_run ?? null,
-        codegraph: old?.codegraph ?? null,
+        codegraph,
         recommended_next_tools: unsafe
           ? ['vibecode_changes', 'vibecode_build_finish']
           : ['vibecode_project_instructions', 'vibecode_changes'],
@@ -700,7 +771,7 @@ export function buildV1CodeGraphSearchTool(deps: CodeGraphSearchToolDeps = {}): 
   return {
     name: TOOL_NAMES.codegraphSearch,
     title: 'Vibecode CodeGraph search',
-    description: 'Find indexed symbols, files, and code entities. Read-only.',
+    description: 'Find indexed symbols, files, and code entities through the CodeGraph index. Not a literal text search: use grep/rg for exact strings, error messages, constants, and config keys. The index may lag edits made after the last index. Read-only.',
     inputSchema: CODEGRAPH_SEARCH_V1_SCHEMA,
     handler: async (input) => {
       const started = Date.now();
@@ -983,15 +1054,28 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
           extraWarnings.push('RELEASE_SKIPPED_NO_INTENT: release_clean_claims=true requires intent_id; nothing was released.');
         }
       }
-      const commitCommand = includeGuard.value === false
-        ? null
-        : finalize.recommended_cli_commands.find((cmd) => cmd.includes('--message')) ?? null;
+      const status = finalize.status === 'blocked'
+        ? 'blocked'
+        : ownedDirty.length > 0
+        ? 'ready_to_commit'
+        : 'no_claimed_changes';
+      // The commit guard block must be self-sufficient: when ready, return the
+      // EXACT CLI command (commit stays CLI-guarded — MCP never commits); when
+      // blocked or there is nothing to commit, never return a command an agent
+      // could run by mistake.
+      const guardAllowed = status === 'ready_to_commit';
+      const commitCommand = guardAllowed && includeGuard.value !== false
+        ? `vibecode commit guard --repo "${input.context.repoRoot}" --agent ${agentId.value} --message "<message>" --json`
+        : null;
+      const guardReason = status === 'blocked'
+        ? `Commit is blocked by ${finalize.blocks.length} finalize blocker(s) (first: ${finalize.blocks[0]?.code ?? 'unknown'}). Resolve blockers, then run vibecode_build_finish again.`
+        : status === 'no_claimed_changes'
+        ? 'No claimed dirty files to commit for this agent.'
+        : includeGuard.value === false
+        ? 'Ready to commit claimed files. Command omitted because include_commit_guard_command=false.'
+        : 'Ready to commit claimed files. Run the command via the CLI commit guard (replace <message>); MCP never commits.';
       const data = {
-        status: finalize.status === 'blocked'
-          ? 'blocked'
-          : ownedDirty.length > 0
-          ? 'ready_to_commit'
-          : 'no_claimed_changes',
+        status,
         owned_dirty_files: ownedDirty,
         owned_clean_files: [],
         unclaimed_dirty_files: unclaimed,
@@ -999,8 +1083,9 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
         staged_blockers: stagedBlockers,
         release_eligible_claims: [],
         commit_guard: {
-          allowed: finalize.status !== 'blocked' && ownedDirty.length > 0,
+          allowed: guardAllowed,
           command: commitCommand,
+          reason: guardReason,
         },
         warnings: [...finalize.warnings, ...extraWarnings],
         blockers: finalize.blocks,
@@ -1008,10 +1093,17 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
         finalize,
         released,
       };
+      const textLines = [
+        '# Vibecode build finish',
+        '',
+        `status: ${data.status}`,
+        `commit_guard: allowed=${guardAllowed ? 'yes' : 'no'} — ${guardReason}`,
+      ];
+      if (commitCommand) textLines.push(`commit_command: ${commitCommand}`);
       return sanitizeFormatted(formatSimpleSuccess({
         tool: TOOL_NAMES.buildFinish,
         repoRoot: input.context.repoRoot,
-        text: `# Vibecode build finish\n\nstatus: ${data.status}`,
+        text: textLines.join('\n'),
         data,
         warnings: extraWarnings,
         durationMs: Date.now() - started,

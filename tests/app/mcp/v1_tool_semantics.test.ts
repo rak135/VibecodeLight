@@ -23,7 +23,7 @@ import {
 import type { McpServerContext } from '../../../src/app/mcp/index.js';
 import { registerAgent } from '../../../src/core/coordination/agents.js';
 import { addBulkClaims } from '../../../src/core/coordination/bulk_claims.js';
-import { loadCoordinationState } from '../../../src/core/coordination/state.js';
+import { loadCoordinationState, writeCoordinationState } from '../../../src/core/coordination/state.js';
 
 /**
  * VibecodeMCP Tool Contract v1 — wrapper semantics.
@@ -99,6 +99,17 @@ function makeRunFixture(repoRoot: string): void {
 }
 
 const FAKE_CODEGRAPH_STATUS = async () => ({ ok: true, available: false, initialized: false, warnings: [] });
+
+/** Backdate an agent's heartbeat so its computed status (and its claims) go stale. */
+function makeAgentStale(repoRoot: string, agentId: string): void {
+  const state = loadCoordinationState(repoRoot);
+  writeCoordinationState(repoRoot, {
+    ...state,
+    agents: state.agents.map((agent) =>
+      agent.agent_id === agentId ? { ...agent, last_heartbeat_at: '2020-01-01T00:00:00.000Z' } : agent,
+    ),
+  });
+}
 
 describe('v1 session_start', () => {
   let repo: { repoRoot: string; cleanup: () => void };
@@ -533,12 +544,18 @@ describe('v1 build flow', () => {
       requestId: null,
     });
     expect(result.isError).toBe(false);
-    const data = result.structuredContent.data as { status: string; commit_guard: { allowed: boolean; command: string | null } };
+    const data = result.structuredContent.data as { status: string; commit_guard: { allowed: boolean; command: string | null; reason: string } };
     expect(data.status).toBe('ready_to_commit');
     expect(data.commit_guard.allowed).toBe(true);
     expect(data.commit_guard.command).toContain('vibecode commit guard');
-    expect(data.commit_guard.command).toContain(agent);
+    expect(data.commit_guard.command).toContain(`--agent ${agent}`);
     expect(data.commit_guard.command).toContain('--message');
+    expect(data.commit_guard.reason).toBeTruthy();
+    // The dogfood gap: the human-readable text must carry the exact command too,
+    // so agents that only read text content never have to infer it.
+    const text = result.content.filter((entry) => entry.type === 'text').map((entry) => entry.text).join('\n');
+    expect(text).toContain('vibecode commit guard');
+    expect(text).toContain(`--agent ${agent}`);
 
     // include_commit_guard_command=false suppresses the command but keeps readiness.
     const suppressed = await buildV1BuildFinishTool().handler({
@@ -546,9 +563,30 @@ describe('v1 build flow', () => {
       arguments: { agent_id: agent, include_commit_guard_command: false },
       requestId: null,
     });
-    const suppressedData = suppressed.structuredContent.data as { commit_guard: { allowed: boolean; command: string | null } };
+    const suppressedData = suppressed.structuredContent.data as { status: string; commit_guard: { allowed: boolean; command: string | null; reason: string } };
+    expect(suppressedData.status).toBe('ready_to_commit');
     expect(suppressedData.commit_guard.allowed).toBe(true);
     expect(suppressedData.commit_guard.command).toBeNull();
+    expect(suppressedData.commit_guard.reason).toBeTruthy();
+  });
+
+  test('blocked build_finish never returns a commit command, but explains why', async () => {
+    const agent = registerBuild(repo.repoRoot, 'agent-blocked-guard');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: agent, paths: ['src/mine.ts'], intent: 'blocked guard test' });
+    write(repo.repoRoot, 'src/mine.ts');
+    write(repo.repoRoot, 'src/loose.ts');
+
+    const result = await buildV1BuildFinishTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: agent, include_commit_guard_command: true },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as { status: string; commit_guard: { allowed: boolean; command: string | null; reason: string } };
+    expect(data.status).toBe('blocked');
+    expect(data.commit_guard.allowed).toBe(false);
+    expect(data.commit_guard.command).toBeNull();
+    expect(data.commit_guard.reason).toBeTruthy();
   });
 
   test('build_finish releases clean claims only when release_clean_claims=true with intent_id', async () => {
@@ -642,6 +680,117 @@ describe('v1 handoff', () => {
     });
     expect(result.isError).toBe(true);
     expect(result.structuredContent.error?.code).toBe('INVALID_ARGUMENT');
+  });
+});
+
+describe('v1 stale coordination summarization', () => {
+  let repo: { repoRoot: string; cleanup: () => void };
+  beforeEach(() => (repo = makeRepo('vibecode-v1-stale-')));
+  afterEach(() => repo.cleanup());
+
+  test('workspace_snapshot summarizes stale agents/claims as compact counts', async () => {
+    const ghost = registerBuild(repo.repoRoot, 'agent-ghost');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: ghost, paths: ['src/abandoned.ts'], intent: 'left behind' });
+    makeAgentStale(repo.repoRoot, ghost);
+    const live = registerBuild(repo.repoRoot, 'agent-live');
+
+    const result = await buildV1WorkspaceSnapshotTool({ codegraphStatus: FAKE_CODEGRAPH_STATUS }).handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: live },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      stale_coordination: {
+        has_stale_state: boolean;
+        stale_agents_count: number;
+        stale_active_claims_count: number;
+        recommended_cli_commands: string[];
+      };
+    };
+    expect(data.stale_coordination.has_stale_state).toBe(true);
+    expect(data.stale_coordination.stale_agents_count).toBeGreaterThanOrEqual(1);
+    expect(data.stale_coordination.stale_active_claims_count).toBeGreaterThanOrEqual(1);
+    // Recommendations stay CLI housekeeping commands; never old MCP tool names.
+    for (const cmd of data.stale_coordination.recommended_cli_commands) {
+      expect(cmd).toMatch(/^vibecode /);
+    }
+    expect(JSON.stringify(result.structuredContent)).not.toMatch(OLD_NAME_PATTERN);
+  });
+
+  test('stale foreign coordination never turns ready_to_commit into blocked', async () => {
+    const ghost = registerBuild(repo.repoRoot, 'agent-ghost');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: ghost, paths: ['src/abandoned.ts'], intent: 'left behind' });
+    makeAgentStale(repo.repoRoot, ghost);
+
+    const live = registerBuild(repo.repoRoot, 'agent-live');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: live, paths: ['src/mine.ts'], intent: 'live work' });
+    write(repo.repoRoot, 'src/mine.ts');
+
+    const result = await buildV1BuildFinishTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: live },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as { status: string; commit_guard: { allowed: boolean; command: string | null } };
+    expect(data.status).toBe('ready_to_commit');
+    expect(data.commit_guard.allowed).toBe(true);
+    expect(data.commit_guard.command).toContain('vibecode commit guard');
+    expect(JSON.stringify(result.structuredContent)).not.toMatch(OLD_NAME_PATTERN);
+  });
+
+  test('session_start carries a compact stale summary without per-item sample dumps', async () => {
+    const ghost = registerBuild(repo.repoRoot, 'agent-ghost');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: ghost, paths: ['src/abandoned.ts'], intent: 'left behind' });
+    makeAgentStale(repo.repoRoot, ghost);
+
+    const result = await buildV1SessionStartTool({ codegraphStatus: async () => ({ available: false, initialized: false, version: null }) }).handler({
+      context: ctx(repo.repoRoot),
+      arguments: { mode: 'build', task: 'stale summary test' },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      stale_coordination: { has_stale_state: boolean; stale_agents_count: number; samples?: unknown } | null;
+    };
+    expect(data.stale_coordination?.has_stale_state).toBe(true);
+    expect(data.stale_coordination?.stale_agents_count).toBeGreaterThanOrEqual(1);
+    expect(data.stale_coordination && 'samples' in data.stale_coordination).toBe(false);
+    expect(JSON.stringify(result.structuredContent)).not.toMatch(OLD_NAME_PATTERN);
+  });
+});
+
+describe('v1 codegraph literal-search boundary and freshness', () => {
+  test('codegraph_search metadata says indexed symbol/file search, points literals to grep/rg', () => {
+    const tool = buildV1CodeGraphSearchTool();
+    expect(tool.description).toMatch(/indexed/i);
+    expect(tool.description).toMatch(/grep|rg/);
+    expect(tool.description).toMatch(/not a literal|not.*literal text/i);
+  });
+
+  test('workspace_snapshot exposes codegraph availability and bounded index freshness', async () => {
+    const repo = makeRepo('vibecode-v1-cgfresh-');
+    try {
+      const result = await buildV1WorkspaceSnapshotTool({ codegraphStatus: FAKE_CODEGRAPH_STATUS }).handler({
+        context: ctx(repo.repoRoot),
+        arguments: {},
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as {
+        codegraph: { available: boolean; initialized: boolean; index_freshness: string; literal_search: string } | null;
+      };
+      expect(data.codegraph).toBeTruthy();
+      expect(data.codegraph?.available).toBe(false);
+      // No index timestamp service exists yet, so freshness is a bounded enum,
+      // never a fabricated "fresh" claim.
+      expect(['not_indexed', 'unknown']).toContain(data.codegraph?.index_freshness);
+      expect(data.codegraph?.index_freshness).toBe('not_indexed');
+      expect(data.codegraph?.literal_search).toMatch(/grep|rg/);
+    } finally {
+      repo.cleanup();
+    }
   });
 });
 
