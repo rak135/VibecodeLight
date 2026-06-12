@@ -3897,6 +3897,69 @@ output, safe-command validity, no-mutation, no assignment wording),
 schema strictness), `tests/app/cli/team_status_commands.test.ts` (envelope,
 validation, parity, human output, byte-identical coordination state).
 
+## 14Q. Phase 4D — integrated Phase 4 review and dogfood closure (Closed)
+
+Phase 4D was a review/dogfood phase, not a feature phase: it verified that
+Phase 4A (handoff prepare), 4B (handoff guide), and 4C (team status) work
+together as one coherent read-only team workflow model and then closed
+Phase 4. No production code changed.
+
+Integrated model confirmed: `team status` is the read-only overview of all
+agents, `handoff prepare` is the previous-agent packet, `handoff guide` is the
+next-agent onboarding view, `session_recovery` covers same-agent resume,
+`runtime_preflight` covers one-agent awareness, `conflict_resolution` and
+`coordination_housekeeping` cover their domains. No tool replaces another;
+detailed tools (session_bootstrap, handoff prepare/guide, conflict detail,
+claims list, commit guard) remain the source of truth for detailed action.
+
+Integrated live dogfood (temp repo, two build agents A and B, exact-file
+claims via add-bulk intents):
+
+1. dirty claimed file on A → `team status`: A=`commit_claimed_work`,
+   B=`release_clean_work`; no assignment wording, safe commands only;
+2. `handoff prepare --agent A` → `commit_before_handoff`
+   (`commit_or_revert_dirty_claimed_files`), `handoff_ready=false`;
+3. `handoff guide --from-agent A --for-agent B` → `previous_agent_not_ready`,
+   `can_continue_now=false`, `blocked_paths=[docs/a.md]`, commit-guard
+   commands listed only under `previous_agent_cli_commands`;
+4. guarded commit by A → prepare reports `ready_after_release`
+   (`release_own_clean_intents`); intent release (dry-run first) → guide
+   reports `ready_for_new_agent`, `ownership_transferred=false`,
+   `must_claim_explicitly=true`, no blocked paths;
+5. B independently planned and claimed the released path (`claims plan` →
+   claimable, `claims add-bulk` extend intent) — no transfer anywhere;
+6. staged rogue-file smoke: an unclaimed staged file flipped every agent to
+   `housekeeping_needed` with a team-level staged-blocker — conservative,
+   matching the commit guard;
+7. same-agent smoke: `handoff guide --from-agent A --for-agent A` →
+   `same_agent_resume`, `can_continue_now=false`, session_recovery commands;
+8. release/terminate both agents → final `team status`: both `terminated`,
+   0 active claims/intents, no staged blockers, tree clean.
+
+Verified contract state at closure: MCP tool count **45**, tool profiles
+**12**, MCP/CLI parity over shared core services, strict schemas
+(`additionalProperties: false`, unknown-key rejection, capped
+`max_items`/`max_agents`), canonical CLI JSON envelopes, raw-git wording only
+inside `do_not_do` prohibitions.
+
+Boundaries confirmed not added: no UI, no orchestration, no scheduler, no
+agent/subagent assignment, no ownership transfer, no handoff acceptance or
+execution, no auto-claim/release/reap/resolve, no force cleanup, no MCP
+commit tool, no raw git bypass recommendation, no `.vibecode` hand-editing,
+no directory/glob claims, no automatic file selection, no LLM relevance
+scoring.
+
+Known limitations at closure: all Phase 4 outputs are point-in-time
+snapshots (re-run after mutations); no UI/dashboard, scheduler, or shared
+chat/notice board exists; the human or external process still chooses work
+distribution; per-agent dirty classification degrades conservatively beyond
+the 200-changed-file window; detailed tools remain the source of truth.
+
+Tests at closure: focused Phase 4 suites green (179 tests), core
+agent_session+coordination green (535), app/mcp green (300), app/cli green
+(313), full suite **3075 passed / 11 skipped / 0 failed**, typecheck and
+lint clean.
+
 ## 14. Appendix  Open Questions
 
 - Should MCP ever expose commit, or should commit guard remain CLI-only forever?
