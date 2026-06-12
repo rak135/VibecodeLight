@@ -628,6 +628,96 @@ describe('v1 build flow', () => {
     }
     expect(JSON.stringify(result.structuredContent)).not.toMatch(OLD_NAME_PATTERN);
   });
+
+  test('build_finish with unknown agent includes v1 stale-session recovery guidance', async () => {
+    const result = await buildV1BuildFinishTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: 'ghost' },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      status: string;
+      blockers: Array<{ code: string }>;
+      stale_recovery: {
+        recommended_next_tools: Array<{ tool: string; args: Record<string, unknown> }>;
+        do_not_do: string[];
+      } | null;
+    };
+    expect(data.status).toBe('blocked');
+    expect(data.blockers.some((b) => b.code === 'AGENT_NOT_FOUND')).toBe(true);
+    // Stale recovery must be present for agent-liveness blocks.
+    expect(data.stale_recovery).not.toBeNull();
+    const recovery = data.stale_recovery!;
+    // Must recommend v1 session_start with resume.
+    expect(recovery.recommended_next_tools[0].tool).toBe('vibecode_session_start');
+    expect(recovery.recommended_next_tools[0].args.agent_id).toBe('ghost');
+    expect(recovery.recommended_next_tools[0].args.resume).toBe(true);
+    expect(recovery.recommended_next_tools[0].args.mode).toBe('build');
+    // Must recommend retrying build_finish.
+    expect(recovery.recommended_next_tools[1].tool).toBe('vibecode_build_finish');
+    // Must warn against bypassing commit guard.
+    expect(recovery.do_not_do.some((d) => /bypass.*commit guard|direct git commit/i.test(d))).toBe(true);
+    // Must not contain old MCP tool names.
+    expect(JSON.stringify(recovery)).not.toMatch(OLD_NAME_PATTERN);
+    // Text output must include recovery guidance.
+    const text = result.content.filter((e) => e.type === 'text').map((e) => e.text).join('\n');
+    expect(text).toMatch(/stale.*session|session.*stale/i);
+    expect(text).toContain('vibecode_session_start');
+    expect(text).not.toMatch(/vibecode_session_bootstrap|vibecode_agent_heartbeat/);
+  });
+
+  test('build_finish with stale agent includes v1 stale-session recovery guidance', async () => {
+    const agent = registerBuild(repo.repoRoot, 'agent-stale-recovery');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: agent, paths: ['src/mine.ts'], intent: 'stale recovery test' });
+    write(repo.repoRoot, 'src/mine.ts');
+    makeAgentStale(repo.repoRoot, agent);
+
+    const result = await buildV1BuildFinishTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: agent },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      status: string;
+      blockers: Array<{ code: string }>;
+      stale_recovery: {
+        recommended_next_tools: Array<{ tool: string; args: Record<string, unknown> }>;
+        do_not_do: string[];
+      } | null;
+    };
+    expect(data.status).toBe('blocked');
+    expect(data.blockers.some((b) => b.code === 'AGENT_NOT_ACTIVE')).toBe(true);
+    // Stale recovery must be present.
+    expect(data.stale_recovery).not.toBeNull();
+    const recovery = data.stale_recovery!;
+    expect(recovery.recommended_next_tools[0].tool).toBe('vibecode_session_start');
+    expect(recovery.recommended_next_tools[0].args.agent_id).toBe(agent);
+    expect(recovery.recommended_next_tools[0].args.resume).toBe(true);
+    expect(recovery.recommended_next_tools[1].tool).toBe('vibecode_build_finish');
+    expect(recovery.do_not_do.some((d) => /bypass.*commit guard|direct git commit/i.test(d))).toBe(true);
+    expect(JSON.stringify(recovery)).not.toMatch(OLD_NAME_PATTERN);
+  });
+
+  test('build_finish without stale blocks has null stale_recovery', async () => {
+    const agent = registerBuild(repo.repoRoot, 'agent-no-stale');
+    addBulkClaims({ repoRoot: repo.repoRoot, agent_id: agent, paths: ['src/mine.ts'], intent: 'no stale test' });
+    write(repo.repoRoot, 'src/mine.ts');
+
+    const result = await buildV1BuildFinishTool().handler({
+      context: ctx(repo.repoRoot),
+      arguments: { agent_id: agent },
+      requestId: null,
+    });
+    expect(result.isError).toBe(false);
+    const data = result.structuredContent.data as {
+      status: string;
+      stale_recovery: unknown;
+    };
+    expect(data.status).toBe('ready_to_commit');
+    expect(data.stale_recovery).toBeNull();
+  });
 });
 
 describe('v1 handoff', () => {

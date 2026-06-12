@@ -1117,6 +1117,28 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
         : includeGuard.value === false
         ? 'Ready to commit claimed files. Command omitted because include_commit_guard_command=false.'
         : 'Ready to commit claimed files. Run the command via the CLI commit guard (replace <message>); MCP never commits.';
+      // Stale-session recovery: when blocked by agent liveness issues, guide
+      // the agent to resume through v1 session_start instead of bypassing.
+      const staleBlockCodes = new Set(['AGENT_NOT_FOUND', 'AGENT_NOT_ACTIVE', 'AGENT_TERMINATED']);
+      const hasStaleBlock = finalize.blocks.some((block) => staleBlockCodes.has(block.code));
+      const staleRecovery = hasStaleBlock
+        ? {
+            recommended_next_tools: [
+              {
+                tool: 'vibecode_session_start',
+                args: { agent_id: agentId.value, mode: 'build', resume: true },
+              },
+              {
+                tool: 'vibecode_build_finish',
+                args: { agent_id: agentId.value, ...(args.intent_id ? { intent_id: args.intent_id } : {}) },
+              },
+            ],
+            do_not_do: [
+              'Do not bypass commit guard with direct git commit.',
+              'Do not create a new agent session — resume the existing one.',
+            ],
+          }
+        : null;
       const data = {
         status,
         owned_dirty_files: ownedDirty,
@@ -1132,7 +1154,10 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
         },
         warnings: [...finalize.warnings, ...extraWarnings],
         blockers: finalize.blocks,
-        recommended_next_tools: ['vibecode_handoff'],
+        recommended_next_tools: staleRecovery
+          ? staleRecovery.recommended_next_tools.map((entry) => entry.tool)
+          : ['vibecode_handoff'],
+        stale_recovery: staleRecovery,
         finalize,
         released,
       };
@@ -1143,6 +1168,16 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
         `commit_guard: allowed=${guardAllowed ? 'yes' : 'no'} — ${guardReason}`,
       ];
       if (commitCommand) textLines.push(`commit_command: ${commitCommand}`);
+      if (staleRecovery) {
+        textLines.push('');
+        textLines.push('## Stale session recovery');
+        textLines.push('');
+        textLines.push('Your agent session is stale or inactive. Do NOT bypass commit guard with direct git commit.');
+        textLines.push('');
+        textLines.push('Recommended recovery:');
+        textLines.push(`1. Call vibecode_session_start with agent_id="${agentId.value}", mode="build", resume=true`);
+        textLines.push('2. Retry vibecode_build_finish after the session is resumed.');
+      }
       return sanitizeFormatted(formatSimpleSuccess({
         tool: TOOL_NAMES.buildFinish,
         repoRoot: input.context.repoRoot,

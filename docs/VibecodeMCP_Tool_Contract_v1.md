@@ -185,9 +185,7 @@ Read-only.
     "dirty": true
   },
   "agent": {
-    "agent_id": "agent_x",
-    "mode": "build",
-    "last_activity_at": "2026-06-12T10:00:00.000Z"
+    "agent_id": "agent_x"
   },
   "workspace_safety": {
     "unclaimed_dirty_count": 0,
@@ -200,23 +198,47 @@ Read-only.
     "foreign": [],
     "stale": []
   },
+  "stale_coordination": {
+    "has_stale_state": false,
+    "stale_agents_count": 0,
+    "stale_active_claims_count": 0,
+    "stale_owned_intents_count": 0,
+    "claimless_intents_count": 0,
+    "recommended_cli_commands": []
+  },
   "run": {
-    "current_run_id": "optional",
-    "artifacts_available": true
+    "run_id": "optional_run_id",
+    "has_final_prompt": true,
+    "has_context_pack": false,
+    "has_flash_output": false,
+    "has_codegraph_usage": false
   },
   "codegraph": {
     "available": true,
-    "stale_after_edits": false,
-    "recommended_tools": [
-      "vibecode_codegraph_search",
-      "vibecode_codegraph_explore"
-    ]
+    "initialized": true,
+    "version": "0.1.0",
+    "index_freshness": "fresh | stale | unknown | not_indexed",
+    "pending_sync_count": 0,
+    "freshness_source": "codegraph_status | status_command_failed | no_index | not_available",
+    "recommended_action": "none | run_codegraph_sync | run_codegraph_init | run_codegraph_status",
+    "literal_search": "CodeGraph search covers indexed symbols/files/structure and may lag recent edits. Use grep/rg for exact string literals, error messages, and config keys."
   },
   "recommended_next_tools": [],
   "warnings": [],
-  "blockers": []
+  "snapshot": {}
 }
 ```
+
+> **Note:** `codegraph.index_freshness` derives from `codegraph status --json`
+> pending-change counts when available. The following are **not available** in
+> the current runtime:
+>
+> - `last_indexed_at` — unavailable unless CodeGraph exposes an index timestamp.
+> - watcher/daemon status — unavailable unless CodeGraph exposes an API for it.
+> - per-file pending detail — unavailable if `codegraph status --json` only
+>   gives aggregate pending counts.
+>
+> Do not document aspirational fields as current runtime fields.
 
 ### Side Effects
 
@@ -510,8 +532,8 @@ Read-only.
 
 > **Note:** This tool does NOT return freshness/staleness. For CodeGraph index
 > freshness, use `vibecode_workspace_snapshot` which reports
-> `codegraph.index_freshness` (an enum: `not_indexed` or `unknown`). For exact
-> literal search, use `grep` or `rg` instead.
+> `codegraph.index_freshness` (an enum: `fresh`, `stale`, `unknown`,
+> `not_indexed`). For exact literal search, use `grep` or `rg` instead.
 
 ### Side Effects
 
@@ -830,9 +852,49 @@ Optional coordination write only if `release_clean_claims=true`.
   "blockers": [],
   "recommended_next_tools": [
     "vibecode_handoff"
-  ]
+  ],
+  "stale_recovery": null
 }
 ```
+
+### Stale-Session Recovery
+
+When `build_finish` is blocked because the agent session is stale or inactive
+(blocker codes: `AGENT_NOT_FOUND`, `AGENT_NOT_ACTIVE`, `AGENT_TERMINATED`),
+the response includes a `stale_recovery` object:
+
+```json
+{
+  "status": "blocked",
+  "stale_recovery": {
+    "recommended_next_tools": [
+      {
+        "tool": "vibecode_session_start",
+        "args": {
+          "agent_id": "<same agent_id>",
+          "mode": "build",
+          "resume": true
+        }
+      },
+      {
+        "tool": "vibecode_build_finish",
+        "args": {
+          "agent_id": "<same agent_id>"
+        }
+      }
+    ],
+    "do_not_do": [
+      "Do not bypass commit guard with direct git commit.",
+      "Do not create a new agent session — resume the existing one."
+    ]
+  }
+}
+```
+
+The text content block also includes human-readable recovery guidance.
+
+Agents **must not** bypass the commit guard with a direct `git commit` when
+blocked by a stale session. Resume through `vibecode_session_start` first.
 
 ### Side Effects
 

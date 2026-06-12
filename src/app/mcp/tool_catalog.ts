@@ -270,10 +270,10 @@ export const MCP_TOOL_CONTRACTS: Readonly<Record<string, McpToolContractMetadata
     'Build finish',
     'Run final claim-aware safety checks and return commit guard guidance.',
     'read_only',
-    ['status', 'owned_dirty_files', 'unclaimed_dirty_files', 'staged_blockers', 'commit_guard'],
+    ['status', 'owned_dirty_files', 'unclaimed_dirty_files', 'staged_blockers', 'commit_guard', 'stale_recovery'],
     {
       cli: ['vibecode finalize check --agent <agent_id> --json', 'vibecode commit guard --agent <agent_id> --dry-run --json'],
-      safety: ['Does not commit. Optional release_clean_claims only releases clean claims owned by the same agent/intent.'],
+      safety: ['Does not commit. Optional release_clean_claims only releases clean claims owned by the same agent/intent. When blocked by stale/inactive agent, includes recovery guidance: resume via vibecode_session_start (resume=true), retry vibecode_build_finish. Do not bypass commit guard.'],
       source: ['src/app/mcp/tools/v1_contract.ts', 'src/core/coordination/finalize_check.ts'],
       tests: ['tests/app/mcp/v1_tool_contract.test.ts', 'tests/app/mcp/finalize_tool.test.ts'],
     },

@@ -211,6 +211,48 @@ export async function reindexCodeGraphRepo(
 }
 
 // ---------------------------------------------------------------------------
+// Status JSON query
+// ---------------------------------------------------------------------------
+
+/** Parsed shape of `codegraph status --json` output. */
+export interface CodeGraphStatusJsonResult {
+  pendingChanges?: { added?: number; modified?: number; removed?: number };
+}
+
+/**
+ * Run `codegraph status --json` to get pending-change counts for freshness.
+ * Read-only; never calls init/sync/index/watch.
+ */
+export async function getCodeGraphStatusJson(
+  repoRoot: string,
+  options: CodeGraphActionOptions = {},
+): Promise<{ ok: boolean; data: CodeGraphStatusJsonResult | null; warnings: string[] }> {
+  const command = options.command ?? CODEGRAPH_COMMAND;
+  const runner = options.runner ?? defaultActionRunner;
+  const warnings: string[] = [];
+
+  try {
+    const run = runner(command, ['status', '--json'], repoRoot);
+    if (run.ok && run.stdout) {
+      try {
+        const data = JSON.parse(run.stdout) as CodeGraphStatusJsonResult;
+        return { ok: true, data, warnings };
+      } catch (parseErr) {
+        warnings.push(`CODEGRAPH_STATUS_JSON_PARSE_FAILED: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+        return { ok: false, data: null, warnings };
+      }
+    }
+    if (!run.ok) {
+      warnings.push(`CODEGRAPH_STATUS_COMMAND_FAILED: ${run.stderr || `exit code ${run.exitCode}`}`);
+    }
+    return { ok: false, data: null, warnings };
+  } catch (err) {
+    warnings.push(`CODEGRAPH_STATUS_COMMAND_FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    return { ok: false, data: null, warnings };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 

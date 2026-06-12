@@ -228,7 +228,7 @@ const ERROR_DEFAULTS: Record<
   },
   AGENT_NOT_ACTIVE: {
     retryable: false,
-    suggestion: 'Heartbeat or register an active agent before creating a claim.',
+    suggestion: 'Agent session is stale or inactive. Resume with vibecode_session_start (agent_id + mode=build + resume=true), then retry. Do not bypass commit guard with direct git commit.',
   },
   CLAIM_DENIED: {
     retryable: false,

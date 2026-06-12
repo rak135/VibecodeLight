@@ -1,9 +1,10 @@
 import fs from 'fs';
-import { spawnSync } from 'child_process';
 
 import {
   getCodeGraphStatus,
+  getCodeGraphStatusJson,
   type CodeGraphActionRunner,
+  type CodeGraphStatusJsonResult,
   type CodeGraphStatusResult,
 } from '../../../adapters/codegraph/codegraph_actions.js';
 import {
@@ -35,34 +36,6 @@ import {
 const TOOL_NAME = 'vibecode_workspace_status';
 const ALLOWED_KEYS = new Set<string>();
 
-export interface CodeGraphStatusRunnerResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-}
-
-export type CodeGraphStatusRunner = (command: string, args: string[], cwd: string) => CodeGraphStatusRunnerResult;
-
-function defaultCodeGraphStatusRunner(command: string, args: string[], cwd: string): CodeGraphStatusRunnerResult {
-  try {
-    const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 10000 });
-    return {
-      ok: !result.error && result.status === 0,
-      stdout: typeof result.stdout === 'string' ? result.stdout : '',
-      stderr: typeof result.stderr === 'string' ? result.stderr : '',
-      exitCode: result.status ?? null,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      stdout: '',
-      stderr: err instanceof Error ? err.message : String(err),
-      exitCode: null,
-    };
-  }
-}
-
 export interface WorkspaceStatusToolDeps {
   /** Test seam: inject a read-only git runner. */
   gitRunner?: GitReadOnlyRunner;
@@ -75,7 +48,7 @@ export interface WorkspaceStatusToolDeps {
   /** Test seam: override Agent Guidance config environment. */
   env?: Record<string, string | undefined>;
   /** Test seam: inject a runner for `codegraph status --json`. */
-  codegraphStatusRunner?: CodeGraphStatusRunner;
+  codegraphStatusRunner?: CodeGraphActionRunner;
 }
 
 interface CurrentRunSummary {
@@ -217,20 +190,18 @@ export function buildWorkspaceStatusTool(deps: WorkspaceStatusToolDeps = {}): Mc
       for (const w of status.warnings) warnings.push(w);
 
       // Run `codegraph status --json` for freshness data when available+initialized.
-      let codegraphStatusJson: { pendingChanges?: { added?: number; modified?: number; removed?: number } } | null = null;
+      let codegraphStatusJson: CodeGraphStatusJsonResult | null = null;
       if (status.available && status.initialized) {
-        try {
-          const statusRunner = deps.codegraphStatusRunner ?? defaultCodeGraphStatusRunner;
-          const binary =
-            deps.binary ??
-            resolveCodeGraphBinary({ cliOption: input.context.codegraphBinary ?? null, env: process.env });
-          const statusResult = statusRunner(binary.command, ['status', '--json'], input.context.repoRoot);
-          if (statusResult.ok && statusResult.stdout) {
-            codegraphStatusJson = JSON.parse(statusResult.stdout) as typeof codegraphStatusJson;
-          }
-        } catch {
-          // Non-fatal: freshness will fall back to 'unknown'.
-        }
+        const binary =
+          deps.binary ??
+          resolveCodeGraphBinary({ cliOption: input.context.codegraphBinary ?? null, env: process.env });
+        const statusJsonResult = await getCodeGraphStatusJson(input.context.repoRoot, {
+          command: binary.command,
+          binary,
+          ...(deps.codegraphStatusRunner ? { runner: deps.codegraphStatusRunner } : {}),
+        });
+        codegraphStatusJson = statusJsonResult.data;
+        for (const w of statusJsonResult.warnings) warnings.push(w);
       }
 
       const currentRun = currentRunSummary(input.context.repoRoot);
