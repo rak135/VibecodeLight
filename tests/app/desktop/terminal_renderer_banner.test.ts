@@ -191,8 +191,11 @@ function buildHarness(session: Record<string, unknown>): Harness {
 beforeAll(async () => {
   // terminals.js bails out unless a window exists; install minimal globals first.
   (globalThis as unknown as { window: Record<string, unknown> }).window = {};
-  (globalThis as unknown as { document: { createElement: () => FakeEl } }).document = {
+  (globalThis as unknown as { document: { createElement: () => FakeEl; addEventListener: () => void } }).document = {
     createElement: () => makeFakeEl(),
+    // The controller registers a document-level mousedown listener (unfocus on
+    // outside click); the banner tests never dispatch it, so a no-op suffices.
+    addEventListener: () => {},
   };
   await import('../../../src/app/desktop/renderer/terminals.js');
   const reg = (globalThis as unknown as { window: { VibecodeTerminals?: { createMultiTerminalController: (o: Record<string, unknown>) => Controller } } }).window;

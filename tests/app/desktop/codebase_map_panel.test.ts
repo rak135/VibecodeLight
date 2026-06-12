@@ -41,7 +41,10 @@ const EDGE_LABELS = {
 };
 
 function makeOverview(nodeCount: number, edgeCount: number) {
-  const nodes = Array.from({ length: nodeCount }, (_, i) => ({
+  const nodes: {
+    id: string; path: string; label: string; kind: string; group: string;
+    language: string; entrypoint?: boolean; changed?: boolean;
+  }[] = Array.from({ length: nodeCount }, (_, i) => ({
     id: `src/file${i}.ts`,
     path: `src/file${i}.ts`,
     label: `file${i}.ts`,
@@ -49,7 +52,9 @@ function makeOverview(nodeCount: number, edgeCount: number) {
     group: 'src',
     language: 'typescript',
   }));
-  const edges = Array.from({ length: Math.min(edgeCount, nodeCount - 1) }, (_, i) => ({
+  const edges: {
+    id: string; from: string; to: string; type: string; evidence?: string;
+  }[] = Array.from({ length: Math.min(edgeCount, nodeCount - 1) }, (_, i) => ({
     id: `edge-${i}`,
     from: `src/file${i}.ts`,
     to: `src/file${i + 1}.ts`,
