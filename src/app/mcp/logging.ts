@@ -3,6 +3,7 @@ import path from 'path';
 
 import type { CodeGraphBinarySource } from '../../adapters/codegraph/codegraph_binary_resolver.js';
 import type { CodeGraphTransport } from '../../adapters/codegraph/codegraph_transport.js';
+import { MCP_TOOL_USAGE_LOG_RELATIVE_PATH } from '../../core/observability/mcp_usage_log.js';
 
 /**
  * Append-only JSONL logger for VibecodeMCP tool calls.
@@ -22,7 +23,9 @@ import type { CodeGraphTransport } from '../../adapters/codegraph/codegraph_tran
 
 export const MCP_TOOL_USAGE_LOG_SCHEMA_VERSION = 1;
 
-export const MCP_TOOL_USAGE_LOG_RELATIVE_PATH = '.vibecode/logs/mcp_tool_usage.jsonl';
+// Single source of truth for the log location lives in core (the read side);
+// re-exported here so existing app-side imports keep working.
+export { MCP_TOOL_USAGE_LOG_RELATIVE_PATH };
 
 export interface McpToolUsageInputSummary {
   /** UTF-8 byte length of the query/symbol payload, if any. */
@@ -33,6 +36,11 @@ export interface McpToolUsageInputSummary {
   max_code?: number;
   limit?: number;
   timeout_ms?: number;
+  /** Bounded attribution flags — never the raw agent/intent/path values. */
+  has_agent_id?: boolean;
+  has_intent_id?: boolean;
+  path_count?: number;
+  artifact_type?: 'run' | 'scan';
 }
 
 export interface McpToolUsageError {
@@ -46,8 +54,14 @@ export interface McpToolUsageEvent {
   timestamp: string;
   request_id: string | null;
   transport: 'stdio';
+  /** Event source surface. MCP server events are always 'mcp'. */
+  source: 'mcp';
   tool: string;
   repo_root: string;
+  /** Explicit attribution only; absent means honestly unattributed. */
+  agent_id?: string;
+  session_id?: string;
+  agent_mode?: 'read_only' | 'build';
   input_summary: McpToolUsageInputSummary;
   ok: boolean;
   duration_ms: number;
@@ -83,6 +97,9 @@ export function buildMcpToolUsageEvent(opts: {
   error: McpToolUsageError | null;
   outputBytes: number;
   truncated: boolean;
+  agentId?: string;
+  sessionId?: string;
+  agentMode?: 'read_only' | 'build';
   codegraph?: {
     binary_source?: CodeGraphBinarySource;
     transport?: CodeGraphTransport;
@@ -94,8 +111,12 @@ export function buildMcpToolUsageEvent(opts: {
     timestamp: opts.timestamp ?? new Date().toISOString(),
     request_id: opts.requestId,
     transport: 'stdio',
+    source: 'mcp',
     tool: opts.tool,
     repo_root: opts.repoRoot,
+    ...(opts.agentId !== undefined ? { agent_id: opts.agentId } : {}),
+    ...(opts.sessionId !== undefined ? { session_id: opts.sessionId } : {}),
+    ...(opts.agentMode !== undefined ? { agent_mode: opts.agentMode } : {}),
     input_summary: opts.inputSummary,
     ok: opts.ok,
     duration_ms: opts.durationMs,

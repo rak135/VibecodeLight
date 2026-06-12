@@ -1006,7 +1006,7 @@ pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --codegraph-bin C:\Tool
 pnpm vibecode mcp serve --repo C:\DATA\PROJECTS\YourRepo --log-level silent
 ```
 
-`--repo` is required and the resolved path is bound to the server for its lifetime. Tools never accept a `repo` argument. stdout is reserved for the MCP JSON-RPC stream; human/diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`) and per-call usage rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` as bounded, secret-free JSONL.
+`--repo` is required and the resolved path is bound to the server for its lifetime. Tools never accept a `repo` argument. stdout is reserved for the MCP JSON-RPC stream; human/diagnostic logs go to stderr (controlled by `--log-level info|warn|silent`) and per-call usage rows go to `<repo>/.vibecode/logs/mcp_tool_usage.jsonl` as bounded, secret-free JSONL. Usage rows are attributed to an agent only from explicit signals (the `agent_id` tool argument, or the agent resolved by `vibecode_session_start`); calls without an `agent_id` stay honestly unattributed, and an attributed call also refreshes the agent's internal activity/heartbeat timestamp.
 
 VibecodeMCP v1 is a breaking public tool contract cleanup. The server exposes
 exactly **14 public MCP tools**; old phase-era MCP tool names are not listed,
@@ -1294,7 +1294,8 @@ The desktop app should provide:
 - final prompt preview;
 - prompt send into the active terminal;
 - run artifact visibility;
-- a VibecodeMCP panel (left nav) showing per-agent MCP status for Claude, Codex, and OpenCode, with read-only doctor/dry-run/install controls and a registry-loaded MCP Tool Catalog / Agent Contract viewer.
+- a VibecodeMCP panel (left nav) showing per-agent MCP status for Claude, Codex, and OpenCode, with read-only doctor/dry-run/install controls and a registry-loaded MCP Tool Catalog / Agent Contract viewer;
+- a read-only Activity panel (right rail) showing which agents use VibecodeMCP, the recent v1 tool-call timeline (unattributed calls labelled as such), per-agent ready state, claims, workspace safety counts (unclaimed dirty files are workspace-level warnings, never per-agent blame), and count-only stale-coordination housekeeping hints. It has no mutation controls.
 
 ### VibecodeMCP Tool Catalog
 

@@ -11,6 +11,7 @@ import { registerDesktopRunsIpcHandlers } from './runs_bridge.js';
 import { registerDesktopTerminalIpcHandlers } from './terminal_bridge.js';
 import { registerCodeGraphBridge } from './codegraph_bridge.js';
 import { registerDesktopCoordinationIpcHandlers } from './coordination_bridge.js';
+import { registerDesktopObservabilityIpcHandlers } from './observability_bridge.js';
 import { registerDesktopMcpIpcHandlers } from './mcp_bridge.js';
 import { registerDesktopCodebaseMapIpcHandlers } from './codebase_map_bridge.js';
 import { registerDesktopSkillsIpcHandlers } from './skills_bridge.js';
@@ -71,6 +72,7 @@ function createWindow(): void {
     registerDesktopRunsIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopArtifactIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopCoordinationIpcHandlers(ipcMain, { getRepoPath });
+    registerDesktopObservabilityIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopMcpIpcHandlers(ipcMain, { getRepoPath });
     registerDesktopCodebaseMapIpcHandlers(ipcMain, { getRepoPath });
     registerCodeGraphBridge(ipcMain, {

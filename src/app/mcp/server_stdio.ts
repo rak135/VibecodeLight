@@ -5,6 +5,11 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import {
+  buildAttributionInputSummary,
+  recordAttributedAgentActivity,
+  resolveToolCallAttribution,
+} from './activity_attribution.js';
 import { buildMcpError } from './errors.js';
 import { formatError, type McpToolFormattedResult } from './format.js';
 import {
@@ -164,16 +169,21 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
         durationMs: 0,
         error: err,
       });
+      // Unknown name: not a v1 tool call, so no activity update — but the
+      // event still records the caller-claimed agent_id honestly.
+      const attribution = resolveToolCallAttribution({ toolName: name, toolArguments: args });
       logToolUsage(context.repoRoot, {
         tool: name,
         requestId,
-        inputSummary: pickInputSummary(args),
+        inputSummary: { ...pickInputSummary(args), ...buildAttributionInputSummary(args) },
         ok: false,
         durationMs: 0,
         warnings: [],
         error: { code: err.code, message: err.message, retryable: err.retryable },
         outputBytes: Buffer.byteLength(formatted.content[0]?.text ?? '', 'utf8'),
         truncated: formatted.structuredContent.truncated,
+        agentId: attribution.agent_id,
+        sessionId: attribution.session_id,
         log,
       });
       return toCallToolResponse(formatted);
@@ -194,31 +204,48 @@ export function createVibecodeMcpServer(options: VibecodeMcpServerOptions): Vibe
           err instanceof Error ? err.message : String(err),
         ),
       });
+      const attribution = resolveToolCallAttribution({ toolName: name, toolArguments: args });
+      const activity = attribution.agent_id
+        ? recordAttributedAgentActivity(context.repoRoot, attribution.agent_id)
+        : null;
       logToolUsage(context.repoRoot, {
         tool: name,
         requestId,
-        inputSummary: pickInputSummary(args),
+        inputSummary: { ...pickInputSummary(args), ...buildAttributionInputSummary(args) },
         ok: false,
         durationMs: Date.now() - started,
         warnings: [],
         error: buildLoggingErrorFromCatch(err),
         outputBytes: Buffer.byteLength(formatted.content[0]?.text ?? '', 'utf8'),
         truncated: formatted.structuredContent.truncated,
+        agentId: attribution.agent_id,
+        sessionId: attribution.session_id,
+        agentMode: activity?.agent_mode,
         log,
       });
       return toCallToolResponse(formatted);
     }
 
+    // Attribute the event to the explicit agent (argument, or the resolved
+    // session_start agent) and treat the attributed call as real activity via
+    // the internal heartbeat. Best-effort only — never fails the tool call.
+    const attribution = resolveToolCallAttribution({ toolName: name, toolArguments: args, result: formatted });
+    const activity = attribution.agent_id
+      ? recordAttributedAgentActivity(context.repoRoot, attribution.agent_id)
+      : null;
     logToolUsage(context.repoRoot, {
       tool: name,
       requestId,
-      inputSummary: pickInputSummary(args),
+      inputSummary: { ...pickInputSummary(args), ...buildAttributionInputSummary(args) },
       ok: !formatted.isError,
       durationMs: formatted.structuredContent.duration_ms ?? Date.now() - started,
       warnings: formatted.structuredContent.warnings,
       error: buildLoggingErrorFromResult(formatted),
       outputBytes: Buffer.byteLength(formatted.content[0]?.text ?? '', 'utf8'),
       truncated: formatted.structuredContent.truncated,
+      agentId: attribution.agent_id,
+      sessionId: attribution.session_id,
+      agentMode: activity?.agent_mode,
       log,
     });
     return toCallToolResponse(formatted);
@@ -262,6 +289,9 @@ interface LogToolUsageArgs {
   error: McpToolUsageError | null;
   outputBytes: number;
   truncated: boolean;
+  agentId?: string;
+  sessionId?: string;
+  agentMode?: 'read_only' | 'build';
   log: (level: 'info' | 'warn', message: string) => void;
 }
 
@@ -278,6 +308,9 @@ function logToolUsage(repoRoot: string, args: LogToolUsageArgs): void {
       error: args.error,
       outputBytes: args.outputBytes,
       truncated: args.truncated,
+      agentId: args.agentId,
+      sessionId: args.sessionId,
+      agentMode: args.agentMode,
     });
     const write = appendMcpToolUsage(repoRoot, event);
     if (!write.written) {

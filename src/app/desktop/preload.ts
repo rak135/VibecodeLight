@@ -380,6 +380,90 @@ export interface CoordinationOverviewResultIpc {
 }
 
 /**
+ * Read-only activity observability IPC shapes. These mirror the core
+ * `ActivityObservabilityOverview` DTO; the renderer only ever reads this
+ * summary and has no observability mutation channel.
+ */
+export interface ActivityOverviewNoticeIpc {
+  code: string;
+  message: string;
+}
+
+export interface ActivityOverviewAgentIpc {
+  agent_id: string;
+  name?: string;
+  mode?: 'read_only' | 'build';
+  status: 'active' | 'stale' | 'terminated' | 'unknown';
+  last_activity_at?: string;
+  last_mcp_tool_at?: string;
+  last_mcp_tool_name?: string;
+  mcp_tool_call_count: number;
+  mcp_error_count: number;
+  claimed_path_count: number;
+  dirty_claimed_path_count: number;
+  ready_state:
+    | 'read_only'
+    | 'ready_to_claim'
+    | 'working'
+    | 'ready_to_commit'
+    | 'blocked'
+    | 'ready_to_release'
+    | 'ready_for_handoff'
+    | 'unknown';
+  blockers: ActivityOverviewNoticeIpc[];
+  warnings: ActivityOverviewNoticeIpc[];
+}
+
+export interface ActivityOverviewToolCallIpc {
+  timestamp: string;
+  agent_id?: string;
+  tool_name: string;
+  ok: boolean;
+  duration_ms: number;
+  error_code?: string;
+}
+
+export interface ActivityOverviewClaimIpc {
+  path: string;
+  owner_agent_id: string;
+  intent_id?: string;
+  status: 'clean' | 'dirty' | 'stale' | 'unknown';
+  age_seconds?: number;
+}
+
+export interface ActivityOverviewIpc {
+  generated_at: string;
+  repo_root: string;
+  agents: ActivityOverviewAgentIpc[];
+  recent_tool_calls: ActivityOverviewToolCallIpc[];
+  claims: ActivityOverviewClaimIpc[];
+  workspace_safety: {
+    unclaimed_dirty_count: number;
+    staged_unclaimed_count: number;
+    foreign_claimed_dirty_count: number;
+    generated_or_ignored_count: number;
+    has_suspicious_unclaimed_dirty: boolean;
+    safety_level: 'ok' | 'warning' | 'blocked';
+    warnings: Array<ActivityOverviewNoticeIpc & { sample_paths?: string[] }>;
+  };
+  stale_coordination: {
+    has_stale_state: boolean;
+    stale_agent_count: number;
+    stale_claim_count: number;
+    stale_intent_count: number;
+    housekeeping_commands: string[];
+  };
+  totals: { agents: number; claims: number; tool_calls_in_window: number };
+  warnings: ActivityOverviewNoticeIpc[];
+}
+
+export interface ActivityOverviewResultIpc {
+  ok: boolean;
+  overview?: ActivityOverviewIpc;
+  error?: { code: string; message: string; details: string[] };
+}
+
+/**
  * Mirror of the core `CodeGraphStatus` shape (detect-only, informational). The
  * renderer reads this from `runs:show`; it never parses external_tools.json or
  * runs detection itself.
@@ -545,6 +629,10 @@ export interface VibecodePreloadApi {
   coordination: {
     /** Read-only: fetch the compact coordination overview. No mutation channel exists. */
     getOverview(): Promise<CoordinationOverviewResultIpc>;
+  };
+  observability: {
+    /** Read-only: fetch the activity/attribution overview. No mutation channel exists. */
+    getActivityOverview(): Promise<ActivityOverviewResultIpc>;
   };
   codebaseMap: {
     getOverview(): Promise<{
@@ -809,6 +897,11 @@ export function createVibecodeApi(): VibecodePreloadApi {
     coordination: {
       getOverview() {
         return ipcRenderer.invoke('coordination:getOverview') as Promise<CoordinationOverviewResultIpc>;
+      },
+    },
+    observability: {
+      getActivityOverview() {
+        return ipcRenderer.invoke('observability:getActivityOverview') as Promise<ActivityOverviewResultIpc>;
       },
     },
     codebaseMap: {

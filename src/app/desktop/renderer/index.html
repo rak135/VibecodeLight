@@ -390,6 +390,12 @@
         <button class="rail-btn" data-panel="coordination" type="button" title="coordination">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2"/><circle cx="12" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="12" r="1.8" stroke="currentColor" stroke-width="1.2"/><path d="M5.3 5.2L7 10.4M10.7 5.2L9 10.4M5.6 4h4.8" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
+        <!-- Read-only activity attribution observability: which agents use
+             VibecodeMCP, tool timeline, claims, and workspace safety. This
+             panel only displays state; it has no mutation controls. -->
+        <button class="rail-btn" data-panel="activity" type="button" title="activity">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M1.5 8h3l2-4.5L9.5 12l2-4h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </aside>
     </div>
 
@@ -580,6 +586,7 @@
     <script src="terminal_keys.js"></script>
     <script src="scroll_rail.js"></script>
     <script src="coordination_panel.js"></script>
+    <script src="activity_panel.js"></script>
     <script src="mcp_tools_panel.js"></script>
     <script src="vibecodemcp_panel.js"></script>
     <script src="codebase_map_panel.js"></script>
@@ -1130,6 +1137,8 @@
         renderPanel(which);
         if (which === 'coordination') startCoordinationPolling();
         else stopCoordinationPolling();
+        if (which === 'activity') startActivityPolling();
+        else stopActivityPolling();
       }
       function closePanel() {
         activePanel = null;
@@ -1137,6 +1146,7 @@
         rightPanel.setAttribute('aria-hidden', 'true');
         rightRail.querySelectorAll('.rail-btn').forEach((b) => b.classList.remove('active'));
         stopCoordinationPolling();
+        stopActivityPolling();
       }
       rightRail.addEventListener('click', (e) => {
         const btn = e.target.closest('.rail-btn');
@@ -1180,6 +1190,10 @@
         }
         if (which === 'coordination') {
           void renderCoordinationPanel();
+          return;
+        }
+        if (which === 'activity') {
+          void renderActivityPanel();
           return;
         }
         // artifacts (real once a run exists)
@@ -1371,6 +1385,62 @@
         if (coordinationPollTimer != null) {
           clearInterval(coordinationPollTimer);
           coordinationPollTimer = null;
+        }
+      }
+
+      // ---- Activity attribution observability (read-only) ----
+      // Renders agents, MCP tool usage, claims, and workspace safety via the
+      // read-only observability:getActivityOverview bridge. There are NO
+      // mutation controls here: no claim/release/reap/resolve, no commit, no
+      // assignment. While the panel is open it polls periodically like the
+      // coordination panel; a single timer is reused and always cleared.
+      const ACTIVITY_POLL_MS = 4000;
+      let activityPollTimer = null;
+
+      async function renderActivityPanel() {
+        const renderHtml = window.VibecodeActivityPanel && window.VibecodeActivityPanel.renderActivityOverviewHtml;
+        if (!window.vibecodeAPI || !window.vibecodeAPI.observability || !renderHtml) {
+          rpBody.innerHTML = '<div class="rp-section"><h4>Activity</h4><div class="rp-empty">Activity overview is unavailable.</div></div>';
+          return;
+        }
+        // Only paint the loading state on the first render so polling does not flicker.
+        if (!rpBody.querySelector('.coord-panel') && !rpBody.querySelector('.coord-empty')) {
+          rpBody.innerHTML = '<div class="rp-section"><h4>Activity</h4><div class="rp-empty">Loading…</div></div>';
+        }
+        let result;
+        try {
+          result = await window.vibecodeAPI.observability.getActivityOverview();
+        } catch (error) {
+          if (activePanel !== 'activity') return;
+          rpBody.innerHTML = '<div class="rp-section"><h4>Activity</h4><div class="rp-empty">' +
+            escapeHtml(error instanceof Error ? error.message : String(error)) + '</div></div>';
+          return;
+        }
+        if (activePanel !== 'activity') return;
+        if (!result || result.ok !== true || !result.overview) {
+          const err = (result && result.error) || { message: 'activity overview unavailable' };
+          rpBody.innerHTML = '<div class="rp-section"><h4>Activity</h4><div class="rp-empty">' +
+            escapeHtml(err.message || 'activity overview unavailable') + '</div></div>';
+          return;
+        }
+        rpBody.innerHTML = '<div class="rp-section"><h4>Activity</h4>' + renderHtml(result.overview) + '</div>';
+      }
+
+      function startActivityPolling() {
+        stopActivityPolling();
+        activityPollTimer = setInterval(() => {
+          if (activePanel === 'activity') {
+            void renderActivityPanel();
+          } else {
+            stopActivityPolling();
+          }
+        }, ACTIVITY_POLL_MS);
+      }
+
+      function stopActivityPolling() {
+        if (activityPollTimer != null) {
+          clearInterval(activityPollTimer);
+          activityPollTimer = null;
         }
       }
 

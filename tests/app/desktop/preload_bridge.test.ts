@@ -7,6 +7,7 @@ type ExposedApi = {
   artifacts: Record<string, unknown>;
   codegraph: Record<string, unknown>;
   coordination: Record<string, unknown>;
+  observability: Record<string, unknown>;
   mcp: Record<string, unknown>;
   skills: Record<string, unknown>;
 };
@@ -44,8 +45,9 @@ describe('desktop preload bridge boundary', () => {
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [apiName, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
     expect(apiName).toBe('vibecodeAPI');
-    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codebaseMap', 'codegraph', 'composer', 'config', 'coordination', 'mcp', 'runs', 'skills', 'terminal', 'workspace']);
+    expect(Object.keys(api).sort()).toEqual(['artifacts', 'codebaseMap', 'codegraph', 'composer', 'config', 'coordination', 'mcp', 'observability', 'runs', 'skills', 'terminal', 'workspace']);
     expect(Object.keys(api.coordination).sort()).toEqual(['getOverview']);
+    expect(Object.keys(api.observability).sort()).toEqual(['getActivityOverview']);
     expect(Object.keys(api.terminal).sort()).toEqual(['close', 'getPtyInfo', 'list', 'onData', 'onExit', 'onPreflight', 'resize', 'start', 'write']);
     expect(Object.keys(api.workspace).sort()).toEqual(['getInfo']);
     expect(Object.keys(api.composer).sort()).toEqual(['generatePreview', 'generatePreviewLive', 'onProgress', 'sendPreview']);
@@ -440,6 +442,30 @@ describe('desktop preload bridge boundary', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('coordination:getOverview');
     expect(ipcRenderer.send).not.toHaveBeenCalled();
     expect(Object.keys(api.coordination)).toEqual(['getOverview']);
+  });
+
+  test('observability.getActivityOverview invokes the read-only observability channel only', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ ok: true, overview: {} }),
+      send: vi.fn(),
+      on: vi.fn(),
+    };
+    const contextBridge = {
+      exposeInMainWorld: vi.fn(),
+    };
+    vi.doMock('electron', () => ({ contextBridge, ipcRenderer }));
+
+    await import('../../../src/app/desktop/preload.js');
+
+    const [, api] = contextBridge.exposeInMainWorld.mock.calls[0] as [string, ExposedApi];
+    const observability = api.observability as { getActivityOverview: () => Promise<unknown> };
+    await observability.getActivityOverview();
+
+    // Protected invariant: activity attribution is read-only in the renderer —
+    // exactly one getter channel, no mutation channel, no fire-and-forget send.
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('observability:getActivityOverview');
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
+    expect(Object.keys(api.observability)).toEqual(['getActivityOverview']);
   });
 
   test('config agent guidance methods invoke only safe config IPC channels', async () => {

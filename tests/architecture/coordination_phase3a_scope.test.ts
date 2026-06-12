@@ -90,14 +90,18 @@ describe('Coordination Phase 3A scope boundary', () => {
     // (visibility only — no claim add/release/reap, conflict resolve, commit,
     // git, or watcher control), so the original "no panel" rule is narrowed
     // rather than dropped: the only desktop files that may reference
-    // coordination/claims are the known read-only Phase 5A set below. The
+    // coordination/claims are the known read-only observability set below
+    // (Phase 5A coordination panel + the activity attribution panel). The
     // read-only scope of those files is pinned by
-    // tests/app/desktop/coordination_scope.test.ts.
+    // tests/app/desktop/coordination_scope.test.ts and
+    // tests/app/desktop/observability_bridge.test.ts.
     const allowed = new Set([
       'src/app/desktop/coordination_bridge.ts',
       'src/app/desktop/codebase_map_bridge.ts',
       'src/app/desktop/preload.ts',
       'src/app/desktop/renderer/coordination_panel.d.ts',
+      'src/app/desktop/observability_bridge.ts',
+      'src/app/desktop/renderer/activity_panel.d.ts',
     ]);
     const desktopFiles = collectFiles(path.join(repoRoot, 'src', 'app', 'desktop'));
     const offenders = desktopFiles
