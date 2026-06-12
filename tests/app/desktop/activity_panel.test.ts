@@ -186,6 +186,21 @@ describe('renderActivityOverviewHtml', () => {
     expect(html).not.toMatch(CONTROL_MARKERS);
   });
 
+  test('renders agents with no MCP activity without a misleading calls-zero badge', () => {
+    const overview = emptyOverview();
+    overview.agents = [agentEntry({
+      mcp_tool_call_count: 0,
+      mcp_error_count: 0,
+      last_mcp_tool_name: undefined,
+      last_mcp_tool_at: undefined,
+    })];
+    overview.agent_status_counts.active = 1;
+    overview.totals.agents = 1;
+    const html = ActivityPanel.renderActivityOverviewHtml(overview);
+    expect(html).toContain('no MCP calls');
+    expect(html).not.toContain('calls 0');
+  });
+
   test('renders a blocked agent with its blockers', () => {
     const overview = emptyOverview();
     overview.agents = [agentEntry({
@@ -217,11 +232,11 @@ describe('renderActivityOverviewHtml', () => {
     expect(html).not.toMatch(CONTROL_MARKERS);
   });
 
-  test('renders the current claims board grouped by agent', () => {
+  test('renders the current claims board grouped by agent with readable age', () => {
     const overview = emptyOverview();
     overview.claims = [
       { path: 'src/app.ts', owner_agent_id: 'agent-a', intent_id: 'intent-1', status: 'dirty', age_seconds: 60 },
-      { path: 'src/lib.ts', owner_agent_id: 'agent-a', intent_id: 'intent-1', status: 'clean', age_seconds: 90 },
+      { path: 'src/lib.ts', owner_agent_id: 'agent-a', intent_id: 'intent-1', status: 'clean', age_seconds: 120 },
       { path: 'src/other.ts', owner_agent_id: 'agent-b', status: 'clean' },
     ];
     overview.totals.claims = 3;
@@ -230,10 +245,12 @@ describe('renderActivityOverviewHtml', () => {
     expect(html).toContain('intent-1');
     expect(html).toContain('dirty');
     expect(html).toContain('clean');
-    // Grouped: agent-a header appears once before both of its paths.
-    const firstOwner = html.indexOf('agent-a');
-    expect(firstOwner).toBeGreaterThan(-1);
-    expect(html.indexOf('agent-a', firstOwner + 1)).toBeGreaterThan(html.indexOf('src/lib.ts'));
+    expect(html).toContain('1m');
+    expect(html).toContain('2m');
+    // Grouped: one explicit owner header precedes both owned paths.
+    expect(html).toMatch(/<div class="coord-claim-owner">agent-a<\/div>[\s\S]*src\/app\.ts[\s\S]*src\/lib\.ts/);
+    expect((html.match(/coord-claim-owner">agent-a<\/div>/g) ?? []).length).toBe(1);
+    expect(html).toMatch(/<div class="coord-claim-owner">agent-b<\/div>[\s\S]*src\/other\.ts/);
   });
 
   test('renders workspace safety warnings with sample paths and no per-agent blame', () => {

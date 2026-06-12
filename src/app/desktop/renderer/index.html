@@ -1131,6 +1131,7 @@
       function openPanel(which) {
         activePanel = which;
         rightPanel.classList.add('open');
+        rightPanel.classList.toggle('observability-wide', which === 'activity');
         rightPanel.setAttribute('aria-hidden', 'false');
         rpTitle.textContent = which.charAt(0).toUpperCase() + which.slice(1);
         rightRail.querySelectorAll('.rail-btn').forEach((b) => b.classList.toggle('active', b.getAttribute('data-panel') === which));
@@ -1143,6 +1144,7 @@
       function closePanel() {
         activePanel = null;
         rightPanel.classList.remove('open');
+        rightPanel.classList.remove('observability-wide');
         rightPanel.setAttribute('aria-hidden', 'true');
         rightRail.querySelectorAll('.rail-btn').forEach((b) => b.classList.remove('active'));
         stopCoordinationPolling();

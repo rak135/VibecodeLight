@@ -44,6 +44,23 @@ describe('desktop renderer activity panel wiring', () => {
     expect(html).toMatch(/activityPollTimer\s*!=\s*null[\s\S]{0,120}clearInterval\(activityPollTimer\)/);
   });
 
+  test('opens activity in the wide read-only inspector layout', () => {
+    const html = read('index.html');
+    expect(html).toMatch(/rightPanel\.classList\.toggle\('observability-wide',\s*which === 'activity'\)/);
+    expect(html).toMatch(/rightPanel\.classList\.remove\('observability-wide'\)/);
+    const css = read('styles.css');
+    expect(css).toMatch(/\.right-panel\.observability-wide/);
+  });
+
+  test('activity rows wrap long agent and tool identifiers instead of forcing horizontal scroll', () => {
+    const css = read('styles.css');
+    expect(css).toMatch(/\.act-summary\s*\{[\s\S]*flex-wrap:\s*wrap/);
+    expect(css).toMatch(/\.act-summary \.coord-chip\s*\{[\s\S]*white-space:\s*normal/);
+    expect(css).toMatch(/\.coord-row\s*\{[\s\S]*min-width:\s*0/);
+    expect(css).toMatch(/\.coord-row \.coord-name\s*\{[\s\S]*overflow-wrap:\s*anywhere/);
+    expect(css).toMatch(/\.coord-row \.coord-meta\s*\{[\s\S]*overflow-wrap:\s*anywhere/);
+  });
+
   test('ships the activity panel module with its pure renderer export', () => {
     const js = read('activity_panel.js');
     expect(js).toMatch(/renderActivityOverviewHtml/);

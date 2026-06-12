@@ -41,17 +41,6 @@
     return readyState === 'blocked' || readyState === 'unknown';
   }
 
-  function readyStateLabel(rs) {
-    if (rs === 'ready_to_commit') return 'Ready';
-    if (rs === 'working') return 'Working';
-    if (rs === 'blocked') return 'Blocked';
-    if (rs === 'ready_to_release') return 'Release';
-    if (rs === 'ready_for_handoff') return 'Handoff';
-    if (rs === 'ready_to_claim') return 'Claim';
-    if (rs === 'read_only') return 'Read-only';
-    return rs || 'Unknown';
-  }
-
   function renderSummaryBar(overview) {
     var ac = overview.agent_status_counts || { active: 0, stale: 0, terminated: 0, unknown: 0 };
     var safety = overview.workspace_safety || {};
@@ -82,7 +71,8 @@
   function renderAgentCard(agent) {
     var a = agent;
     var warn = isWarnReadyState(a.ready_state) || a.status === 'stale' || a.status === 'terminated' || (a.blockers && a.blockers.length > 0);
-    var counts = 'calls ' + a.mcp_tool_call_count
+    var callText = a.mcp_tool_call_count > 0 ? 'calls ' + a.mcp_tool_call_count : 'no MCP calls';
+    var counts = callText
       + (a.mcp_error_count > 0 ? ' \u00b7 errors ' + a.mcp_error_count : '')
       + ' \u00b7 claims ' + a.claimed_path_count
       + (a.dirty_claimed_path_count > 0 ? ' (' + a.dirty_claimed_path_count + ' dirty)' : '');
@@ -155,18 +145,43 @@
     return '<div class="coord-section">' + sectionHead('MCP tool calls', chips) + rows + '</div>';
   }
 
+  function formatAge(seconds) {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '';
+    if (seconds < 60) return Math.max(0, Math.floor(seconds)) + 's';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
+    if (seconds < 86400) return Math.floor(seconds / 3600) + 'h';
+    return Math.floor(seconds / 86400) + 'd';
+  }
+
   function renderClaims(claims, totalClaims) {
     var chips = chip('total', totalClaims);
     var rows = '';
+    var grouped = {};
+    var owners = [];
     for (var i = 0; i < claims.length; i++) {
       var c = claims[i];
+      var owner = c.owner_agent_id || 'unknown owner';
+      if (!grouped[owner]) {
+        grouped[owner] = [];
+        owners.push(owner);
+      }
+      grouped[owner].push(c);
+    }
+    for (var o = 0; o < owners.length; o++) {
+      var ownerId = owners[o];
+      var ownerClaims = grouped[ownerId];
+      rows += '<div class="coord-claim-owner">' + escapeHtml(ownerId) + '</div>';
+      for (var j = 0; j < ownerClaims.length; j++) {
+        var c = ownerClaims[j];
       var warn = c.status === 'dirty' || c.status === 'stale' || c.status === 'unknown';
-      var meta = c.owner_agent_id + (c.intent_id ? ' \u00b7 ' + c.intent_id : '');
+        var age = formatAge(c.age_seconds);
+        var meta = (c.intent_id ? c.intent_id : 'no intent') + (age ? ' \u00b7 age ' + age : '');
       rows += '<div class="coord-row' + (warn ? ' coord-warn' : '') + '">'
         + '<span class="coord-name">' + escapeHtml(c.path) + '</span>'
         + '<span class="coord-meta">' + escapeHtml(meta) + '</span>'
         + '<span class="coord-status">' + escapeHtml(c.status) + '</span>'
         + '</div>';
+      }
     }
     return '<div class="coord-section">' + sectionHead('Claims', chips) + rows + '</div>';
   }

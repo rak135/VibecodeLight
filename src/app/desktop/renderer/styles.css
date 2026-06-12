@@ -625,6 +625,9 @@ input, textarea, select { font: inherit; color: inherit; }
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
 }
 .right-panel.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
+.right-panel.observability-wide {
+  width: min(560px, calc(100vw - var(--rail-w) - var(--left-w) - 24px));
+}
 .rp-head {
   height: var(--top-h);
   padding: 0 14px;
@@ -670,21 +673,58 @@ input, textarea, select { font: inherit; color: inherit; }
 .coord-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
 .coord-sec-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
 .coord-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.act-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
 .coord-chip {
   font-family: var(--font-mono); font-size: 10px; color: var(--muted);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 1px 5px; white-space: nowrap;
+}
+.act-summary .coord-chip {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .coord-chip.coord-warn { color: var(--warn); border-color: var(--warn); }
 .coord-row {
   display: flex; align-items: baseline; gap: 6px;
   padding: 3px 6px; border-left: 2px solid var(--border);
   font-family: var(--font-mono); font-size: 11px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .coord-row.coord-warn { border-left-color: var(--warn); }
-.coord-row .coord-name { color: var(--text); word-break: break-all; flex: 1 1 auto; }
-.coord-row .coord-meta { color: var(--muted); font-size: 10px; }
-.coord-row .coord-status { color: var(--text-2); font-size: 10px; flex: none; }
+.coord-row .coord-name {
+  color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  flex: 1 1 auto;
+}
+.coord-row .coord-meta {
+  color: var(--muted);
+  font-size: 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.coord-row .coord-status {
+  color: var(--text-2);
+  font-size: 10px;
+  flex: none;
+  overflow-wrap: anywhere;
+}
+.coord-claim-owner {
+  margin-top: 4px;
+  padding: 2px 6px 0;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .coord-note { font-size: 10px; color: var(--muted); font-style: italic; padding-top: 2px; }
 
 /* Optional CodeGraph detection status — neutral/informational, never an error. */
