@@ -134,6 +134,7 @@ window.CodebaseMapPanel = undefined;
         '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:var(--accent)"></span>Selected</div>',
         '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:#81c784"></span>Claimed</div>',
         '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:#ef5350"></span>Conflict</div>',
+        '<div class="cmap-legend-item"><span class="cmap-legend-badge" style="border-color:#ce93d8"></span>In Current Run</div>',
       ].join('');
     }
   }
@@ -165,6 +166,16 @@ window.CodebaseMapPanel = undefined;
     const badges = [];
     if (node.changed) badges.push('<span class="tt-badge" style="color:#ff9800;border-color:#ff9800">changed</span>');
     if (node.entrypoint) badges.push('<span class="tt-badge" style="color:#4fc3f7;border-color:#4fc3f7">entrypoint</span>');
+    if (node.claimed) badges.push('<span class="tt-badge" style="color:#81c784;border-color:#81c784">claimed</span>');
+    if (node.conflicted) badges.push('<span class="tt-badge" style="color:#ef5350;border-color:#ef5350">conflict</span>');
+    // Check if node is in current run
+    if (lastOverview && lastOverview.overlays && lastOverview.overlays.current_run) {
+      const cr = lastOverview.overlays.current_run;
+      const inRun = (cr.selected_files && cr.selected_files.includes(node.path)) ||
+        (cr.files_to_read && cr.files_to_read.includes(node.path)) ||
+        (cr.relevant_tests && cr.relevant_tests.includes(node.path));
+      if (inRun) badges.push('<span class="tt-badge" style="color:#ce93d8;border-color:#ce93d8">in current run</span>');
+    }
 
     let html = `<div class="tt-path">${escapeHtml(node.path)}</div>`;
     html += `<div class="tt-row"><span class="tt-key">kind</span><span>${escapeHtml(node.kind)}</span></div>`;
@@ -219,6 +230,8 @@ window.CodebaseMapPanel = undefined;
       ...node,
       changed: node.changed === true,
       entrypoint: node.entrypoint === true,
+      claimed: node.claimed === true,
+      conflicted: node.conflicted === true,
       imports_out,
       imports_in,
       related_tests,
@@ -259,7 +272,51 @@ window.CodebaseMapPanel = undefined;
     if (detail.lines !== undefined) html += row('lines', String(detail.lines));
     if (detail.changed) html += row('changed', 'yes');
     if (detail.entrypoint) html += row('entrypoint', 'yes');
+    if (detail.claimed) html += row('claimed', 'yes');
+    if (detail.conflicted) html += row('conflicted', 'yes');
     html += '</div>';
+
+    // Current run overlay section
+    const overlays = lastOverview.overlays;
+    if (overlays && overlays.current_run) {
+      const cr = overlays.current_run;
+      const isSelected = cr.selected_files && cr.selected_files.includes(detail.path);
+      const isToRead = cr.files_to_read && cr.files_to_read.includes(detail.path);
+      const isRelevantTest = cr.relevant_tests && cr.relevant_tests.includes(detail.path);
+      if (isSelected || isToRead || isRelevantTest) {
+        html += '<div class="cmap-detail-section">';
+        html += '<div class="cmap-detail-section-title">Current Run' + (cr.run_id ? ' (' + escapeHtml(cr.run_id) + ')' : '') + '</div>';
+        if (isSelected) html += row('selected', 'relevant file');
+        if (isToRead) html += row('action', 'read with tools');
+        if (isRelevantTest) html += row('role', 'relevant test');
+        html += '</div>';
+      }
+    }
+
+    // Claim overlay section
+    if (overlays && overlays.agents && overlays.agents.claims) {
+      const claim = overlays.agents.claims.find((c) => c.path === detail.path);
+      if (claim) {
+        html += '<div class="cmap-detail-section">';
+        html += '<div class="cmap-detail-section-title">Agent Claim</div>';
+        html += row('agent', claim.agent_name || claim.agent_id);
+        if (claim.stale) html += row('status', 'stale');
+        else html += row('status', 'active');
+        html += '</div>';
+      }
+    }
+
+    // Conflict overlay section
+    if (overlays && overlays.conflicts && overlays.conflicts.conflicts) {
+      const conflict = overlays.conflicts.conflicts.find((c) => c.path === detail.path);
+      if (conflict) {
+        html += '<div class="cmap-detail-section">';
+        html += '<div class="cmap-detail-section-title">Conflict</div>';
+        html += row('conflict_id', conflict.id);
+        html += row('status', conflict.status);
+        html += '</div>';
+      }
+    }
 
     // Imports out
     html += '<div class="cmap-detail-section">';
@@ -400,6 +457,15 @@ window.CodebaseMapPanel = undefined;
     const nodeIndex = buildNodeIndex(overview.nodes);
     const nodeIdSet = new Set(filteredNodes.map((n) => n.id));
 
+    // Compute current run file set from overlays
+    const currentRunFiles = new Set();
+    if (overview.overlays && overview.overlays.current_run) {
+      const cr = overview.overlays.current_run;
+      if (cr.selected_files) cr.selected_files.forEach((f) => currentRunFiles.add(f));
+      if (cr.files_to_read) cr.files_to_read.forEach((f) => currentRunFiles.add(f));
+      if (cr.relevant_tests) cr.relevant_tests.forEach((f) => currentRunFiles.add(f));
+    }
+
     // Focus: determine which nodes are connected to the selected node
     const focusNodeIds = focusNodeId ? getFocusNodeIds(overview, focusNodeId) : null;
 
@@ -491,6 +557,7 @@ window.CodebaseMapPanel = undefined;
       const isEntrypoint = node.entrypoint && activeLayers.entrypoints;
       const isClaimed = node.claimed && activeLayers.claimed;
       const isConflicted = node.conflicted && activeLayers.conflicted;
+      const isSelectedByRun = currentRunFiles.has(node.id);
 
       // Hide nodes that are filtered out by layers
       if (node.changed && !activeLayers.changed) continue;
@@ -540,6 +607,10 @@ window.CodebaseMapPanel = undefined;
       }
       if (isConflicted) {
         svg += `<rect x="${pos.x + NODE_W - 8}" y="${pos.y + (isChanged || isEntrypoint || isClaimed ? 26 : 2)}" width="6" height="6" rx="1" fill="#ef5350" opacity="${opacity}" />`;
+      }
+      if (isSelectedByRun) {
+        const badgeCount = (isChanged ? 1 : 0) + (isEntrypoint ? 1 : 0) + (isClaimed ? 1 : 0) + (isConflicted ? 1 : 0);
+        svg += `<rect x="${pos.x + NODE_W - 8}" y="${pos.y + 2 + badgeCount * 8}" width="6" height="6" rx="1" fill="#ce93d8" opacity="${opacity}" />`;
       }
     }
 

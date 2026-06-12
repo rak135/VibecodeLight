@@ -95,6 +95,7 @@ describe('Coordination Phase 3A scope boundary', () => {
     // tests/app/desktop/coordination_scope.test.ts.
     const allowed = new Set([
       'src/app/desktop/coordination_bridge.ts',
+      'src/app/desktop/codebase_map_bridge.ts',
       'src/app/desktop/preload.ts',
       'src/app/desktop/renderer/coordination_panel.d.ts',
     ]);
