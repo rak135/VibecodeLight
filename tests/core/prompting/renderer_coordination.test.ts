@@ -51,26 +51,26 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     const content = readPrompt(runDir);
     expect(content).toMatch(/^# Multi-Agent Coordination$/m);
     expect(content).toContain('MCP-capable');
-    // Status / register / heartbeat / claim / release tool guidance.
-    expect(content).toMatch(/vibecode_coordination_status|vibecode_agents_list/);
-    expect(content).toContain('vibecode_agent_register');
-    expect(content).toContain('vibecode_agent_heartbeat');
-    expect(content).toContain('vibecode_claim_add');
-    expect(content).toContain('vibecode_claims_list');
-    expect(content).toContain('vibecode_claim_status');
-    expect(content).toContain('vibecode_claim_release');
-    // CLAIM_DENIED handling and final-report guidance.
-    expect(content).toContain('CLAIM_DENIED');
-    expect(content).toContain('Handoffs are not implemented yet. Do not invent handoff commands.');
+    // v1 session / snapshot / claim / scope / release tool guidance.
+    expect(content).toContain('vibecode_session_start');
+    expect(content).toContain('vibecode_workspace_snapshot');
+    expect(content).toContain('vibecode_build_start');
+    expect(content).toContain('vibecode_build_scope');
+    expect(content).toContain('vibecode_changes');
+    expect(content).toContain('vibecode_handoff');
+    // Old public MCP names must never be recommended to agents.
+    expect(content).not.toMatch(/vibecode_(coordination_status|agents_list|agent_register|agent_heartbeat|claim_add|claims_list|claim_status|claim_release|finalize_check|evidence_list|evidence_scan)/);
+    // Denied/blocked claim handling and final-report guidance.
+    expect(content).toContain('denied/blocked paths');
     expect(content).toContain(
       'Report which claims you created, retained, released, or could not obtain.',
     );
-    // Phase 4A: MCP agents are told to run the finalize check tool before the final report.
-    expect(content).toContain('vibecode_finalize_check');
-    // Phase 4C: watcher evidence is mentioned (MCP tools) and described as advisory,
-    // never as an enforcement gate.
-    expect(content).toContain('vibecode_evidence_list');
-    expect(content).toContain('vibecode_evidence_scan');
+    // MCP agents are told to run the v1 finish gate before the final report.
+    expect(content).toContain('vibecode_build_finish');
+    // Phase 4C: watcher evidence is mentioned (CLI-only commands) and described
+    // as advisory, never as an enforcement gate.
+    expect(content).toContain('vibecode evidence list --repo <path> --json');
+    expect(content).toContain('vibecode evidence scan --repo <path> --json');
     expect(content.toLowerCase()).toContain('advisory');
     expect(content).not.toMatch(/watcher (blocks|enforces|prevents)/i);
     // Phase 4B: the scoped commit guard is CLI-only, so even MCP agents are pointed at it;
@@ -81,6 +81,8 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     // MCP agents are not told to shell out to the CLI claims/finalize commands.
     expect(content).not.toContain('vibecode claims add');
     expect(content).not.toContain('vibecode finalize check');
+    // Handoffs exist but never transfer ownership automatically.
+    expect(content).toContain('ownership never transfers automatically');
   });
 
   test('mentions the live watcher as advisory/non-enforcing in both modes', () => {
@@ -116,7 +118,7 @@ describe('renderFinalPrompt — multi-agent coordination section', () => {
     expect(content).toContain('--mode exclusive');
     expect(content).not.toContain('--type exclusive');
     expect(content).toContain('CLAIM_DENIED');
-    expect(content).toContain('Handoffs are not implemented yet. Do not invent handoff commands.');
+    expect(content).toContain('ownership never transfers automatically');
     // Phase 4A: CLI agents are told to run the finalize check CLI command.
     expect(content).toContain('vibecode finalize check --repo <path> --agent agent-1');
     // Phase 4C: watcher evidence CLI commands are mentioned as advisory.

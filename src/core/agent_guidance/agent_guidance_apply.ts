@@ -311,7 +311,7 @@ export function applyAgentGuidanceIntegration(
     return {
       ok: true,
       ...base,
-      planned_action: `${result.dry_run ? 'Dry-run update' : 'Update'} Codex VibecodeMCP server config so new MCP sessions expose guidance through vibecode_mcp_guidance.`,
+      planned_action: `${result.dry_run ? 'Dry-run update' : 'Update'} Codex VibecodeMCP server config so new MCP sessions expose the v1 tool contract with Agent Guidance applied.`,
       installer_result: result,
       warnings: [...base.warnings, ...result.warnings],
     };
@@ -342,7 +342,7 @@ export function applyAgentGuidanceIntegration(
     return {
       ok: true,
       ...base,
-      planned_action: `${result.dry_run ? 'Dry-run update' : 'Update'} OpenCode VibecodeMCP server config so new MCP sessions expose guidance through vibecode_mcp_guidance.`,
+      planned_action: `${result.dry_run ? 'Dry-run update' : 'Update'} OpenCode VibecodeMCP server config so new MCP sessions expose the v1 tool contract with Agent Guidance applied.`,
       installer_result: result,
       warnings: [...base.warnings, ...result.warnings],
     };
@@ -372,7 +372,7 @@ export function applyAgentGuidanceIntegration(
   return {
     ok: true,
     ...base,
-    planned_action: `${result.dry_run ? 'Dry-run' : 'Run'} ${result.planned_command}. New MCP sessions expose guidance through vibecode_mcp_guidance.`,
+    planned_action: `${result.dry_run ? 'Dry-run' : 'Run'} ${result.planned_command}. New MCP sessions expose the v1 tool contract with Agent Guidance applied.`,
     installer_result: result,
     warnings: [...base.warnings, ...result.warnings],
   };

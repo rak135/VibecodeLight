@@ -157,7 +157,7 @@ const ERROR_DEFAULTS: Record<
   RUN_NOT_FOUND: {
     retryable: false,
     suggestion:
-      'Call vibecode_runs_list to enumerate available run ids, or use the "latest"/"current" alias.',
+      'Call vibecode_run_status to inspect the current/latest run, or use the "latest"/"current" alias.',
   },
   RUN_MANIFEST_INVALID: {
     retryable: false,
@@ -172,12 +172,12 @@ const ERROR_DEFAULTS: Record<
   ARTIFACT_NOT_FOUND: {
     retryable: false,
     suggestion:
-      'The artifact name is allowlisted but the file does not exist for this run yet. Inspect vibecode_run_get to see which artifacts the run produced.',
+      'The artifact name is allowlisted but the file does not exist for this run yet. Inspect vibecode_run_status to see which artifacts the run produced.',
   },
   VIBECODE_ARTIFACT_READ_FAILED: {
     retryable: true,
     suggestion:
-      'Verify the run directory has not been modified or removed, then retry. If the run is partial, look at vibecode_run_get first.',
+      'Verify the run directory has not been modified or removed, then retry. If the run is partial, look at vibecode_run_status first.',
   },
   WORKSPACE_INFO_FAILED: {
     retryable: true,
@@ -207,7 +207,7 @@ const ERROR_DEFAULTS: Record<
   AGENT_NOT_FOUND: {
     retryable: false,
     suggestion:
-      'Call vibecode_agents_list to enumerate registered agent ids, or register the agent first with vibecode_agent_register.',
+      'Start a session with vibecode_session_start (omit agent_id to register a new agent, or pass an existing agent_id to resume).',
   },
   AGENT_REGISTER_FAILED: {
     retryable: true,
@@ -216,7 +216,7 @@ const ERROR_DEFAULTS: Record<
   },
   AGENT_HEARTBEAT_FAILED: {
     retryable: true,
-    suggestion: 'Verify the agent_id exists (vibecode_agents_list) and retry if the failure is transient.',
+    suggestion: 'Verify the agent_id exists and retry if the failure is transient.',
   },
   AGENTS_LIST_FAILED: {
     retryable: true,
@@ -224,7 +224,7 @@ const ERROR_DEFAULTS: Record<
   },
   AGENT_STATUS_FAILED: {
     retryable: true,
-    suggestion: 'Verify the agent_id exists (vibecode_agents_list) and retry if the failure is transient.',
+    suggestion: 'Verify the agent_id exists and retry if the failure is transient.',
   },
   AGENT_NOT_ACTIVE: {
     retryable: false,
@@ -236,7 +236,7 @@ const ERROR_DEFAULTS: Record<
   },
   CLAIM_NOT_FOUND: {
     retryable: false,
-    suggestion: 'Call vibecode_claims_list to enumerate active claim ids.',
+    suggestion: 'Inspect active claims via vibecode_workspace_snapshot (claims_summary) or the CLI: vibecode claims list --json.',
   },
   CLAIM_ADD_FAILED: {
     retryable: true,
@@ -277,7 +277,7 @@ const ERROR_DEFAULTS: Record<
   INTENT_NOT_FOUND: {
     retryable: false,
     suggestion:
-      'The intent_id does not exist. Create a new intent by passing intent (without intent_id), or list your intents via vibecode_session_bootstrap.',
+      'The intent_id does not exist. Start a new build scope with vibecode_build_start (omit intent_id), or check your session via vibecode_session_start.',
   },
   INTENT_FORBIDDEN: {
     retryable: false,
@@ -322,17 +322,17 @@ const ERROR_DEFAULTS: Record<
   CONFLICT_RESOLVE_FAILED: {
     retryable: true,
     suggestion:
-      'Verify the conflict_id exists (vibecode_conflicts_list) and retry if the failure is transient.',
+      'Verify the conflict_id exists (CLI: vibecode conflicts list --json) and retry if the failure is transient.',
   },
   CONFLICT_DETAIL_FAILED: {
     retryable: true,
     suggestion:
-      'Verify the conflict_id exists (vibecode_conflicts_list) and retry if the failure is transient.',
+      'Verify the conflict_id exists (CLI: vibecode conflicts list --json) and retry if the failure is transient.',
   },
   AGENT_TERMINATED: {
     retryable: false,
     suggestion:
-      'The supplied agent_id is terminated. Register a new agent via vibecode_session_bootstrap with register=true (agent_mode + task).',
+      'The supplied agent_id is terminated. Register a new agent via vibecode_session_start (mode + task, no agent_id).',
   },
   SESSION_BOOTSTRAP_FAILED: {
     retryable: true,
@@ -352,7 +352,7 @@ const ERROR_DEFAULTS: Record<
   INVALID_AGENT_SESSION: {
     retryable: false,
     suggestion:
-      'The agent session is missing required metadata (operating_mode or task). Re-register through session_bootstrap with register=true, agent_mode, and task.',
+      'The agent session is missing required metadata (operating_mode or task). Re-register through vibecode_session_start with mode and task.',
   },
   SCAN_SUMMARY_FAILED: {
     retryable: true,
@@ -362,7 +362,7 @@ const ERROR_DEFAULTS: Record<
   SCAN_ARTIFACT_READ_FAILED: {
     retryable: true,
     suggestion:
-      'scan_artifact_read reads one allowlisted scan artifact in bounded chunks. Verify the artifact key (see vibecode_scan_summary.available_artifacts) and offset/max_bytes, then retry if the failure is transient.',
+      'Scan artifact reads return one allowlisted scan artifact in bounded chunks. Verify the artifact key (see vibecode_run_status artifact availability) and cursor/max_bytes, then retry if the failure is transient.',
   },
   TOOL_PROFILE_FAILED: {
     retryable: false,

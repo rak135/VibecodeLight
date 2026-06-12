@@ -152,7 +152,7 @@ describe('vibecode_mcp_guidance dynamic output', () => {
 });
 
 describe('workspace guidance summary', () => {
-  test('workspace_info includes compact guidance status and points to vibecode_mcp_guidance', async () => {
+  test('workspace_info includes compact guidance status without recommending old MCP tool names', async () => {
     const f = fixture();
     try {
       writeGuidance(f.env, 'schema_version: 1\ndefault_guidance: "workspace summary guidance"\n');
@@ -175,8 +175,9 @@ describe('workspace guidance summary', () => {
       expect(data.guidance_status.source).toBe('file');
       expect(data.guidance_status.guidance_hash).toMatch(/^[a-f0-9]{64}$/);
       expect(data.guidance_status.config_path).toMatch(/agent-guidance-config\.yaml$/);
-      expect(data.guidance_status.recommendation).toMatch(/vibecode_mcp_guidance/);
-      expect(result.content[0]?.text ?? '').toMatch(/vibecode_mcp_guidance/);
+      expect(data.guidance_status.recommendation).toMatch(/tool descriptions/);
+      expect(data.guidance_status.recommendation).not.toMatch(/vibecode_mcp_guidance/);
+      expect(result.content[0]?.text ?? '').not.toMatch(/vibecode_mcp_guidance/);
     } finally {
       f.cleanup();
     }

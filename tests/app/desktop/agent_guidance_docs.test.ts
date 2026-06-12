@@ -35,7 +35,10 @@ describe('Settings v1 / Agent Guidance docs contract', () => {
 
   test('README documents MCP-exposed Agent Guidance and agent-guidance CLI commands', () => {
     const text = read('README.md');
-    expect(text).toMatch(/vibecode_mcp_guidance/);
+    // The v1 contract has no public guidance tool; guidance is applied to
+    // server instructions and tool-description suffixes instead.
+    expect(text).not.toMatch(/`vibecode_mcp_guidance` returns/);
+    expect(text).toMatch(/no separate public guidance tool/i);
     expect(text).toMatch(/vibecode agent-guidance status --agent claude/);
     expect(text).toMatch(/vibecode agent-guidance apply --agent codex/);
     expect(text).toMatch(/Restart\/reconnect/i);
@@ -74,7 +77,7 @@ describe('Settings v1 / Agent Guidance docs contract', () => {
     expect(text).toMatch(/does NOT modify.*final_prompt\.md.*after preview/i);
     expect(text).toMatch(/does NOT mutate Claude\/Codex/i);
     expect(text).toMatch(/agent-guidance-config\.yaml/);
-    expect(text).toMatch(/vibecode_mcp_guidance/);
+    expect(text).not.toMatch(/agents to call `vibecode_mcp_guidance`/);
     expect(text).toMatch(/new MCP sessions/i);
   });
 

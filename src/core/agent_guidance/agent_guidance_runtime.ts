@@ -126,8 +126,8 @@ export function buildMcpServerInstructions(runtime: AgentGuidanceRuntime): strin
     return `Agent Guidance is disabled for terminal agents. Config: ${runtime.config_path}. Hash: ${runtime.guidance_hash.slice(0, 12)}.`;
   }
   return [
-    'VibecodeMCP exposes user-editable Agent Guidance through the read-only `vibecode_mcp_guidance` tool.',
-    'At session start, call `vibecode_session_start`, then `vibecode_workspace_snapshot`.',
+    'VibecodeMCP applies user-editable Agent Guidance to its tool descriptions and these server instructions.',
+    'At session start, call `vibecode_session_start`, then `vibecode_workspace_snapshot`; read repo rules with `vibecode_project_instructions`.',
     `Guidance hash: ${runtime.guidance_hash.slice(0, 12)}. Config path: ${runtime.config_path}.`,
     'Vibecode does not manage agent approvals or permissions.',
   ].join(' ');
@@ -158,7 +158,7 @@ export function buildGuidanceStatusSummary(runtime: AgentGuidanceRuntime): {
     source: runtime.source,
     guidance_hash: runtime.guidance_hash,
     config_path: runtime.config_path,
-    recommendation: 'Call vibecode_mcp_guidance for full effective Agent Guidance.',
+    recommendation: 'Agent Guidance is applied to VibecodeMCP tool descriptions and server instructions; edit it via the desktop Settings or the agent-guidance config file.',
     warnings: runtime.warnings,
   };
 }

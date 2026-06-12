@@ -1,8 +1,10 @@
 import { addBulkClaims } from '../../../core/coordination/bulk_claims.js';
 import { planClaims } from '../../../core/coordination/claim_planning.js';
+import { listFileClaims } from '../../../core/coordination/claims.js';
 import { CoordinationError } from '../../../core/coordination/errors.js';
 import { getFinalizeCheck } from '../../../core/coordination/finalize_check.js';
 import { getGitChangedFiles } from '../../../core/workspace/git_changed_files.js';
+import { classifyChangedPath } from '../../../core/coordination/path_classification.js';
 import { releaseClaimIntent } from '../../../core/coordination/intent_lifecycle.js';
 import { loadCoordinationState, writeCoordinationState } from '../../../core/coordination/state.js';
 import { buildMcpError, type McpErrorCode } from '../errors.js';
@@ -20,11 +22,12 @@ import {
 } from '../schemas.js';
 import type { McpToolDefinition, McpToolHandlerInput } from '../tool_registry.js';
 import { buildArtifactReadTool } from './artifact_read.js';
-import { buildCodeGraphContextTool } from './codegraph_context.js';
-import { buildCodeGraphSearchTool } from './codegraph_search.js';
+import { buildCodeGraphContextTool, type CodeGraphContextToolDeps } from './codegraph_context.js';
+import { buildCodeGraphSearchTool, type CodeGraphSearchToolDeps } from './codegraph_search.js';
 import {
   buildCodeGraphCallersTool,
   buildCodeGraphImpactTool,
+  type CodeGraphSymbolToolDeps,
 } from './codegraph_symbol.js';
 import { buildGitChangesTool } from './git_changes.js';
 import { buildHandoffGuideTool } from './handoff_guide.js';
@@ -32,8 +35,8 @@ import { buildHandoffPrepareTool } from './handoff_prepare.js';
 import { buildProjectInstructionsTool } from './project_instructions.js';
 import { buildRunGetTool } from './run_get.js';
 import { buildScanArtifactReadTool } from './scan_artifact_read.js';
-import { buildSessionBootstrapTool } from './session_bootstrap.js';
-import { buildWorkspaceStatusTool } from './workspace_status.js';
+import { buildSessionBootstrapTool, type SessionBootstrapToolDeps } from './session_bootstrap.js';
+import { buildWorkspaceStatusTool, type WorkspaceStatusToolDeps } from './workspace_status.js';
 
 const TOOL_NAMES = {
   sessionStart: 'vibecode_session_start',
@@ -65,9 +68,11 @@ const OLD_TO_V1_TOOL_NAMES: Readonly<Record<string, string>> = Object.freeze({
   vibecode_coordination_status: TOOL_NAMES.workspaceSnapshot,
   vibecode_team_status: TOOL_NAMES.workspaceSnapshot,
   vibecode_tool_profile: TOOL_NAMES.workspaceSnapshot,
+  vibecode_mcp_guidance: TOOL_NAMES.projectInstructions,
   vibecode_runs_list: TOOL_NAMES.runStatus,
   vibecode_current_run: TOOL_NAMES.runStatus,
   vibecode_run_get: TOOL_NAMES.runStatus,
+  vibecode_artifacts_list: TOOL_NAMES.runStatus,
   vibecode_scan_summary: TOOL_NAMES.runStatus,
   vibecode_scan_artifact_read: TOOL_NAMES.artifactRead,
   vibecode_git_changes: TOOL_NAMES.changes,
@@ -95,7 +100,11 @@ const OLD_TO_V1_TOOL_NAMES: Readonly<Record<string, string>> = Object.freeze({
   vibecode_handoff_guide: TOOL_NAMES.handoff,
 });
 
-const OLD_TOOL_NAME_PATTERN = new RegExp(Object.keys(OLD_TO_V1_TOOL_NAMES).join('|'), 'g');
+// Trailing boundary so an old name never rewrites a longer unknown identifier.
+const OLD_TOOL_NAME_PATTERN = new RegExp(
+  `(?:${Object.keys(OLD_TO_V1_TOOL_NAMES).join('|')})(?![A-Za-z0-9_])`,
+  'g',
+);
 
 function sanitizeV1ToolNames(value: unknown): unknown {
   if (typeof value === 'string') {
@@ -292,8 +301,13 @@ const HANDOFF_SCHEMA: JsonSchema = {
   required: ['mode'],
 };
 
-function retag(result: McpToolFormattedResult, tool: string, data?: unknown): McpToolFormattedResult {
-  const nextData = sanitizeV1ToolNames(data !== undefined ? data : result.structuredContent.data);
+/**
+ * Rewrite legacy internal tool names to their v1 public equivalents across the
+ * WHOLE formatted result — text content, data, warnings, and the structured
+ * error envelope (message + suggestion). The v1 public surface must never
+ * recommend or mention an old MCP tool name.
+ */
+function sanitizeFormatted(result: McpToolFormattedResult): McpToolFormattedResult {
   return {
     ...result,
     content: result.content.map((entry) =>
@@ -301,8 +315,17 @@ function retag(result: McpToolFormattedResult, tool: string, data?: unknown): Mc
         ? { ...entry, text: sanitizeV1ToolNames(entry.text) as string }
         : entry,
     ),
+    structuredContent: sanitizeV1ToolNames(result.structuredContent) as McpToolFormattedResult['structuredContent'],
+  };
+}
+
+function retag(result: McpToolFormattedResult, tool: string, data?: unknown): McpToolFormattedResult {
+  const sanitized = sanitizeFormatted(result);
+  const nextData = data !== undefined ? sanitizeV1ToolNames(data) : sanitized.structuredContent.data;
+  return {
+    ...sanitized,
     structuredContent: {
-      ...result.structuredContent,
+      ...sanitized.structuredContent,
       tool,
       ...(nextData !== undefined ? { data: nextData } : {}),
     },
@@ -310,13 +333,13 @@ function retag(result: McpToolFormattedResult, tool: string, data?: unknown): Mc
 }
 
 function fail(input: McpToolHandlerInput, tool: string, started: number, code: McpErrorCode, message: string): McpToolFormattedResult {
-  return formatError({
+  return sanitizeFormatted(formatError({
     tool,
     repoRoot: input.context.repoRoot,
     warnings: [],
     durationMs: Date.now() - started,
     error: buildMcpError(code, message),
-  });
+  }));
 }
 
 function coordCode(error: CoordinationError, fallback: McpErrorCode): McpErrorCode {
@@ -343,6 +366,15 @@ function coordCode(error: CoordinationError, fallback: McpErrorCode): McpErrorCo
   }
 }
 
+/**
+ * v1 build tools take EXACT file paths only. The shared claim evaluator treats
+ * an unknown name as a claimable future file, so a literal glob would otherwise
+ * be claimed as a filename — reject glob indicators up front instead.
+ */
+function findGlobPath(paths: readonly string[]): string | null {
+  return paths.find((candidate) => /[*?]/.test(candidate)) ?? null;
+}
+
 function cursorToOffset(cursor: unknown): number | undefined {
   if (cursor === undefined || cursor === null) return undefined;
   if (typeof cursor === 'number') return cursor;
@@ -350,8 +382,8 @@ function cursorToOffset(cursor: unknown): number | undefined {
   return Number.NaN;
 }
 
-export function buildV1SessionStartTool(): McpToolDefinition {
-  const legacy = buildSessionBootstrapTool();
+export function buildV1SessionStartTool(deps: SessionBootstrapToolDeps = {}): McpToolDefinition {
+  const legacy = buildSessionBootstrapTool(deps);
   return {
     name: TOOL_NAMES.sessionStart,
     title: 'Vibecode session start',
@@ -405,8 +437,98 @@ export function buildV1SessionStartTool(): McpToolDefinition {
   };
 }
 
-export function buildV1WorkspaceSnapshotTool(): McpToolDefinition {
-  const legacy = buildWorkspaceStatusTool();
+interface SnapshotSafety {
+  unclaimed_dirty_count: number;
+  staged_unclaimed_count: number;
+  foreign_claimed_dirty_count: number;
+  conflict_count: number;
+}
+
+interface SnapshotClaimEntry {
+  path: string;
+  agent_id: string;
+  intent_id: string | null;
+}
+
+const SNAPSHOT_DEFAULT_MAX_ITEMS = 20;
+
+/**
+ * Compute the claim-aware safety counts and bounded claims summary for the
+ * snapshot. Never hardcode these to zero: a snapshot that reports a clean
+ * workspace while unclaimed dirty files exist is actively misleading. Degrades
+ * to zeros WITH a warning when git is unavailable (e.g. a non-git directory).
+ */
+function buildSnapshotSafety(
+  repoRoot: string,
+  agentId: string | null,
+  maxItems: number,
+  warnings: string[],
+): { safety: SnapshotSafety; claims: { owned: SnapshotClaimEntry[]; foreign: SnapshotClaimEntry[]; stale: SnapshotClaimEntry[] } } {
+  const safety: SnapshotSafety = {
+    unclaimed_dirty_count: 0,
+    staged_unclaimed_count: 0,
+    foreign_claimed_dirty_count: 0,
+    conflict_count: 0,
+  };
+  const claims = { owned: [] as SnapshotClaimEntry[], foreign: [] as SnapshotClaimEntry[], stale: [] as SnapshotClaimEntry[] };
+  let activeClaims: ReturnType<typeof listFileClaims> = [];
+  let staleClaims: ReturnType<typeof listFileClaims> = [];
+  try {
+    const state = loadCoordinationState(repoRoot);
+    safety.conflict_count = state.conflicts.filter(
+      (conflict) => (conflict as { status?: string } | null)?.status !== 'resolved',
+    ).length;
+    const allClaims = listFileClaims(repoRoot);
+    activeClaims = allClaims.filter((claim) => claim.status === 'active');
+    staleClaims = allClaims.filter((claim) => claim.status !== 'active' && claim.status !== 'released');
+    for (const claim of allClaims) {
+      if (claim.status === 'released') continue;
+      const entry: SnapshotClaimEntry = {
+        path: claim.path,
+        agent_id: claim.agent_id,
+        intent_id: ((claim.metadata as Record<string, unknown> | undefined)?.intent_id as string | undefined) ?? null,
+      };
+      const bucket = claim.status !== 'active'
+        ? claims.stale
+        : agentId !== null && claim.agent_id === agentId
+        ? claims.owned
+        : claims.foreign;
+      if (bucket.length < maxItems) bucket.push(entry);
+    }
+  } catch (err) {
+    warnings.push(`CLAIMS_SUMMARY_UNAVAILABLE: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    // Same shared classifier as finalize/git_changes/team_status; agentId may
+    // be null, in which case any active claim is attributed to another agent
+    // (team-level perspective) so staged/unclaimed counts never degrade to 0.
+    const changed = getGitChangedFiles(repoRoot);
+    if (changed.ok) {
+      for (const file of changed.files) {
+        const classified = classifyChangedPath({
+          path: file.path,
+          agentId,
+          activeClaims,
+          staleClaims,
+        });
+        if (classified.classification === 'unclaimed') {
+          safety.unclaimed_dirty_count += 1;
+          if (file.staged) safety.staged_unclaimed_count += 1;
+        } else if (classified.classification === 'claimed_by_other_active_agent') {
+          safety.foreign_claimed_dirty_count += 1;
+        }
+      }
+    } else {
+      warnings.push('WORKSPACE_SAFETY_UNAVAILABLE: git changed files could not be read; safety counts default to 0.');
+    }
+  } catch (err) {
+    warnings.push(`WORKSPACE_SAFETY_UNAVAILABLE: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { safety, claims };
+}
+
+export function buildV1WorkspaceSnapshotTool(deps: WorkspaceStatusToolDeps = {}): McpToolDefinition {
+  const legacy = buildWorkspaceStatusTool(deps);
   return {
     name: TOOL_NAMES.workspaceSnapshot,
     title: 'Vibecode workspace snapshot',
@@ -416,9 +538,22 @@ export function buildV1WorkspaceSnapshotTool(): McpToolDefinition {
       const started = Date.now();
       const unknown = rejectUnknownKeys(input.arguments, new Set(['agent_id', 'include', 'max_items']));
       if (!unknown.ok) return fail(input, TOOL_NAMES.workspaceSnapshot, started, 'INVALID_ARGUMENT', unknown.message);
+      const maxItems = validateBoundedInteger(input.arguments?.max_items, 'max_items', HARD_MAX_BOOTSTRAP_ITEMS);
+      if (!maxItems.ok) return fail(input, TOOL_NAMES.workspaceSnapshot, started, 'INVALID_ARGUMENT', maxItems.message);
+      const agentId = (typeof input.arguments?.agent_id === 'string' && input.arguments.agent_id.trim() !== '')
+        ? input.arguments.agent_id
+        : null;
       const result = await legacy.handler({ ...input, arguments: {} });
       const old = result.structuredContent.data as Record<string, unknown> | undefined;
       const git = old?.git as Record<string, unknown> | undefined;
+      const warnings = [...result.structuredContent.warnings];
+      const { safety, claims } = buildSnapshotSafety(
+        input.context.repoRoot,
+        agentId,
+        maxItems.value ?? SNAPSHOT_DEFAULT_MAX_ITEMS,
+        warnings,
+      );
+      const unsafe = safety.unclaimed_dirty_count > 0 || safety.staged_unclaimed_count > 0;
       const data = {
         repo: {
           root: input.context.repoRoot,
@@ -426,21 +561,22 @@ export function buildV1WorkspaceSnapshotTool(): McpToolDefinition {
           head: git?.head ?? null,
           dirty: git?.dirty ?? false,
         },
-        agent: { agent_id: (input.arguments?.agent_id as string | undefined) ?? null },
-        workspace_safety: {
-          unclaimed_dirty_count: 0,
-          staged_unclaimed_count: 0,
-          foreign_claimed_dirty_count: 0,
-          conflict_count: 0,
-        },
-        claims_summary: { owned: [], foreign: [], stale: [] },
+        agent: { agent_id: agentId },
+        workspace_safety: safety,
+        claims_summary: claims,
         run: old?.current_run ?? null,
         codegraph: old?.codegraph ?? null,
-        recommended_next_tools: [],
-        warnings: result.structuredContent.warnings,
+        recommended_next_tools: unsafe
+          ? ['vibecode_changes', 'vibecode_build_finish']
+          : ['vibecode_project_instructions', 'vibecode_changes'],
+        warnings,
         snapshot: old,
       };
-      return retag(result, TOOL_NAMES.workspaceSnapshot, data);
+      const retagged = retag(result, TOOL_NAMES.workspaceSnapshot, data);
+      return {
+        ...retagged,
+        structuredContent: { ...retagged.structuredContent, warnings: warnings.map((w) => sanitizeV1ToolNames(w) as string) },
+      };
     },
   };
 }
@@ -559,8 +695,8 @@ export function buildV1ChangesTool(): McpToolDefinition {
   };
 }
 
-export function buildV1CodeGraphSearchTool(): McpToolDefinition {
-  const legacy = buildCodeGraphSearchTool();
+export function buildV1CodeGraphSearchTool(deps: CodeGraphSearchToolDeps = {}): McpToolDefinition {
+  const legacy = buildCodeGraphSearchTool(deps);
   return {
     name: TOOL_NAMES.codegraphSearch,
     title: 'Vibecode CodeGraph search',
@@ -578,8 +714,8 @@ export function buildV1CodeGraphSearchTool(): McpToolDefinition {
   };
 }
 
-export function buildV1CodeGraphExploreTool(): McpToolDefinition {
-  const legacy = buildCodeGraphContextTool();
+export function buildV1CodeGraphExploreTool(deps: CodeGraphContextToolDeps = {}): McpToolDefinition {
+  const legacy = buildCodeGraphContextTool(deps);
   return {
     name: TOOL_NAMES.codegraphExplore,
     title: 'Vibecode CodeGraph explore',
@@ -601,8 +737,8 @@ export function buildV1CodeGraphExploreTool(): McpToolDefinition {
   };
 }
 
-export function buildV1CodeGraphCallersTool(): McpToolDefinition {
-  const legacy = buildCodeGraphCallersTool();
+export function buildV1CodeGraphCallersTool(deps: CodeGraphSymbolToolDeps = {}): McpToolDefinition {
+  const legacy = buildCodeGraphCallersTool(deps);
   return {
     name: TOOL_NAMES.codegraphCallers,
     title: 'Vibecode CodeGraph callers',
@@ -620,8 +756,8 @@ export function buildV1CodeGraphCallersTool(): McpToolDefinition {
   };
 }
 
-export function buildV1CodeGraphImpactTool(): McpToolDefinition {
-  const legacy = buildCodeGraphImpactTool();
+export function buildV1CodeGraphImpactTool(deps: CodeGraphSymbolToolDeps = {}): McpToolDefinition {
+  const legacy = buildCodeGraphImpactTool(deps);
   return {
     name: TOOL_NAMES.codegraphImpact,
     title: 'Vibecode CodeGraph impact',
@@ -658,6 +794,8 @@ export function buildV1BuildStartTool(): McpToolDefinition {
       if (!agentId.ok) return fail(input, TOOL_NAMES.buildStart, started, 'INVALID_ARGUMENT', agentId.message);
       const paths = validateStringArray(args.paths, 'paths');
       if (!paths.ok) return fail(input, TOOL_NAMES.buildStart, started, 'INVALID_ARGUMENT', paths.message);
+      const glob = findGlobPath(paths.value);
+      if (glob) return fail(input, TOOL_NAMES.buildStart, started, 'INVALID_ARGUMENT', `paths must be exact files, not glob patterns: ${glob}`);
       const dryRun = validateBoolean(args.dry_run, 'dry_run');
       if (!dryRun.ok) return fail(input, TOOL_NAMES.buildStart, started, 'INVALID_ARGUMENT', dryRun.message);
       try {
@@ -695,14 +833,14 @@ export function buildV1BuildStartTool(): McpToolDefinition {
           recommended_next_tools: ['vibecode_codegraph_explore', 'vibecode_changes'],
           result,
         };
-        return formatSimpleSuccess({
+        return sanitizeFormatted(formatSimpleSuccess({
           tool: TOOL_NAMES.buildStart,
           repoRoot: input.context.repoRoot,
           text: `# Vibecode build start\n\nstatus: ${result.status}\nintent_id: ${result.intent_id ?? '(none)'}`,
           data,
           warnings: result.warnings,
           durationMs: Date.now() - started,
-        });
+        }));
       } catch (err) {
         if (err instanceof CoordinationError) return fail(input, TOOL_NAMES.buildStart, started, coordCode(err, 'CLAIMS_ADD_BULK_FAILED'), err.message);
         return fail(input, TOOL_NAMES.buildStart, started, 'CLAIMS_ADD_BULK_FAILED', err instanceof Error ? err.message : String(err));
@@ -728,6 +866,8 @@ export function buildV1BuildScopeTool(): McpToolDefinition {
       if (!intentId.ok) return fail(input, TOOL_NAMES.buildScope, started, 'INVALID_ARGUMENT', intentId.message);
       const addPaths = args.add_paths === undefined || args.add_paths === null ? { ok: true as const, value: [] as string[] } : validateStringArray(args.add_paths, 'add_paths');
       if (!addPaths.ok) return fail(input, TOOL_NAMES.buildScope, started, 'INVALID_ARGUMENT', addPaths.message);
+      const globAdd = findGlobPath(addPaths.value);
+      if (globAdd) return fail(input, TOOL_NAMES.buildScope, started, 'INVALID_ARGUMENT', `add_paths must be exact files, not glob patterns: ${globAdd}`);
       const releasePaths = args.release_paths === undefined || args.release_paths === null ? { ok: true as const, value: [] as string[] } : validateStringArray(args.release_paths, 'release_paths');
       if (!releasePaths.ok) return fail(input, TOOL_NAMES.buildScope, started, 'INVALID_ARGUMENT', releasePaths.message);
       const dryRun = validateBoolean(args.dry_run, 'dry_run');
@@ -745,33 +885,39 @@ export function buildV1BuildScopeTool(): McpToolDefinition {
         const blocked: string[] = [];
         if (releasePaths.value.length > 0) {
           const changed = getGitChangedFiles(input.context.repoRoot);
+          // Fail-closed: when git state is unreadable, treat every requested
+          // release path as dirty so nothing is released blind.
           const dirty = new Set(changed.ok ? changed.files.map((file) => file.path) : releasePaths.value);
           const state = loadCoordinationState(input.context.repoRoot);
           const intent = state.intents.find((candidate) => candidate.intent_id === intentId.value);
           if (!intent) throw new CoordinationError('INTENT_NOT_FOUND', `No work intent found: ${intentId.value}`);
           if (intent.agent_id !== agentId.value) throw new CoordinationError('INTENT_FORBIDDEN', `Intent ${intentId.value} belongs to agent ${intent.agent_id}; only its owning agent may modify it.`);
           const releaseSet = new Set(releasePaths.value);
+          const releaseClaimIds = new Set<string>();
           for (const claim of state.claims) {
             if (claim.agent_id !== agentId.value || claim.status !== 'active') continue;
             if ((claim.metadata as Record<string, unknown> | undefined)?.intent_id !== intentId.value) continue;
             if (!releaseSet.has(claim.path)) continue;
-            if (dirty.has(claim.path)) blocked.push(claim.path);
-            else released.push(claim.path);
+            if (dirty.has(claim.path)) {
+              blocked.push(claim.path);
+            } else {
+              released.push(claim.path);
+              releaseClaimIds.add(claim.claim_id);
+            }
           }
-          if (blocked.length === 0 && dryRun.value !== true && released.length > 0) {
+          if (blocked.length === 0 && dryRun.value !== true && releaseClaimIds.size > 0) {
             const now = new Date().toISOString();
-            const releasePathSet = new Set(released);
             writeCoordinationState(input.context.repoRoot, {
               ...state,
               last_updated: now,
               claims: state.claims.map((claim) =>
-                releasePathSet.has(claim.path) && claim.agent_id === agentId.value
+                releaseClaimIds.has(claim.claim_id)
                   ? { ...claim, status: 'released' as const, released_at: now }
                   : claim,
               ),
               agents: state.agents.map((agent) =>
                 agent.agent_id === agentId.value
-                  ? { ...agent, claims: agent.claims.filter((claimId) => !state.claims.some((claim) => claim.claim_id === claimId && releasePathSet.has(claim.path))) }
+                  ? { ...agent, claims: agent.claims.filter((claimId) => !releaseClaimIds.has(claimId)) }
                   : agent,
               ),
             });
@@ -784,14 +930,14 @@ export function buildV1BuildScopeTool(): McpToolDefinition {
           blocked,
           warnings: added?.warnings ?? [],
         };
-        return formatSimpleSuccess({
+        return sanitizeFormatted(formatSimpleSuccess({
           tool: TOOL_NAMES.buildScope,
           repoRoot: input.context.repoRoot,
           text: `# Vibecode build scope\n\nintent_id: ${intentId.value}`,
           data,
           warnings: data.warnings,
           durationMs: Date.now() - started,
-        });
+        }));
       } catch (err) {
         if (err instanceof CoordinationError) return fail(input, TOOL_NAMES.buildScope, started, coordCode(err, 'CLAIMS_ADD_BULK_FAILED'), err.message);
         return fail(input, TOOL_NAMES.buildScope, started, 'CLAIMS_ADD_BULK_FAILED', err instanceof Error ? err.message : String(err));
@@ -815,22 +961,31 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
       if (!agentId.ok) return fail(input, TOOL_NAMES.buildFinish, started, 'INVALID_ARGUMENT', agentId.message);
       const releaseClean = validateBoolean(args.release_clean_claims, 'release_clean_claims');
       if (!releaseClean.ok) return fail(input, TOOL_NAMES.buildFinish, started, 'INVALID_ARGUMENT', releaseClean.message);
+      const includeGuard = validateBoolean(args.include_commit_guard_command, 'include_commit_guard_command');
+      if (!includeGuard.ok) return fail(input, TOOL_NAMES.buildFinish, started, 'INVALID_ARGUMENT', includeGuard.message);
       const finalize = getFinalizeCheck({ repoRoot: input.context.repoRoot, agent_id: agentId.value });
       if (!finalize.ok) return fail(input, TOOL_NAMES.buildFinish, started, 'INVALID_ARGUMENT', finalize.blocks[0]?.message ?? 'build finish failed');
       const ownedDirty = finalize.changed_files.filter((file) => file.classification === 'claimed_by_agent');
       const unclaimed = finalize.changed_files.filter((file) => file.classification === 'unclaimed');
       const foreign = finalize.changed_files.filter((file) => file.classification === 'claimed_by_other_active_agent');
       const stagedBlockers = finalize.changed_files.filter((file) => file.staged && file.classification !== 'claimed_by_agent');
+      const extraWarnings: string[] = [];
       let released: unknown = null;
-      if (releaseClean.value === true && typeof args.intent_id === 'string') {
-        released = releaseClaimIntent({
-          repoRoot: input.context.repoRoot,
-          agent_id: agentId.value,
-          intent_id: args.intent_id,
-          dry_run: false,
-        });
+      if (releaseClean.value === true) {
+        if (typeof args.intent_id === 'string' && args.intent_id.trim() !== '') {
+          released = releaseClaimIntent({
+            repoRoot: input.context.repoRoot,
+            agent_id: agentId.value,
+            intent_id: args.intent_id,
+            dry_run: false,
+          });
+        } else {
+          extraWarnings.push('RELEASE_SKIPPED_NO_INTENT: release_clean_claims=true requires intent_id; nothing was released.');
+        }
       }
-      const commitCommand = finalize.recommended_cli_commands.find((cmd) => cmd.includes('--message')) ?? null;
+      const commitCommand = includeGuard.value === false
+        ? null
+        : finalize.recommended_cli_commands.find((cmd) => cmd.includes('--message')) ?? null;
       const data = {
         status: finalize.status === 'blocked'
           ? 'blocked'
@@ -844,22 +999,23 @@ export function buildV1BuildFinishTool(): McpToolDefinition {
         staged_blockers: stagedBlockers,
         release_eligible_claims: [],
         commit_guard: {
-          allowed: finalize.status !== 'blocked' && commitCommand !== null,
+          allowed: finalize.status !== 'blocked' && ownedDirty.length > 0,
           command: commitCommand,
         },
-        warnings: finalize.warnings,
+        warnings: [...finalize.warnings, ...extraWarnings],
         blockers: finalize.blocks,
         recommended_next_tools: ['vibecode_handoff'],
         finalize,
         released,
       };
-      return formatSimpleSuccess({
+      return sanitizeFormatted(formatSimpleSuccess({
         tool: TOOL_NAMES.buildFinish,
         repoRoot: input.context.repoRoot,
         text: `# Vibecode build finish\n\nstatus: ${data.status}`,
         data,
+        warnings: extraWarnings,
         durationMs: Date.now() - started,
-      });
+      }));
     },
   };
 }

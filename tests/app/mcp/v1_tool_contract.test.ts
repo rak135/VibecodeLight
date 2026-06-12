@@ -98,16 +98,34 @@ describe('VibecodeMCP Tool Contract v1 public surface', () => {
     }
   });
 
-  test('old public MCP names fail as unsupported tools', async () => {
+  test('old public MCP names fail as unsupported tools across every tool category', async () => {
     const { handle, client } = await connectClient(repoRoot);
+    // One representative per removed category: session/bootstrap, heartbeat,
+    // claims, finalize, renamed CodeGraph, handoff, guidance, evidence, scan.
+    const representatives = [
+      'vibecode_session_bootstrap',
+      'vibecode_agent_heartbeat',
+      'vibecode_claims_add_bulk',
+      'vibecode_claim_add',
+      'vibecode_finalize_check',
+      'vibecode_codegraph_context',
+      'vibecode_handoff_prepare',
+      'vibecode_handoff_guide',
+      'vibecode_mcp_guidance',
+      'vibecode_evidence_scan',
+      'vibecode_scan_artifact_read',
+      'vibecode_tool_profile',
+    ];
     try {
-      const result = (await client.callTool({
-        name: 'vibecode_session_bootstrap',
-        arguments: {},
-      })) as { isError?: boolean; structuredContent?: { error?: { code?: string } } };
+      for (const name of representatives) {
+        const result = (await client.callTool({
+          name,
+          arguments: {},
+        })) as { isError?: boolean; structuredContent?: { error?: { code?: string } } };
 
-      expect(result.isError).toBe(true);
-      expect(result.structuredContent?.error?.code).toBe('UNSUPPORTED_TOOL');
+        expect(result.isError, `${name} must not be callable`).toBe(true);
+        expect(result.structuredContent?.error?.code, `${name} must fail structured`).toBe('UNSUPPORTED_TOOL');
+      }
     } finally {
       await client.close();
       await handle.close();

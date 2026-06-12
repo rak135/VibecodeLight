@@ -69,7 +69,8 @@ describe('prompt coordination binding (CLI)', () => {
 
     const content = fs.readFileSync(path.join(runDir, 'output', 'final_prompt.md'), 'utf8');
     expect(content).toMatch(/^# Multi-Agent Coordination$/m);
-    expect(content).toContain('vibecode_claim_add');
+    expect(content).toContain('vibecode_build_start');
+    expect(content).not.toContain('vibecode_claim_add');
 
     // The convenience mirror written by the real CLI --agent path must be a
     // byte-for-byte copy of the canonical run artifact (no hidden mutation,

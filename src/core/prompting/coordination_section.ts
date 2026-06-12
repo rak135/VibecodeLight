@@ -22,16 +22,15 @@ const MODE_LABELS = {
 
 function renderMcpTools(): string[] {
   return [
-    'You have MCP coordination tools. Use them in this order:',
-    '- Inspect current state first with vibecode_coordination_status or vibecode_agents_list.',
-    '- If you are not already registered, register with vibecode_agent_register.',
-    '- During long work, keep your session alive with vibecode_agent_heartbeat.',
-    '- Before editing a file, claim it with vibecode_claim_add; check a path with vibecode_claim_status and list claims with vibecode_claims_list.',
-    '- If vibecode_claim_add returns CLAIM_DENIED: do not edit the file. Inspect the blocking claims with vibecode_conflicts_list, then wait, choose another file, or retry as shared only if the existing claim is compatible.',
-    '- If stale claims block your work, run vibecode_claims_reap to release claims from dead agents.',
-    '- Before your final report, run vibecode_finalize_check (pass your agent_id, or run_id) to confirm every changed file is covered by your active claims; resolve any blocked or unclaimed file it reports.',
-    '- Review watcher evidence with vibecode_evidence_list, or record it for the current changes with vibecode_evidence_scan.',
-    '- Before your final report, list and release the claims you no longer need with vibecode_claim_release.',
+    'You have VibecodeMCP v1 tools. Use them in this order:',
+    '- Start or resume your session first with vibecode_session_start (mode=build for edits), then inspect the workspace with vibecode_workspace_snapshot.',
+    '- Before editing files, claim the exact paths with vibecode_build_start (no directories, no globs). If it reports denied/blocked paths: do not edit those files — wait, choose other files, or coordinate.',
+    '- If you discover more files to edit, extend your scope with vibecode_build_scope (same agent_id and intent_id).',
+    '- While working, review claim-aware changes with vibecode_changes.',
+    '- Before your final report, run vibecode_build_finish (pass your agent_id) to confirm every changed file is covered by your active claims; resolve any blocked or unclaimed file it reports.',
+    '- Watcher evidence is CLI-only: review it with vibecode evidence list --repo <path> --json, or record it for the current changes with vibecode evidence scan --repo <path> --json.',
+    '- Release clean claims you no longer need via vibecode_build_scope (release_paths) or vibecode_build_finish (release_clean_claims=true with your intent_id).',
+    '- For handoff visibility use vibecode_handoff; ownership never transfers automatically.',
   ];
 }
 
@@ -104,7 +103,7 @@ export function renderCoordinationSection(ctx: CoordinationPromptContext): strin
     '- Never use git add -A or broad git staging; let the commit guard stage only your claimed files.',
     '- Coordination is advisory. Finalize check and a scoped commit guard are available (claims-only; never broad git staging).',
     '- A live watcher may record advisory evidence while it runs, and you can record/list evidence manually (command/tool below). Watcher evidence is informational only — it never blocks, stages, or reverts. The finalize check and the scoped commit guard remain the enforcement path.',
-    '- Handoffs are not implemented yet. Do not invent handoff commands.',
+    '- Handoffs are visibility-only: ownership never transfers automatically, and a next agent must claim files itself.',
     '- Final report: Report which claims you created, retained, released, or could not obtain.',
     '',
   );

@@ -150,12 +150,14 @@ describe('agent guidance runtime', () => {
     }
   });
 
-  test('buildMcpServerInstructions is short and points agents to vibecode_mcp_guidance', () => {
+  test('buildMcpServerInstructions is short and recommends only v1 public tools', () => {
     const { appData, env } = makeAppData();
     try {
       const runtime = buildAgentGuidanceRuntime({ env, mcpTools: TOOLS });
       const instructions = buildMcpServerInstructions(runtime);
-      expect(instructions).toMatch(/vibecode_mcp_guidance/);
+      expect(instructions).not.toMatch(/vibecode_mcp_guidance/);
+      expect(instructions).toMatch(/vibecode_session_start/);
+      expect(instructions).toMatch(/vibecode_workspace_snapshot/);
       expect(instructions).toMatch(runtime.guidance_hash.slice(0, 12));
       expect(instructions.length).toBeLessThan(900);
       expect(instructions).not.toContain(runtime.general_guidance.trim());
