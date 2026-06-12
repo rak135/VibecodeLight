@@ -9,6 +9,7 @@ import { getGitChangedFiles } from '../../../core/workspace/git_changed_files.js
 import { classifyChangedPath } from '../../../core/coordination/path_classification.js';
 import { releaseClaimIntent } from '../../../core/coordination/intent_lifecycle.js';
 import { loadCoordinationState, writeCoordinationState } from '../../../core/coordination/state.js';
+import { LEGACY_TO_V1_TOOL_NAMES } from '../../../core/observability/mcp_tool_names.js';
 import { buildMcpError, type McpErrorCode } from '../errors.js';
 import { formatError, formatSimpleSuccess, type McpToolFormattedResult } from '../format.js';
 import {
@@ -59,48 +60,9 @@ const TOOL_NAMES = {
 
 const POSITIVE_INT: JsonSchema = { type: 'integer', minimum: 1 };
 
-const OLD_TO_V1_TOOL_NAMES: Readonly<Record<string, string>> = Object.freeze({
-  vibecode_session_bootstrap: TOOL_NAMES.sessionStart,
-  vibecode_agent_register: TOOL_NAMES.sessionStart,
-  vibecode_agent_heartbeat: TOOL_NAMES.sessionStart,
-  vibecode_agents_list: TOOL_NAMES.workspaceSnapshot,
-  vibecode_agent_status: TOOL_NAMES.workspaceSnapshot,
-  vibecode_workspace_info: TOOL_NAMES.workspaceSnapshot,
-  vibecode_workspace_status: TOOL_NAMES.workspaceSnapshot,
-  vibecode_coordination_status: TOOL_NAMES.workspaceSnapshot,
-  vibecode_team_status: TOOL_NAMES.workspaceSnapshot,
-  vibecode_tool_profile: TOOL_NAMES.workspaceSnapshot,
-  vibecode_mcp_guidance: TOOL_NAMES.projectInstructions,
-  vibecode_runs_list: TOOL_NAMES.runStatus,
-  vibecode_current_run: TOOL_NAMES.runStatus,
-  vibecode_run_get: TOOL_NAMES.runStatus,
-  vibecode_artifacts_list: TOOL_NAMES.runStatus,
-  vibecode_scan_summary: TOOL_NAMES.runStatus,
-  vibecode_scan_artifact_read: TOOL_NAMES.artifactRead,
-  vibecode_git_changes: TOOL_NAMES.changes,
-  vibecode_evidence_list: TOOL_NAMES.changes,
-  vibecode_evidence_scan: TOOL_NAMES.changes,
-  vibecode_codegraph_context: TOOL_NAMES.codegraphExplore,
-  vibecode_codegraph_files: TOOL_NAMES.codegraphExplore,
-  vibecode_codegraph_status: TOOL_NAMES.codegraphExplore,
-  vibecode_codegraph_usage: TOOL_NAMES.codegraphExplore,
-  vibecode_codegraph_callees: TOOL_NAMES.codegraphCallers,
-  vibecode_claim_add: TOOL_NAMES.buildStart,
-  vibecode_claims_plan: TOOL_NAMES.buildStart,
-  vibecode_claims_add_bulk: TOOL_NAMES.buildStart,
-  vibecode_claim_status: TOOL_NAMES.buildScope,
-  vibecode_claims_list: TOOL_NAMES.buildScope,
-  vibecode_claim_release: TOOL_NAMES.buildScope,
-  vibecode_claim_intents_list: TOOL_NAMES.buildScope,
-  vibecode_claim_intent_release: TOOL_NAMES.buildScope,
-  vibecode_claims_reap: TOOL_NAMES.buildScope,
-  vibecode_conflicts_list: TOOL_NAMES.workspaceSnapshot,
-  vibecode_conflict_detail: TOOL_NAMES.workspaceSnapshot,
-  vibecode_conflict_resolve: TOOL_NAMES.buildScope,
-  vibecode_finalize_check: TOOL_NAMES.buildFinish,
-  vibecode_handoff_prepare: TOOL_NAMES.handoff,
-  vibecode_handoff_guide: TOOL_NAMES.handoff,
-});
+// Single source of truth shared with the observability reader, so the
+// sanitizer below and the GUI normalizer can never drift.
+const OLD_TO_V1_TOOL_NAMES = LEGACY_TO_V1_TOOL_NAMES;
 
 // Trailing boundary so an old name never rewrites a longer unknown identifier.
 const OLD_TOOL_NAME_PATTERN = new RegExp(

@@ -401,6 +401,8 @@ export interface ActivityOverviewAgentIpc {
   mcp_error_count: number;
   claimed_path_count: number;
   dirty_claimed_path_count: number;
+  active_intent_id?: string;
+  active_intent_text?: string;
   ready_state:
     | 'read_only'
     | 'ready_to_claim'
@@ -431,12 +433,53 @@ export interface ActivityOverviewClaimIpc {
   age_seconds?: number;
 }
 
+export type ActivityTimelineEventKindIpc =
+  | 'mcp_tool_call'
+  | 'agent_started'
+  | 'agent_activity'
+  | 'claim_added'
+  | 'claim_released'
+  | 'build_started'
+  | 'build_finished'
+  | 'handoff_prepared'
+  | 'workspace_safety_changed';
+
+export type ActivityTimelineSeverityIpc = 'info' | 'success' | 'warning' | 'blocked' | 'error';
+
+export interface ActivityTimelineEventIpc {
+  timestamp: string;
+  kind: ActivityTimelineEventKindIpc;
+  agent_id?: string;
+  agent_label?: string;
+  intent_id?: string;
+  tool_name?: string;
+  ok?: boolean;
+  status?: string;
+  summary: string;
+  paths?: string[];
+  path_count?: number;
+  severity: ActivityTimelineSeverityIpc;
+}
+
+export interface ActivityOverviewDataQualityIpc {
+  usage_log: 'ok' | 'missing' | 'truncated';
+  malformed_line_count: number;
+  attributed_call_count: number;
+  unattributed_call_count: number;
+  legacy_tool_name_call_count: number;
+  coordination_state: 'ok' | 'unavailable';
+  stale_state_present: boolean;
+  git_classification: 'ok' | 'unavailable';
+}
+
 export interface ActivityOverviewIpc {
   generated_at: string;
   repo_root: string;
   agents: ActivityOverviewAgentIpc[];
+  agent_status_counts: { active: number; stale: number; terminated: number; unknown: number };
   recent_tool_calls: ActivityOverviewToolCallIpc[];
   claims: ActivityOverviewClaimIpc[];
+  timeline: ActivityTimelineEventIpc[];
   workspace_safety: {
     unclaimed_dirty_count: number;
     staged_unclaimed_count: number;
@@ -453,7 +496,8 @@ export interface ActivityOverviewIpc {
     stale_intent_count: number;
     housekeeping_commands: string[];
   };
-  totals: { agents: number; claims: number; tool_calls_in_window: number };
+  data_quality: ActivityOverviewDataQualityIpc;
+  totals: { agents: number; claims: number; tool_calls_in_window: number; timeline_events: number };
   warnings: ActivityOverviewNoticeIpc[];
 }
 

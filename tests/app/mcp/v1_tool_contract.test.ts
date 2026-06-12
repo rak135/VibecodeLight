@@ -13,6 +13,10 @@ import {
   MCP_TOOL_CONTRACTS,
   getMcpToolCatalog,
 } from '../../../src/app/mcp/tool_catalog.js';
+import {
+  LEGACY_TO_V1_TOOL_NAMES,
+  VIBECODE_V1_TOOL_NAMES,
+} from '../../../src/core/observability/mcp_tool_names.js';
 
 /**
  * VibecodeMCP Tool Contract v1.
@@ -82,6 +86,18 @@ describe('VibecodeMCP Tool Contract v1 public surface', () => {
     expect(V1_PUBLIC_TOOLS).toHaveLength(14);
     expect(new Set(V1_PUBLIC_TOOLS).size).toBe(V1_PUBLIC_TOOLS.length);
     expect(VIBECODE_MCP_TOOL_NAMES).toEqual(V1_PUBLIC_TOOLS);
+  });
+
+  test('core observability tool-name tables stay in lockstep with the v1 registry', () => {
+    // The observability overview normalizes historical usage-log rows with
+    // these shared tables; drift would let retired names reach the GUI.
+    expect([...VIBECODE_V1_TOOL_NAMES]).toEqual([...V1_PUBLIC_TOOLS]);
+    for (const v1Name of Object.values(LEGACY_TO_V1_TOOL_NAMES)) {
+      expect(V1_PUBLIC_TOOLS).toContain(v1Name);
+    }
+    for (const legacyName of Object.keys(LEGACY_TO_V1_TOOL_NAMES)) {
+      expect(V1_PUBLIC_TOOLS).not.toContain(legacyName);
+    }
   });
 
   test('tools/list returns exactly the 14 v1 public tools and no old public names', async () => {

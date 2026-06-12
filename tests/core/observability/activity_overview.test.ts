@@ -5,9 +5,11 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { registerAgent } from '../../../src/core/coordination/agents.js';
+import { markAgentTerminated, registerAgent } from '../../../src/core/coordination/agents.js';
 import { addBulkClaims } from '../../../src/core/coordination/bulk_claims.js';
 import {
+  ACTIVITY_OVERVIEW_MAX_AGENTS,
+  ACTIVITY_OVERVIEW_MAX_CLAIMS,
   ACTIVITY_OVERVIEW_MAX_RECENT_TOOL_CALLS,
   getActivityObservabilityOverview,
 } from '../../../src/core/observability/activity_overview.js';
@@ -296,6 +298,192 @@ describe('activity observability overview', () => {
       const before = fs.existsSync(path.join(repo.repoRoot, '.vibecode'));
       getActivityObservabilityOverview(repo.repoRoot);
       expect(fs.existsSync(path.join(repo.repoRoot, '.vibecode'))).toBe(before);
+    });
+  });
+
+  // Cockpit v2: the live UI showed oldest stale/terminated agents first while
+  // the caps silently dropped the newest entries, and historical log rows
+  // leaked pre-v1 tool names. These tests pin the corrected ordering,
+  // normalization, and the data-quality block the cockpit needs.
+  describe('cockpit ordering and per-status counts', () => {
+    beforeEach(() => {
+      repo = makePlainDir();
+    });
+
+    test('active agents sort before stale and terminated agents', () => {
+      const past = '2026-01-01T00:00:00.000Z';
+      registerAgent(
+        repo.repoRoot,
+        { agent_name: 'Old', agent_type: 'custom', metadata: { operating_mode: 'build', task: 't' } },
+        { agentId: 'agent-stale', now: past },
+      );
+      registerBuildAgent(repo.repoRoot, 'agent-term');
+      markAgentTerminated(repo.repoRoot, 'agent-term');
+      registerBuildAgent(repo.repoRoot, 'agent-live');
+
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.agents[0]?.agent_id).toBe('agent-live');
+      expect(overview.agents.map((a) => a.status)).toEqual(['active', 'stale', 'terminated']);
+      expect(overview.agent_status_counts).toEqual({ active: 1, stale: 1, terminated: 1, unknown: 0 });
+    });
+
+    test('agent cap keeps the most recently active agents, not the oldest', () => {
+      const total = ACTIVITY_OVERVIEW_MAX_AGENTS + 5;
+      const base = Date.parse('2026-01-01T00:00:00.000Z');
+      for (let i = 0; i < total; i++) {
+        registerAgent(
+          repo.repoRoot,
+          { agent_name: `A${i}`, agent_type: 'custom', metadata: { operating_mode: 'build', task: 't' } },
+          { agentId: `agent-${i}`, now: new Date(base + i * 60_000).toISOString() },
+        );
+      }
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.agents).toHaveLength(ACTIVITY_OVERVIEW_MAX_AGENTS);
+      expect(overview.totals.agents).toBe(total);
+      const shownIds = overview.agents.map((a) => a.agent_id);
+      expect(shownIds).toContain(`agent-${total - 1}`);
+      expect(shownIds).not.toContain('agent-0');
+      expect(overview.warnings.some((w) => w.code === 'AGENTS_TRUNCATED')).toBe(true);
+    });
+
+    test('recent MCP activity lifts an agent within its status group', () => {
+      const past = '2026-01-01T00:00:00.000Z';
+      const laterPast = '2026-01-01T01:00:00.000Z';
+      registerAgent(
+        repo.repoRoot,
+        { agent_name: 'QuietButNewer', agent_type: 'custom', metadata: { operating_mode: 'build', task: 't' } },
+        { agentId: 'agent-quiet', now: laterPast },
+      );
+      registerAgent(
+        repo.repoRoot,
+        { agent_name: 'OldButCalling', agent_type: 'custom', metadata: { operating_mode: 'build', task: 't' } },
+        { agentId: 'agent-caller', now: past },
+      );
+      // agent-caller's MCP call is more recent than agent-quiet's heartbeat.
+      writeUsageLog(repo.repoRoot, [
+        usageLine({ tool: 'vibecode_changes', agentId: 'agent-caller', timestamp: '2026-01-02T00:00:00.000Z' }),
+      ]);
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.agents[0]?.agent_id).toBe('agent-caller');
+    });
+  });
+
+  describe('cockpit claim ordering and active intent', () => {
+    beforeEach(() => {
+      repo = makeGitRepo();
+    });
+
+    test('active claims sort before stale claims, newest first', () => {
+      const past = '2026-01-01T00:00:00.000Z';
+      registerAgent(
+        repo.repoRoot,
+        { agent_name: 'Old', agent_type: 'custom', metadata: { operating_mode: 'build', task: 't' } },
+        { agentId: 'agent-old', now: past },
+      );
+      addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-old', paths: ['src/old.ts'], intent: 'old work', now: past });
+      registerBuildAgent(repo.repoRoot, 'agent-new');
+      addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-new', paths: ['src/new.ts'], intent: 'new work' });
+
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.claims[0]?.path).toBe('src/new.ts');
+      expect(overview.claims[0]?.status).not.toBe('stale');
+      expect(overview.claims[1]?.path).toBe('src/old.ts');
+      expect(overview.claims[1]?.status).toBe('stale');
+    });
+
+    test('claim cap keeps the newest claims and accurate totals', () => {
+      registerBuildAgent(repo.repoRoot, 'agent-a');
+      const older = Array.from({ length: ACTIVITY_OVERVIEW_MAX_CLAIMS / 2 + 1 }, (_, i) => `src/older/f${i}.ts`);
+      const newer = Array.from({ length: ACTIVITY_OVERVIEW_MAX_CLAIMS / 2 + 1 }, (_, i) => `src/newer/f${i}.ts`);
+      addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', paths: older, intent: 'older batch', now: '2026-06-12T09:00:00.000Z' });
+      addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', paths: newer, intent: 'newer batch', now: '2026-06-12T10:00:00.000Z' });
+
+      const overview = getActivityObservabilityOverview(repo.repoRoot, { now: '2026-06-12T10:01:00.000Z' });
+      expect(overview.claims).toHaveLength(ACTIVITY_OVERVIEW_MAX_CLAIMS);
+      expect(overview.totals.claims).toBe(older.length + newer.length);
+      const shownPaths = new Set(overview.claims.map((c) => c.path));
+      for (const p of newer) expect(shownPaths.has(p)).toBe(true);
+      expect(overview.warnings.some((w) => w.code === 'CLAIMS_TRUNCATED')).toBe(true);
+    });
+
+    test('agent entries expose their newest active intent for the cockpit card', () => {
+      registerBuildAgent(repo.repoRoot, 'agent-a');
+      addBulkClaims({ repoRoot: repo.repoRoot, agent_id: 'agent-a', paths: ['src/app.ts'], intent: 'refactor parser pipeline' });
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      const agent = overview.agents.find((a) => a.agent_id === 'agent-a');
+      expect(typeof agent?.active_intent_id).toBe('string');
+      expect(agent?.active_intent_text).toContain('refactor parser pipeline');
+    });
+  });
+
+  describe('legacy tool name normalization and data quality', () => {
+    beforeEach(() => {
+      repo = makePlainDir();
+    });
+
+    test('legacy pre-v1 tool names normalize to v1 names everywhere in the DTO', () => {
+      registerBuildAgent(repo.repoRoot, 'agent-a');
+      writeUsageLog(repo.repoRoot, [
+        usageLine({ tool: 'vibecode_workspace_info', agentId: 'agent-a', timestamp: '2026-06-12T10:00:00.000Z' }),
+        usageLine({ tool: 'vibecode_claims_add_bulk', agentId: 'agent-a', timestamp: '2026-06-12T10:01:00.000Z' }),
+      ]);
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.recent_tool_calls.map((c) => c.tool_name)).toEqual([
+        'vibecode_build_start',
+        'vibecode_workspace_snapshot',
+      ]);
+      const agent = overview.agents.find((a) => a.agent_id === 'agent-a');
+      expect(agent?.last_mcp_tool_name).toBe('vibecode_build_start');
+      const serialized = JSON.stringify(overview);
+      expect(serialized).not.toContain('vibecode_workspace_info');
+      expect(serialized).not.toContain('vibecode_claims_add_bulk');
+      expect(overview.data_quality.legacy_tool_name_call_count).toBe(2);
+    });
+
+    test('data quality reports a missing usage log and unavailable git', () => {
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.data_quality.usage_log).toBe('missing');
+      expect(overview.data_quality.git_classification).toBe('unavailable');
+      expect(overview.data_quality.coordination_state).toBe('ok');
+      expect(overview.data_quality.attributed_call_count).toBe(0);
+      expect(overview.data_quality.unattributed_call_count).toBe(0);
+    });
+
+    test('data quality counts attributed vs unattributed calls and malformed lines', () => {
+      registerBuildAgent(repo.repoRoot, 'agent-a');
+      writeUsageLog(repo.repoRoot, [
+        usageLine({ tool: 'vibecode_changes', agentId: 'agent-a' }),
+        usageLine({ tool: 'vibecode_changes', agentId: 'agent-a' }),
+        usageLine({ tool: 'vibecode_project_instructions' }),
+        'not json at all {{{',
+      ]);
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.data_quality.usage_log).toBe('ok');
+      expect(overview.data_quality.attributed_call_count).toBe(2);
+      expect(overview.data_quality.unattributed_call_count).toBe(1);
+      expect(overview.data_quality.malformed_line_count).toBe(1);
+    });
+
+    test('data quality reports a truncated usage log window', () => {
+      const lines: string[] = [];
+      // Enough rows to exceed the 512 KiB read window.
+      for (let i = 0; i < 2200; i++) {
+        lines.push(usageLine({ tool: 'vibecode_changes', agentId: 'agent-a' }));
+      }
+      writeUsageLog(repo.repoRoot, lines);
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.data_quality.usage_log).toBe('truncated');
+    });
+
+    test('data quality flags stale coordination state', () => {
+      const past = '2026-01-01T00:00:00.000Z';
+      registerAgent(
+        repo.repoRoot,
+        { agent_name: 'Old', agent_type: 'custom', metadata: { operating_mode: 'build', task: 't' } },
+        { agentId: 'agent-old', now: past },
+      );
+      const overview = getActivityObservabilityOverview(repo.repoRoot);
+      expect(overview.data_quality.stale_state_present).toBe(true);
     });
   });
 });
