@@ -20,6 +20,10 @@ import {
   buildV1SessionStartTool,
   buildV1WorkspaceSnapshotTool,
 } from '../../../src/app/mcp/tools/v1_contract.js';
+import {
+  MCP_TOOL_CONTRACTS,
+  getMcpToolCatalog,
+} from '../../../src/app/mcp/tool_catalog.js';
 import type { McpServerContext } from '../../../src/app/mcp/index.js';
 import { registerAgent } from '../../../src/core/coordination/agents.js';
 import { addBulkClaims } from '../../../src/core/coordination/bulk_claims.js';
@@ -790,6 +794,94 @@ describe('v1 codegraph literal-search boundary and freshness', () => {
       expect(data.codegraph?.literal_search).toMatch(/grep|rg/);
     } finally {
       repo.cleanup();
+    }
+  });
+
+  test('codegraph_search catalog important_fields do NOT include codegraph_stale', () => {
+    const contract = MCP_TOOL_CONTRACTS.vibecode_codegraph_search;
+    expect(contract).toBeTruthy();
+    const fields = contract.output_contract.important_fields ?? [];
+    expect(fields).not.toContain('codegraph_stale');
+    expect(fields).not.toContain('stale');
+  });
+
+  test('codegraph_search catalog important_fields reference actual data shape', () => {
+    const contract = MCP_TOOL_CONTRACTS.vibecode_codegraph_search;
+    const fields = contract.output_contract.important_fields ?? [];
+    expect(fields).toContain('data.parsed_json');
+    expect(fields).toContain('data.score_meta');
+    expect(fields).toContain('warnings');
+  });
+
+  test('codegraph_search catalog safety notes explicitly say NOT a literal grep replacement', () => {
+    const contract = MCP_TOOL_CONTRACTS.vibecode_codegraph_search;
+    const safetyText = contract.safety_notes.join(' ');
+    expect(safetyText).toMatch(/NOT.*literal|not.*literal/i);
+    expect(safetyText).toMatch(/grep|rg/);
+  });
+
+  test('codegraph_search catalog safety notes say freshness is in workspace_snapshot', () => {
+    const contract = MCP_TOOL_CONTRACTS.vibecode_codegraph_search;
+    const safetyText = contract.safety_notes.join(' ');
+    expect(safetyText).toMatch(/workspace_snapshot/i);
+    expect(safetyText).toMatch(/freshness|index_freshness/i);
+  });
+
+  test('codegraph_search output contains no stale field in structured data', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-v1-cgnostale-'));
+    fs.mkdirSync(path.join(repoRoot, '.codegraph'), { recursive: true });
+    try {
+      const FAKE_BINARY = { command: 'codegraph', source: 'PATH_FALLBACK' as const, configured: null };
+      const tool = buildV1CodeGraphSearchTool({
+        binary: FAKE_BINARY,
+        runner: () => ({
+          ok: true,
+          stdout: JSON.stringify([{ score: 0.9, node: { name: 'foo', kind: 'function', filePath: 'src/foo.ts' } }]),
+          stderr: '',
+          exitCode: 0,
+        }),
+      });
+      const result = await tool.handler({
+        context: { repoRoot },
+        arguments: { query: 'foo' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      const data = result.structuredContent.data as Record<string, unknown>;
+      expect(data).not.toHaveProperty('codegraph_stale');
+      expect(data).not.toHaveProperty('stale');
+      expect(data).toHaveProperty('parsed_json');
+      expect(data).toHaveProperty('score_meta');
+      const jsonStr = JSON.stringify(result.structuredContent);
+      expect(jsonStr).not.toMatch(/codegraph_stale/);
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('codegraph_search output contains no old MCP tool names', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibecode-v1-cgnames-'));
+    fs.mkdirSync(path.join(repoRoot, '.codegraph'), { recursive: true });
+    try {
+      const FAKE_BINARY = { command: 'codegraph', source: 'PATH_FALLBACK' as const, configured: null };
+      const tool = buildV1CodeGraphSearchTool({
+        binary: FAKE_BINARY,
+        runner: () => ({
+          ok: true,
+          stdout: JSON.stringify([{ score: 1.0, node: { name: 'bar' } }]),
+          stderr: '',
+          exitCode: 0,
+        }),
+      });
+      const result = await tool.handler({
+        context: { repoRoot },
+        arguments: { query: 'bar' },
+        requestId: null,
+      });
+      expect(result.isError).toBe(false);
+      expect(JSON.stringify(result.structuredContent)).not.toMatch(OLD_NAME_PATTERN);
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
     }
   });
 });

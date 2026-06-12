@@ -473,18 +473,45 @@ Read-only.
 ```json
 {
   "ok": true,
-  "results": [
-    {
-      "path": "src/core/agent_session/handoff.ts",
-      "symbol": "buildAgentHandoffPacket",
-      "kind": "function",
-      "rank": 1
+  "tool": "vibecode_codegraph_search",
+  "repo_root": "/path/to/repo",
+  "warnings": [],
+  "truncated": false,
+  "duration_ms": 120,
+  "data": {
+    "parsed_json": [
+      {
+        "score": 0.95,
+        "rank": 1,
+        "raw_score": 0.95,
+        "relative_score": 1.0,
+        "score_kind": "raw_upstream_rank_score",
+        "score_is_percentage": false,
+        "score_scope": "query_relative",
+        "node": {
+          "kind": "function",
+          "name": "buildAgentHandoffPacket",
+          "filePath": "src/core/agent_session/handoff.ts",
+          "startLine": 10,
+          "endLine": 25
+        }
+      }
+    ],
+    "score_meta": {
+      "score_kind": "raw_upstream_rank_score",
+      "score_is_percentage": false,
+      "score_scope": "query_relative",
+      "max_score": 0.95,
+      "note": "score is the upstream CodeGraph raw rank score: query-relative, not a percentage"
     }
-  ],
-  "codegraph_stale": false,
-  "warnings": []
+  }
 }
 ```
+
+> **Note:** This tool does NOT return freshness/staleness. For CodeGraph index
+> freshness, use `vibecode_workspace_snapshot` which reports
+> `codegraph.index_freshness` (an enum: `not_indexed` or `unknown`). For exact
+> literal search, use `grep` or `rg` instead.
 
 ### Side Effects
 
@@ -520,15 +547,17 @@ Read-only.
 ```json
 {
   "ok": true,
-  "summary": "...",
-  "key_files": [],
-  "key_symbols": [],
-  "relationships": [],
-  "suggested_reads": [],
-  "codegraph_stale": false,
-  "warnings": []
+  "tool": "vibecode_codegraph_explore",
+  "repo_root": "/path/to/repo",
+  "warnings": [],
+  "truncated": false,
+  "duration_ms": 200
 }
 ```
+
+> **Note:** CodeGraph explore returns bounded markdown text context, not
+> structured fields like `summary` or `key_files`. For index freshness, use
+> `vibecode_workspace_snapshot`.
 
 ### Side Effects
 

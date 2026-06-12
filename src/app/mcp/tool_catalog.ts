@@ -192,12 +192,16 @@ export const MCP_TOOL_CONTRACTS: Readonly<Record<string, McpToolContractMetadata
   ),
   vibecode_codegraph_search: contract(
     'CodeGraph search',
-    'Find indexed symbols, files, and code entities.',
+    'Find indexed symbols, files, and code entities through the CodeGraph index. Not a literal text search — use grep/rg for exact strings, error messages, constants, and config keys. The index may lag edits made after the last index.',
     'read_only',
-    ['results', 'codegraph_stale', 'warnings'],
+    ['data.parsed_json', 'data.score_meta', 'warnings'],
     {
       cli: ['vibecode codegraph search "<query>" --json'],
-      safety: [READ_ONLY, 'Indexed symbol/file/structural search only — not a guaranteed literal grep replacement; use grep/rg for exact strings.'],
+      safety: [
+        READ_ONLY,
+        'Indexed symbol/file/structural search only — NOT a literal grep replacement. Use grep/rg for exact strings, error messages, constants, and config keys.',
+        'Index may lag edits made after the last CodeGraph index. For freshness status, use vibecode_workspace_snapshot (codegraph.index_freshness).',
+      ],
       source: ['src/app/mcp/tools/v1_contract.ts', 'src/app/mcp/tools/codegraph_search.ts'],
       tests: ['tests/app/mcp/v1_tool_contract.test.ts', 'tests/app/mcp/codegraph_tools.test.ts'],
     },
